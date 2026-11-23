@@ -10,7 +10,7 @@ import (
 )
 
 func dirPath(d Dir) []map[string]any {
-	var out []map[string]any
+	out := []map[string]any{}
 	for n := 0; d.ID != 0 && n < 10; n++ {
 		out = append([]map[string]any{{"id": d.ID, "name": d.Name}}, out...)
 		if d.Parent == 0 {

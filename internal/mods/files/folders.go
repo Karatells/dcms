@@ -21,7 +21,7 @@ func rootFolder(uid int64) Folder {
 }
 
 func folderPath(f Folder) []map[string]any {
-	var out []map[string]any
+	out := []map[string]any{}
 	for n := 0; n < 8; n++ {
 		out = append([]map[string]any{{"id": f.ID, "name": f.Name}}, out...)
 		if f.Parent == 0 {

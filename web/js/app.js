@@ -22,8 +22,27 @@ bus.on('user', applyTheme);
 // ── каркас
 const app = $('#app');
 const sideEl = h('aside.side');
+const scrimEl = h('div.nav-scrim', { onclick: closeNav });
 const view = h('main#view');
 const topCounters = {};
+
+function closeNav() { document.body.classList.remove('nav-open'); }
+function toggleNav() { document.body.classList.toggle('nav-open'); }
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNav(); });
+{
+  let sx = 0, sy = 0, swiping = false;
+  document.addEventListener('touchstart', e => {
+    if (!document.body.classList.contains('nav-open') || e.touches.length !== 1) return;
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; swiping = true;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (!swiping || !e.changedTouches.length) return;
+    swiping = false;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (dx < -45 && Math.abs(dx) > Math.abs(dy)) closeNav();
+  }, { passive: true });
+}
 
 function counterBadge(key, cls = 'dot') { const v = state.counters[key]; return v ? h('span.' + cls, v) : null; }
 function topButton(href, ic, key, title) {
@@ -69,14 +88,17 @@ async function drawSide() {
       mk('/user/money', 'coins', 'Монеты'), mk('/user/settings', 'settings', 'Настройки')));
     if (can('adm_panel_show')) parts.push(h('nav.nav', mk('/admin', 'shield', 'Администрирование', 'admin')));
   }
-  sideEl.replaceChildren(...parts);
+  const head = h('div.side-head',
+    h('a.logo', { href: '/' }, h('span.logo-mark', icon('message-circle', 18)), h('span', state.config.site_name || 'DCMS Social')),
+    h('button.icon-btn', { onclick: closeNav, 'aria-label': 'Закрыть меню', title: 'Закрыть' }, icon('x', 20)));
+  sideEl.replaceChildren(head, h('div.side-body', ...parts));
   markActive();
 }
 function markActive() {
   const p = location.pathname;
   sideEl.querySelectorAll('a').forEach(a => { const hr = a.getAttribute('href'); a.classList.toggle('active', hr === p || (hr !== '/' && p.startsWith(hr.replace(/\/$/, '') + '/'))); });
   $$tab();
-  document.body.classList.remove('nav-open');
+  closeNav();
 }
 function $$tab() { document.querySelectorAll('.tabbar a').forEach(a => { const hr = a.getAttribute('href'); a.classList.toggle('active', hr === location.pathname || (hr !== '/' && location.pathname.startsWith(hr))); }); }
 
@@ -89,8 +111,9 @@ function drawTabbar() {
 
 function build() {
   app.replaceChildren(
-    h('header.topbar', h('button.icon-btn.burger', { onclick: () => document.body.classList.toggle('nav-open'), 'aria-label': 'Меню' }, icon('menu', 22)),
+    h('header.topbar', h('button.icon-btn.burger', { onclick: toggleNav, 'aria-label': 'Меню' }, icon('menu', 22)),
       h('a.logo', { href: '/' }, h('span.logo-mark', icon('message-circle', 18)), h('span#sitename', state.config.site_name || 'DCMS Social')), h('div.top-actions')),
+    scrimEl,
     h('div.shell', sideEl, view), h('div.footer', h('span', (state.config.site_name || 'DCMS Social') + ' © ' + new Date().getFullYear())), h('nav.tabbar'));
 }
 

@@ -77,11 +77,21 @@ img { max-width: 100%; }
 main#view { min-width: 0; display: flex; flex-direction: column; gap: var(--gap); }
 .footer { text-align: center; color: var(--muted); font-size: .82rem; padding: 14px; }
 .burger { display: none; }
+.side-head { display: none; }
+.nav-scrim { display: none; }
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; padding-top: 12px; }
-  .side { position: fixed; z-index: 60; inset: var(--top) auto 0 0; width: min(300px, 86vw); max-height: none; background: var(--bg); padding: 12px; transform: translateX(-105%); transition: transform .22s ease; box-shadow: var(--shadow-l); }
+  body.nav-open { overflow: hidden; }
+  .nav-scrim { display: block; position: fixed; inset: 0; z-index: 55; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity .22s ease; }
+  body.nav-open .nav-scrim { opacity: 1; pointer-events: auto; }
+  .side { position: fixed; z-index: 65; top: 0; left: 0; bottom: 0; height: 100vh; height: 100dvh; width: min(300px, 84vw); max-height: none; display: flex; flex-direction: column; background: var(--bg); border-right: 1px solid var(--border-s); padding: 0; transform: translateX(-105%); transition: transform .22s ease; box-shadow: var(--shadow-l); overflow: hidden; }
+  .side-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px 8px 14px; min-height: var(--top); background: var(--bg-card); border-bottom: 1px solid var(--border-s); flex: none; }
+  .side-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 10px 10px calc(28px + env(safe-area-inset-bottom)); }
+  .side .nav { padding: 6px; }
+  .side .nav + .nav { margin-top: 10px; }
+  .side .nav-title { padding: 6px 10px 3px; }
+  .side .nav a { padding: 7px 10px; gap: 10px; font-size: .94rem; }
   body.nav-open .side { transform: none; }
-  body.nav-open::after { content: ""; position: fixed; inset: var(--top) 0 0 0; background: var(--scrim); z-index: 50; }
   .burger { display: grid; }
 }
 .tabbar { display: none; }

@@ -31,7 +31,8 @@ async function renderDir(ctx, id) {
   const reload = () => router.render();
   const d = await api.get('/api/obmen/dir/' + id, { page: ctx.page, sort: ctx.query.sort });
   ctx.title(id ? 'Обменник — ' + d.name : 'Файловый обменник');
-  const path = [{ href: '/obmen', title: 'Обменник' }, ...d.path.map((p, k) => k < d.path.length - 1 ? { href: '/obmen/dir/' + p.id, title: p.name } : { title: p.name })];
+  const pList = Array.isArray(d.path) ? d.path : [];
+  const path = [{ href: '/obmen', title: 'Обменник' }, ...pList.map((p, k) => k < pList.length - 1 ? { href: '/obmen/dir/' + p.id, title: p.name } : { title: p.name })];
   if (!id) path.pop(), path.push({ title: 'Обменник' });
   const out = [ui.breadcrumbs(path), ui.pageHead(id ? d.name : 'Файловый обменник', h('div.row', ui.btn('Поиск', { ic: 'search', small: true, href: '/obmen/search' }),
     me() && d.upload ? ui.btn('Добавить файл', { ic: 'upload', kind: 'primary', small: true, href: `/user/personalfiles/${me().id}/0/upload?obmen_dir=${id}` }) : null))];
