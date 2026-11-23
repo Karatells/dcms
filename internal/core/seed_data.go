@@ -378,6 +378,7 @@ var seedMenu = []struct {
 	{10, "link", "Блоги", "/plugins/notes/", "plugins/notes/count.php", 8, "book-open"},
 	{12, "link", "Знакомства", "/user/love/", "/user/love/count.php", 3, "account-heart"},
 	{15, "link", "Клипы", "/shorts/", "shorts/count.php", 4, "video"},
+	{16, "link", "Сообщества", "/groups/", "groups/count.php", 5, "account-multiple"},
 	{13, "link", "Информация", "/plugins/rules/", "", 12, "information"},
 	{14, "link", "Пользователи", "/user/users/", "/user/users/count.php", 11, "account-multiple"},
 }

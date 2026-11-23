@@ -34,16 +34,21 @@ func (a *App) seed() {
 			a.T.Menu.Insert(&model.Menu{Base: baseID(m.ID), Type: m.Type, Name: m.Name, Url: m.URL, Counter: m.Counter, Pos: m.Pos, Icon: m.Icon})
 		}
 	} else {
-		// Миграция меню для уже существующих БД: добавляем «Клипы», если пункта ещё нет
-		hasShorts := false
+		// Миграция меню для уже существующих БД: добавляем «Клипы» и «Сообщества», если их ещё нет
+		hasShorts, hasGroups := false, false
 		for _, m := range a.T.Menu.All() {
 			if m.Url == "/shorts/" || m.Url == "/shorts" {
 				hasShorts = true
-				break
+			}
+			if m.Url == "/groups/" || m.Url == "/groups" {
+				hasGroups = true
 			}
 		}
 		if !hasShorts {
 			a.T.Menu.Insert(&model.Menu{Type: "link", Name: "Клипы", Url: "/shorts/", Counter: "shorts/count.php", Pos: 4, Icon: "video"})
+		}
+		if !hasGroups {
+			a.T.Menu.Insert(&model.Menu{Type: "link", Name: "Сообщества", Url: "/groups/", Counter: "groups/count.php", Pos: 5, Icon: "account-multiple"})
 		}
 	}
 	if a.T.SettingsMenu.Len() == 0 {
