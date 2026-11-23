@@ -86,7 +86,15 @@ func registerPosts(a *core.App) {
 		var cit, replyTo int64
 		var uploads []*core.Upload
 		if strings.HasPrefix(c.R.Header.Get("Content-Type"), "multipart/") {
-			if uploads, err = c.FormFiles("files", maxForumFile, 5); err != nil {
+			fMB := int64(a.Cfg.Int("max_upload_forum_mb"))
+			if fMB <= 0 {
+				fMB = maxForumFile >> 20
+			}
+			fCnt := a.Cfg.Int("max_upload_forum_count")
+			if fCnt <= 0 {
+				fCnt = 5
+			}
+			if uploads, err = c.FormFiles("files", fMB<<20, fCnt); err != nil {
 				return err
 			}
 			for _, u := range uploads {

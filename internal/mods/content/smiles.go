@@ -143,7 +143,11 @@ func registerSmiles(a *core.App) {
 		var okN, bad int
 		var errs []string
 		for k := 0; k < forms; k++ {
-			up, err := c.FormFile("file_"+itoa(k), 2<<20)
+			sMB := int64(a.Cfg.Int("max_upload_smile_mb"))
+			if sMB <= 0 {
+				sMB = 2
+			}
+			up, err := c.FormFile("file_"+itoa(k), sMB<<20)
 			if err != nil {
 				return err
 			}

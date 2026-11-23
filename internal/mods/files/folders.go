@@ -239,9 +239,13 @@ func registerFolders(a *core.App) {
 			}
 			target = d
 		}
+		globalMB := int64(a.Cfg.Int("max_upload_file_mb"))
+		if globalMB <= 0 {
+			globalMB = 100
+		}
 		maxSize := target.MaxSize
-		if maxSize <= 0 {
-			maxSize = 100 << 20
+		if maxSize <= 0 || maxSize > globalMB<<20 {
+			maxSize = globalMB << 20
 		}
 		up, err := c.FormFile("file", maxSize)
 		if err != nil {
@@ -283,7 +287,11 @@ func registerFolders(a *core.App) {
 			return core.ErrBad("Ошибка при выгрузке")
 		}
 		// скриншот
-		if sc, err := c.FormFile("screen", 8<<20); err == nil && sc != nil {
+		scrMB := int64(a.Cfg.Int("max_upload_screen_mb"))
+		if scrMB <= 0 {
+			scrMB = 8
+		}
+		if sc, err := c.FormFile("screen", scrMB<<20); err == nil && sc != nil {
 			if th, _, err := core.Thumb(sc.Data, 320, 320, false); err == nil {
 				if core.WriteFile(screenPath(a, f.ID), th) == nil {
 					files.Update(f.ID, func(x *File) { x.Screen = true })

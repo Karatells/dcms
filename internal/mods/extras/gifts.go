@@ -299,7 +299,11 @@ func registerGifts(a *core.App) {
 		if err := adm(c); err != nil {
 			return err
 		}
-		up, err := c.FormFile("gift", 2<<20)
+		gMB := int64(a.Cfg.Int("max_upload_gift_mb"))
+		if gMB <= 0 {
+			gMB = 2
+		}
+		up, err := c.FormFile("gift", gMB<<20)
 		if err != nil {
 			return err
 		}

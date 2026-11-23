@@ -20,7 +20,11 @@ func extOf(format string) string {
 
 // savePhoto — проверка и сохранение загруженного изображения.
 func savePhoto(a *core.App, c *core.Ctx, g Gallery, name, opis string, metka bool, makeAvatar bool) (Foto, error) {
-	up, err := c.FormFile("file", 12<<20)
+	maxMB := int64(a.Cfg.Int("max_upload_foto_mb"))
+	if maxMB <= 0 {
+		maxMB = 12
+	}
+	up, err := c.FormFile("file", maxMB<<20)
 	if err != nil {
 		return Foto{}, err
 	}

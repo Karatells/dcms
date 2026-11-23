@@ -24,6 +24,7 @@ const BUILTIN = [
   { group: 'Модерация', title: 'Бан по IP', href: '/admin/ban-ip', access: 'adm_ban_ip', icon: 'globe', desc: 'Блокировка диапазонов адресов' },
   { group: 'Модерация', title: 'Массовое удаление', href: '/admin/mass-delete', access: 'user_mass_delete', icon: 'trash', desc: 'Удалить давно не заходивших пользователей' },
   { group: 'Система', title: 'Системные настройки', href: '/admin/settings/sys', access: 'adm_set_sys', icon: 'settings', desc: 'Название, оформление, защита, почта' },
+  { group: 'Система', title: 'Лимиты загрузок', href: '/admin/settings/uploads', access: 'adm_set_sys', icon: 'upload', desc: 'Макс. размеры фото, файлов, клипов, форума' },
   { group: 'Система', title: 'Пользователи: настройки', href: '/admin/settings/user', access: 'adm_set_user', icon: 'users', desc: 'Регистрация, гости, статусы' },
   { group: 'Система', title: 'BBCode', href: '/admin/settings/bbcode', access: 'adm_set_sys', icon: 'edit', desc: 'Какие теги разрешены' },
   { group: 'Система', title: 'Главное меню', href: '/admin/menu', access: 'adm_menu', icon: 'menu', desc: 'Разделы и ссылки на главной' },

@@ -17,6 +17,9 @@ var Defaults = map[string]string{
 	"echo_rassh_forum": "0", "echo_rassh": "1", "show_num_post": "1", "show_away": "0",
 	"write_guest": "0", "obmen_limit_up": "50", "downloads_select": "0", "st": "1",
 	"max_upload_foto_x": "2024", "max_upload_foto_y": "2024",
+	"max_upload_foto_mb": "12", "max_upload_file_mb": "100", "max_upload_screen_mb": "8",
+	"max_upload_forum_mb": "10", "max_upload_forum_count": "5",
+	"max_upload_gift_mb": "2", "max_upload_smile_mb": "2",
 	"guest_select": "0", "reg_select": "open", // open | close | open_mail (с активацией по почте)
 	"loads_new_file_hour": "24", "antidos": "1", "antimat": "1",
 	"bb_i": "1", "bb_u": "1", "bb_b": "1", "bb_big": "1", "bb_small": "1", "bb_code": "1",

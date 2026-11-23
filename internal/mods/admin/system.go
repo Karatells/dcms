@@ -57,6 +57,20 @@ var (
 			{Key: "set_show_icon", Label: "Иконки в списках по умолчанию", Type: "bool"},
 			{Key: "time_chat", Label: "Автообновление чата, сек", Type: "int", Min: 0, Max: 900},
 		}},
+		"uploads": {"Лимиты загрузок", "adm_set_sys", []field{
+			{Key: "max_upload_foto_mb", Label: "Фотографии и аватары: макс. размер (МБ)", Type: "int", Min: 1, Max: 200},
+			{Key: "max_upload_foto_x", Label: "Фотографии: макс. ширина (px)", Type: "int", Min: 200, Max: 10000},
+			{Key: "max_upload_foto_y", Label: "Фотографии: макс. высота (px)", Type: "int", Min: 200, Max: 10000},
+			{Key: "max_upload_file_mb", Label: "Обменник и личные файлы: макс. размер (МБ)", Type: "int", Min: 1, Max: 2048},
+			{Key: "max_upload_screen_mb", Label: "Скриншоты к файлам: макс. размер (МБ)", Type: "int", Min: 1, Max: 50},
+			{Key: "max_upload_forum_mb", Label: "Форум (вложения): макс. размер файла (МБ)", Type: "int", Min: 1, Max: 200},
+			{Key: "max_upload_forum_count", Label: "Форум: макс. файлов в одном сообщении", Type: "int", Min: 1, Max: 20},
+			{Key: "shorts_max_mb", Label: "Клипы (видео): макс. размер исходника (МБ)", Type: "int", Min: 5, Max: 1024},
+			{Key: "shorts_max_sec", Label: "Клипы: макс. длительность (сек)", Type: "int", Min: 5, Max: 180},
+			{Key: "shorts_crf", Label: "Клипы: степень сжатия ffmpeg CRF (18–35, больше = меньше размер)", Type: "int", Min: 18, Max: 35},
+			{Key: "max_upload_gift_mb", Label: "Подарки: макс. размер картинки (МБ)", Type: "int", Min: 1, Max: 20},
+			{Key: "max_upload_smile_mb", Label: "Смайлы: макс. размер картинки (МБ)", Type: "int", Min: 1, Max: 20},
+		}},
 		"bbcode": {"BBCode", "adm_set_sys", func() []field {
 			var f []field
 			for _, k := range [][2]string{{"i", "[i] курсив"}, {"u", "[u] подчёркнутый"}, {"b", "[b] жирный"}, {"big", "[big] крупный"}, {"small", "[small] мелкий"},
