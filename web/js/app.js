@@ -109,10 +109,18 @@ function drawTabbar() {
   $$tab();
 }
 
+function siteInitial() {
+  const s = (state.config.site_name || 'DCMS Social').trim();
+  return (Array.from(s)[0] || 'D').toUpperCase();
+}
+
 function build() {
   app.replaceChildren(
     h('header.topbar', h('button.icon-btn.burger', { onclick: toggleNav, 'aria-label': 'Меню' }, icon('menu', 22)),
-      h('a.logo', { href: '/' }, h('span.logo-mark', icon('message-circle', 18)), h('span#sitename', state.config.site_name || 'DCMS Social')), h('div.top-actions')),
+      h('a.logo', { href: '/', title: state.config.site_name || 'DCMS Social' },
+        h('span.logo-mark', h('span.logo-ic', icon('message-circle', 18)), h('span.logo-ch#sitechar', siteInitial())),
+        h('span#sitename', state.config.site_name || 'DCMS Social')),
+      h('div.top-actions')),
     scrimEl,
     h('div.shell', sideEl, view), h('div.footer', h('span', (state.config.site_name || 'DCMS Social') + ' © ' + new Date().getFullYear())), h('nav.tabbar'));
 }
@@ -122,6 +130,7 @@ async function refreshAll() {
   state.menu = m;
   applyTheme(); drawTop(); drawTabbar(); await drawSide();
   const sn = $('#sitename'); sn && (sn.textContent = state.config.site_name || 'DCMS Social');
+  const sc = $('#sitechar'); sc && (sc.textContent = siteInitial());
 }
 bus.on('user', () => { refreshAll(); events.restart(); });
 bus.on('counters', () => { drawTop(); drawSide(); drawTabbar(); });
