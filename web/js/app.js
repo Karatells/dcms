@@ -137,7 +137,7 @@ bus.on('counters', () => { drawTop(); drawSide(); drawTabbar(); });
 bus.on('route', () => { markActive(); });
 bus.on('sse:counters', () => refreshCounters());
 bus.on('sse:notify', d => { refreshCounters(); ui.toast('🔔 ' + (d.from ? d.from.nick + ': ' : '') + (notifyTitle[d.type] || 'новое уведомление'), 'info'); });
-const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип' };
+const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип', group_invite: 'приглашает вас в сообщество', group_req: 'подал заявку в ваше сообщество', group_req_ok: 'одобрил вашу заявку в сообщество' };
 setInterval(() => { if (state.user && document.visibilityState === 'visible') refreshCounters(); }, 60000);
 
 // ── старт

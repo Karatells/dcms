@@ -14,7 +14,7 @@ func registerSettings(a *core.App) {
 		return c.JSON(map[string]any{
 			"add_konts": u.AddKonts, "set_time_chat": u.SetTimeChat, "set_news_to_mail": u.SetNewsToMail, "set_timesdvig": u.SetTimesdvig,
 			"show_url": u.ShowURL, "abuld": u.Abuld, "set_files": u.SetFiles, "set_p_str": u.SetPStr, "theme": u.Theme, "accent": u.Accent,
-			"privat_str": us.PrivatStr, "privat_mail": us.PrivatMail, "ocenka": us.Ocenka, "email": u.Email, "has_email": u.Email != "",
+			"privat_str": us.PrivatStr, "privat_mail": us.PrivatMail, "ocenka": us.Ocenka, "block_group_invites": us.BlockGroupInvites, "email": u.Email, "has_email": u.Email != "",
 		})
 	}, core.Auth)
 
@@ -85,9 +85,10 @@ func registerSettings(a *core.App) {
 	a.PUT("/api/settings/privacy", func(c *core.Ctx) error {
 		u, _ := c.Need()
 		var in struct {
-			PrivatStr  int64  `json:"privat_str"`
-			PrivatMail int64  `json:"privat_mail"`
-			Ocenka     *int64 `json:"ocenka"`
+			PrivatStr         int64  `json:"privat_str"`
+			PrivatMail        int64  `json:"privat_mail"`
+			Ocenka            *int64 `json:"ocenka"`
+			BlockGroupInvites *bool  `json:"block_group_invites"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -100,6 +101,9 @@ func registerSettings(a *core.App) {
 			x.PrivatStr, x.PrivatMail = in.PrivatStr, in.PrivatMail
 			if in.Ocenka != nil && *in.Ocenka >= 0 && *in.Ocenka <= 2 {
 				x.Ocenka = *in.Ocenka
+			}
+			if in.BlockGroupInvites != nil {
+				x.BlockGroupInvites = *in.BlockGroupInvites
 			}
 		})
 		return c.OK("message", "Изменения успешно приняты")

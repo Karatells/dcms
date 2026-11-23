@@ -29,6 +29,7 @@ type Group struct {
 	EnableChat  bool   `json:"enable_chat"`
 	EnableFiles bool   `json:"enable_files"`
 	OpenBlog    bool   `json:"open_blog"` // могут ли обычные участники публиковать посты в блог
+	Private     bool   `json:"private"`   // приватное сообщество (вступление по одобрению или ссылке)
 }
 
 // GroupMember — участник сообщества и его роль / права модератора по разделам.
@@ -204,23 +205,35 @@ func groupCard(a *core.App, g Group, viewer *model.User) map[string]any {
 	if g.BannerExt != "" {
 		ban = "/api/groups/" + i(g.ID) + "/banner?v=" + i(g.Time)
 	}
+	pendingReq := false
+	if viewer != nil && !p.IsMember {
+		_, pendingReq = requestsT.OneBy("pair", store.Key(g.ID, viewer.ID))
+	}
+	reqCnt := 0
+	if p.Manage {
+		reqCnt = requestsT.CountBy("group", i(g.ID))
+	}
 	return map[string]any{
-		"id":           g.ID,
-		"name":         g.Name,
-		"opis":         g.Opis,
-		"opis_html":    a.Text.Render(g.Opis),
-		"category":     g.Category,
-		"time":         g.Time,
-		"creator":      a.Ref(g.IDCreator),
-		"avatar":       ava,
-		"banner":       ban,
-		"members":      membersT.CountBy("group", i(g.ID)),
-		"enable_blog":  g.EnableBlog,
-		"enable_forum": g.EnableForum,
-		"enable_chat":  g.EnableChat,
-		"enable_files": g.EnableFiles,
-		"open_blog":    g.OpenBlog,
-		"perms":        p,
+		"id":              g.ID,
+		"name":            g.Name,
+		"opis":            g.Opis,
+		"opis_html":       a.Text.Render(g.Opis),
+		"category":        g.Category,
+		"time":            g.Time,
+		"creator":         a.Ref(g.IDCreator),
+		"avatar":          ava,
+		"banner":          ban,
+		"members":         membersT.CountBy("group", i(g.ID)),
+		"enable_blog":     g.EnableBlog,
+		"enable_forum":    g.EnableForum,
+		"enable_chat":     g.EnableChat,
+		"enable_files":    g.EnableFiles,
+		"open_blog":       g.OpenBlog,
+		"private":         g.Private,
+		"can_view":        canViewGroup(viewer, g),
+		"pending_request": pendingReq,
+		"requests_count":  reqCnt,
+		"perms":           p,
 	}
 }
 
@@ -245,6 +258,9 @@ func deleteGroupAll(a *core.App, g Group) {
 	tpostsT.DeleteBy("group", i(g.ID))
 	chatT.DeleteBy("group", i(g.ID))
 	membersT.DeleteBy("group", i(g.ID))
+	requestsT.DeleteBy("group", i(g.ID))
+	linksT.DeleteBy("group", i(g.ID))
+	invitesT.DeleteBy("group", i(g.ID))
 	groupsT.Delete(g.ID)
 }
 
@@ -304,6 +320,8 @@ func Register(a *core.App) {
 			deleteGroupAll(a, g)
 		}
 		membersT.DeleteBy("user", i(uid))
+		requestsT.DeleteBy("user", i(uid))
+		invitesT.DeleteBy("to", i(uid))
 	})
 
 	// ── Список сообществ (все / мои / по пользователю / поиск)
@@ -383,6 +401,7 @@ func Register(a *core.App) {
 			EnableForum *bool  `json:"enable_forum"`
 			EnableChat  *bool  `json:"enable_chat"`
 			EnableFiles *bool  `json:"enable_files"`
+			Private     bool   `json:"private"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -411,6 +430,7 @@ func Register(a *core.App) {
 			EnableForum: bVal(in.EnableForum),
 			EnableChat:  bVal(in.EnableChat),
 			EnableFiles: bVal(in.EnableFiles),
+			Private:     in.Private,
 		}
 		id := groupsT.Insert(&g)
 		membersT.Insert(&GroupMember{IDGroup: id, IDUser: me.ID, Role: "creator", Time: now})
@@ -456,6 +476,7 @@ func Register(a *core.App) {
 			EnableChat  bool   `json:"enable_chat"`
 			EnableFiles bool   `json:"enable_files"`
 			OpenBlog    bool   `json:"open_blog"`
+			Private     bool   `json:"private"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -474,7 +495,7 @@ func Register(a *core.App) {
 		}
 		upd, _ := groupsT.Update(g.ID, func(x *Group) {
 			x.Name, x.Opis, x.Category = name, opis, cat
-			x.EnableBlog, x.EnableForum, x.EnableChat, x.EnableFiles, x.OpenBlog = in.EnableBlog, in.EnableForum, in.EnableChat, in.EnableFiles, in.OpenBlog
+			x.EnableBlog, x.EnableForum, x.EnableChat, x.EnableFiles, x.OpenBlog, x.Private = in.EnableBlog, in.EnableForum, in.EnableChat, in.EnableFiles, in.OpenBlog, in.Private
 		})
 		return c.JSON(groupCard(a, upd, me))
 	}, core.Auth)
@@ -559,7 +580,7 @@ func Register(a *core.App) {
 		return c.ServeFile(bannerPath(a, g.ID, g.BannerExt), "", "image/jpeg")
 	})
 
-	// ── Вступить / выйти
+	// ── Вступить / подать заявку / выйти
 	a.POST("/api/groups/{id}/join", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
@@ -569,9 +590,21 @@ func Register(a *core.App) {
 		if !ok {
 			return core.ErrNotFound("Сообщество не найдено")
 		}
-		if _, exists := memberOf(g.ID, me.ID); !exists {
-			membersT.Insert(&GroupMember{IDGroup: g.ID, IDUser: me.ID, Role: "member", Time: core.Now()})
+		if _, exists := memberOf(g.ID, me.ID); exists {
+			return c.OK("members", membersT.CountBy("group", i(g.ID)))
 		}
+		if g.Private {
+			if _, hasReq := requestsT.OneBy("pair", store.Key(g.ID, me.ID)); !hasReq {
+				requestsT.Insert(&GroupRequest{IDGroup: g.ID, IDUser: me.ID, Time: core.Now()})
+				for _, m := range membersT.By("group", i(g.ID)) {
+					if m.Role == "creator" || m.Role == "admin" {
+						a.Notify(me.ID, m.IDUser, "group_req", g.ID, false)
+					}
+				}
+			}
+			return c.OK("pending", true)
+		}
+		membersT.Insert(&GroupMember{IDGroup: g.ID, IDUser: me.ID, Role: "member", Time: core.Now()})
 		return c.OK("members", membersT.CountBy("group", i(g.ID)))
 	}, core.Auth)
 
@@ -587,6 +620,9 @@ func Register(a *core.App) {
 		if g.IDCreator == me.ID {
 			return core.ErrBad("Создатель не может покинуть своё сообщество")
 		}
+		if req, ok := requestsT.OneBy("pair", store.Key(g.ID, me.ID)); ok {
+			requestsT.Delete(req.ID)
+		}
 		if m, exists := memberOf(g.ID, me.ID); exists {
 			membersT.Delete(m.ID)
 		}
@@ -598,6 +634,9 @@ func Register(a *core.App) {
 		g, ok := groupsT.Get(c.PathInt("id"))
 		if !ok {
 			return core.ErrNotFound("Сообщество не найдено")
+		}
+		if !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
 		}
 		p := c.Page(30)
 		all := membersT.By("group", i(g.ID))
@@ -721,5 +760,6 @@ func Register(a *core.App) {
 		return c.OK()
 	}, core.Auth)
 
+	registerInvites(a)
 	registerSections(a)
 }

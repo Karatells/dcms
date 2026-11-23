@@ -33,6 +33,7 @@ function openCreateGroupModal() {
   const cForum = h('input', { type: 'checkbox', checked: true });
   const cChat = h('input', { type: 'checkbox', checked: true });
   const cFiles = h('input', { type: 'checkbox', checked: true });
+  const cPriv = h('input', { type: 'checkbox' });
   const err = h('div.form-err');
 
   const modal = ui.modal({
@@ -41,6 +42,7 @@ function openCreateGroupModal() {
       h('div.field', h('label', 'Название'), name),
       h('div.field', h('label', 'Тематика'), cat),
       h('div.field', h('label', 'Описание'), opis),
+      h('label.check', cPriv, ' Приватное сообщество (вступление по одобрению или уникальной ссылке)'),
       h('div.field', h('label', 'Включённые разделы'),
         h('div.checks',
           h('label.check', cBlog, ' Блог'),
@@ -55,7 +57,7 @@ function openCreateGroupModal() {
         onclick: () => {
           err.textContent = '';
           api.post('/api/groups', {
-            name: name.value, category: cat.value, opis: opis.value,
+            name: name.value, category: cat.value, opis: opis.value, private: cPriv.checked,
             enable_blog: cBlog.checked, enable_forum: cForum.checked, enable_chat: cChat.checked, enable_files: cFiles.checked,
           }).then(r => { modal.close(); ui.ok('Сообщество создано'); router.go('/groups/' + r.id); })
             .catch(e => { err.textContent = e.message || 'Ошибка'; });
@@ -65,6 +67,58 @@ function openCreateGroupModal() {
     ],
   });
 }
+
+// ───────── пригласить друга в сообщество
+async function openInviteFriendModal(g) {
+  const box = h('div.stack-s', ui.loading());
+  ui.modal({ title: `Пригласить друга · ${g.name}`, body: box, actions: [{ label: 'Закрыть' }] });
+  try {
+    const d = await api.get(`/api/groups/${g.id}/invitable-friends`);
+    if (!d.items || !d.items.length) {
+      box.replaceChildren(ui.empty('Нет доступных друзей для приглашения (возможно, они уже в сообществе или запретили приглашения)', 'users'));
+      return;
+    }
+    box.replaceChildren(...d.items.map(it => {
+      const btn = ui.btn('Пригласить', {
+        ic: 'user-plus', small: true, kind: 'primary',
+        onclick: async () => {
+          btn.disabled = true;
+          try {
+            await api.post(`/api/groups/${g.id}/invite`, { user_id: it.user.id });
+            btn.textContent = 'Отправлено ✓';
+            ui.ok(`Приглашение отправлено ${it.user.nick}`);
+          } catch { btn.disabled = false; }
+        },
+      });
+      return h('div.list-item', ui.avatar(it.user, 36), h('div.main', ui.userLink(it.user)), btn);
+    }));
+  } catch {
+    box.replaceChildren(ui.empty('Не удалось загрузить список друзей', 'users'));
+  }
+}
+
+// ───────── автовступление по уникальной ссылке /groups/join/:token
+router.add('/groups/join/:token', async ctx => {
+  const tok = ctx.params.token;
+  ctx.title('Приглашение в сообщество');
+  const d = await api.get('/api/group-join/' + encodeURIComponent(tok));
+  const g = d.group;
+  if (me()) {
+    const r = await api.post('/api/group-join/' + encodeURIComponent(tok));
+    ui.ok(r.already ? 'Вы уже состоите в этом сообществе' : `Вы вступили в «${g.name}»`);
+    router.go('/groups/' + r.group_id);
+    return ui.loading();
+  }
+  return [
+    ui.pageHead('Приглашение в сообщество'),
+    h('div.card.pad.stack',
+      h('div.row', h('div.grp-ava-sm', g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
+        h('div.main', h('h2', g.name), h('div.small.muted', g.category, ' · участников: ', fmt.num(g.members)))),
+      g.opis_html ? h('div.text', { html: g.opis_html }) : null,
+      h('div.muted', 'Войдите или зарегистрируйтесь, чтобы автоматически вступить в это сообщество по ссылке.'),
+      h('div.row', ui.btn('Войти', { kind: 'primary', href: '/login' }), ui.btn('Регистрация', { href: '/reg' }))),
+  ];
+});
 
 // ───────── каталог сообществ /groups
 router.add('/groups', async ctx => {
@@ -82,7 +136,9 @@ router.add('/groups', async ctx => {
   const list = d.items.map(g => h('a.list-item', { href: '/groups/' + g.id },
     h('div.grp-ava-sm', g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
     h('div.main',
-      h('div.title', g.name, h('span.badge', { style: { marginLeft: '8px' } }, g.category)),
+      h('div.title', g.name,
+        g.private ? h('span.badge.warn', { style: { marginLeft: '6px' } }, icon('lock', 11), ' Приватное') : null,
+        h('span.badge', { style: { marginLeft: '6px' } }, g.category)),
       g.opis ? h('div.small.muted.clip', g.opis) : null,
       h('div.small.muted', `Участников: ${fmt.num(g.members)}`)),
     g.perms && g.perms.is_member ? h('span.badge.primary', 'Вы участник') : null));
@@ -117,28 +173,52 @@ router.add('/groups/:id', async ctx => {
     : p.is_creator ? h('span.badge.danger', 'Создатель')
       : p.is_member
         ? ui.btn('Выйти', { small: true, onclick: async () => { await api.post(`/api/groups/${id}/leave`); ui.ok('Вы покинули сообщество'); reload(); } })
-        : ui.btn('Вступить', { ic: 'plus', kind: 'primary', small: true, onclick: async () => { await api.post(`/api/groups/${id}/join`); ui.ok('Вы вступили в сообщество'); reload(); } });
+        : g.pending_request
+          ? ui.btn('Отменить заявку', { small: true, onclick: async () => { await api.post(`/api/groups/${id}/leave`); ui.ok('Заявка отменена'); reload(); } })
+          : ui.btn(g.private ? 'Подать заявку' : 'Вступить', {
+            ic: g.private ? 'lock' : 'plus', kind: 'primary', small: true,
+            onclick: async () => {
+              const r = await api.post(`/api/groups/${id}/join`);
+              ui.ok(r.pending ? 'Заявка отправлена администрации сообщества' : 'Вы вступили в сообщество');
+              reload();
+            },
+          });
+
+  const inviteBtn = me() && p.is_member ? ui.btn('Пригласить друга', { ic: 'user-plus', small: true, onclick: () => openInviteFriendModal(g) }) : null;
 
   const headerCard = h('div.card.grp-head',
     banner,
     h('div.grp-main',
       h('div.grp-ava', g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
       h('div.grp-info',
-        h('h1', g.name),
+        h('h1', g.name, g.private ? h('span.badge.warn', { style: { marginLeft: '8px', verticalAlign: 'middle' } }, icon('lock', 12), ' Приватное') : null),
         h('div.small.muted', g.category, ' · участников: ', fmt.num(g.members), ' · создатель: ', ui.userLink(g.creator))),
-      h('div.grp-actions', joinBtn)),
+      h('div.grp-actions', inviteBtn, joinBtn)),
     g.opis_html ? h('div.grp-opis.text', { html: g.opis_html }) : null);
+
+  if (!g.can_view) {
+    return [
+      ui.breadcrumbs([{ href: '/groups', title: 'Сообщества' }, { title: g.name }]),
+      headerCard,
+      ui.card(ui.empty(
+        g.pending_request ? 'Ваша заявка на вступление рассматривается администрацией' : 'Это приватное сообщество. Подайте заявку или воспользуйтесь ссылкой-приглашением, чтобы открыть разделы.',
+        'lock'
+      )),
+    ];
+  }
 
   const tiles = [];
   if (g.enable_blog) tiles.push({ title: 'Блог', icon: 'book', href: `/groups/${id}/blog`, count: g.counts.blog });
   if (g.enable_forum) tiles.push({ title: 'Форум', icon: 'forum', href: `/groups/${id}/forum`, count: g.counts.forum });
   if (g.enable_chat) tiles.push({ title: 'Чат', icon: 'message-circle', href: `/groups/${id}/chat`, count: g.counts.chat });
   if (g.enable_files) tiles.push({ title: 'Файлы', icon: 'folder', href: `/groups/${id}/files`, count: g.counts.files });
-  tiles.push({ title: 'Участники', icon: 'users', href: `/groups/${id}/members`, count: g.members });
+  tiles.push({ title: 'Участники', icon: 'users', href: `/groups/${id}/members`, count: g.members, badge: g.requests_count > 0 ? `+${g.requests_count}` : null });
   if (p.manage) tiles.push({ title: 'Настройки', icon: 'settings', href: `/groups/${id}/settings`, count: null });
 
   const grid = h('div.grid-links', tiles.map(t =>
-    h('a.ptile', { href: t.href }, icon(t.icon, 22), h('div.t', t.title), t.count != null ? h('div.c', fmt.num(t.count)) : null)));
+    h('a.ptile', { href: t.href }, icon(t.icon, 22), h('div.t', t.title),
+      t.badge ? h('span.badge.danger', t.badge) : null,
+      t.count != null ? h('div.c', fmt.num(t.count)) : null)));
 
   const out = [
     ui.breadcrumbs([{ href: '/groups', title: 'Сообщества' }, { title: g.name }]),
@@ -464,9 +544,23 @@ router.add('/groups/:id/members', async ctx => {
     });
   };
 
+  let reqBlock = null;
+  if (p.manage) {
+    const rq = await api.get(`/api/groups/${id}/requests`).catch(() => ({ items: [] }));
+    if (rq.items && rq.items.length) {
+      reqBlock = ui.section(`Заявки на вступление (${rq.items.length})`, h('div.list', rq.items.map(r => h('div.list-item',
+        ui.avatar(r.user, 40),
+        h('div.main', ui.userLink(r.user), h('div.small.muted', 'подал заявку ', fmt.ago(r.time))),
+        h('span.row',
+          ui.btn('Принять', { ic: 'check', kind: 'primary', small: true, onclick: async () => { await api.post(`/api/groups/${id}/requests/${r.user.id}/approve`); ui.ok('Заявка одобрена'); reload(); } }),
+          ui.btn('Отклонить', { ic: 'x', small: true, kind: 'danger', onclick: async () => { await api.post(`/api/groups/${id}/requests/${r.user.id}/reject`); ui.ok('Заявка отклонена'); reload(); } }))))));
+    }
+  }
+
   return [
     grpCrumbs(g, { title: 'Участники' }),
     ui.pageHead(`Участники · ${g.name}`),
+    reqBlock,
     ui.card(d.items.length ? h('div.list', d.items.map(m => h('div.list-item',
       ui.avatar(m.user, 40),
       h('div.main', ui.userLink(m.user), roleBadges(m)),
@@ -493,8 +587,34 @@ router.add('/groups/:id/settings', async ctx => {
   const cChat = h('input', { type: 'checkbox', checked: g.enable_chat });
   const cFiles = h('input', { type: 'checkbox', checked: g.enable_files });
   const cOpenBlog = h('input', { type: 'checkbox', checked: g.open_blog });
+  const cPriv = h('input', { type: 'checkbox', checked: !!g.private });
   const avaIn = h('input', { type: 'file', accept: 'image/*' });
   const banIn = h('input', { type: 'file', accept: 'image/*' });
+
+  // Ссылки для автовступления
+  const linksData = await api.get(`/api/groups/${id}/links`).catch(() => ({ items: [] }));
+  const linkNote = h('input.input', { placeholder: 'Пометка (необязательно)', maxlength: 64 });
+  const linkMax = h('input.input', { type: 'number', min: 0, value: 0, style: { width: '110px' } });
+  const linkExp = h('select.input',
+    h('option', { value: 0 }, 'Бессрочная'),
+    h('option', { value: 1 }, '1 час'),
+    h('option', { value: 24 }, '24 часа'),
+    h('option', { value: 168 }, '7 дней'),
+    h('option', { value: 720 }, '30 дней'));
+
+  const linksList = (linksData.items || []).map(l => {
+    const url = `${location.origin}/groups/join/${l.token}`;
+    const limText = l.max_uses > 0 ? `${l.uses} / ${l.max_uses}` : `${l.uses} / ∞`;
+    const expText = l.expires_at > 0 ? 'до ' + fmt.datetime(l.expires_at) : 'бессрочная';
+    return h('div.list-item',
+      h('div.main',
+        h('div.title', l.note || 'Ссылка-приглашение',
+          l.active ? h('span.badge.ok', { style: { marginLeft: '6px' } }, 'Активна') : h('span.badge.danger', { style: { marginLeft: '6px' } }, l.expired ? 'Истекла' : 'Исчерпана')),
+        h('div.small.muted.clip', url),
+        h('div.small.muted', `Вступлений: ${limText} · ${expText}`)),
+      ui.btn('', { ic: 'copy', small: true, title: 'Скопировать ссылку', onclick: () => navigator.clipboard?.writeText(url).then(() => ui.ok('Ссылка скопирована')) }),
+      ui.btn('', { ic: 'trash', small: true, kind: 'danger', title: 'Удалить', onclick: async () => { await api.del('/api/group-link/' + l.id); ui.ok('Ссылка удалена'); reload(); } }));
+  });
 
   return [
     grpCrumbs(g, { title: 'Настройки' }),
@@ -504,6 +624,7 @@ router.add('/groups/:id/settings', async ctx => {
       h('div.field', h('label', 'Название'), name),
       h('div.field', h('label', 'Тематика'), cat),
       h('div.field', h('label', 'Описание'), opis),
+      h('label.check', cPriv, ' Приватное сообщество (вступление по одобрению или уникальной ссылке)'),
       h('div.field', h('label', 'Разделы сообщества'),
         h('div.checks',
           h('label.check', cBlog, ' Блог'),
@@ -515,12 +636,27 @@ router.add('/groups/:id/settings', async ctx => {
         ic: 'check', kind: 'primary',
         onclick: async () => {
           await api.put('/api/groups/' + id, {
-            name: name.value, category: cat.value, opis: opis.value,
+            name: name.value, category: cat.value, opis: opis.value, private: cPriv.checked,
             enable_blog: cBlog.checked, enable_forum: cForum.checked, enable_chat: cChat.checked, enable_files: cFiles.checked, open_blog: cOpenBlog.checked,
           });
           ui.ok('Настройки сохранены'); reload();
         },
       })),
+    h('div.card.pad.stack',
+      h('h3', 'Ссылки для автовступления'),
+      h('div.small.muted', 'Переходя по такой ссылке, пользователь автоматически принимается в сообщество без ожидания одобрения.'),
+      h('div.row',
+        h('div.field', h('label', 'Пометка'), linkNote),
+        h('div.field', { style: { flex: '0 0 auto' } }, h('label', 'Лимит (0 = ∞)'), linkMax),
+        h('div.field', { style: { flex: '0 0 150px' } }, h('label', 'Срок действия'), linkExp)),
+      ui.btn('Создать ссылку', {
+        ic: 'link', kind: 'primary', small: true,
+        onclick: async () => {
+          await api.post(`/api/groups/${id}/links`, { note: linkNote.value, max_uses: +linkMax.value || 0, expires_hours: +linkExp.value || 0 });
+          ui.ok('Ссылка создана'); reload();
+        },
+      }),
+      linksList.length ? h('div.list', ...linksList) : h('div.small.muted', 'Активных ссылок пока нет')),
     h('div.card.pad.stack',
       h('h3', 'Оформление (аватарка и баннер)'),
       h('div.row', h('div.field', h('label', 'Аватарка сообщества'), avaIn),

@@ -74,16 +74,42 @@ const NOTIF_TEXT = {
   del_frend: a => `к сожалению удалил${verb(a, '', 'а')} вас из списка друзей`, no_frend: a => `к сожалению отказал${verb(a, '', 'а')} вам в дружбе`,
   ok_frend: a => `стал${verb(a, '', 'а')} вашим другом`, otm_frend: a => `отменил${verb(a, '', 'а')} свою заявку в друзья`,
   user_rating: a => `оценил${verb(a, '', 'а')} вашу анкету`,
+  group_invite: a => `приглашает вас вступить в сообщество`,
+  group_req: a => `подал${verb(a, '', 'а')} заявку на вступление в ваше сообщество`,
+  group_req_ok: a => `одобрил${verb(a, '', 'а')} вашу заявку на вступление в сообщество`,
 };
 router.add('/user/notification', async ctx => {
   ctx.title('Уведомления');
   const reload = () => router.render();
   const data = await api.get('/api/notification', { page: ctx.page });
   refreshCounters();
-  const rows = data.items.map(n => h('article.feed-item' + (n.read ? '' : '.unread'), ui.avatar(n.author, 42), h('div.main',
-    h('div.feed-head', ui.userLink(n.author), ' ', h('span.muted', (NOTIF_TEXT[n.type] || (() => 'уведомление'))(n.author)), h('span.grow'), ui.time(n.time)),
-    n.link ? h('a.feed-desc', { href: n.link }, h('div', h('div.title', n.desc?.title || 'Перейти'), n.desc?.text ? h('div.small.muted', n.desc.text) : null)) : null),
-    ui.btn('', { ic: 'x', small: true, title: 'Удалить', onclick: async () => { await api.del('/api/notification/' + n.id); reload(); } })));
+  const rows = data.items.map(n => {
+    const inv = n.type === 'group_invite' && n.desc?.extra?.pending ? n.desc.extra : null;
+    const invActs = inv ? h('div.row', { style: { marginTop: '8px' } },
+      ui.btn('Принять приглашение', {
+        ic: 'check', kind: 'primary', small: true,
+        onclick: async () => {
+          const r = await api.post(`/api/group-invite/${inv.invite_id}/accept`);
+          await api.del('/api/notification/' + n.id).catch(() => {});
+          ui.ok('Вы вступили в сообщество');
+          router.go('/groups/' + r.group_id);
+        },
+      }),
+      ui.btn('Отклонить', {
+        ic: 'x', small: true,
+        onclick: async () => {
+          await api.post(`/api/group-invite/${inv.invite_id}/decline`);
+          await api.del('/api/notification/' + n.id).catch(() => {});
+          ui.ok('Приглашение отклонено');
+          reload();
+        },
+      })) : null;
+    return h('article.feed-item' + (n.read ? '' : '.unread'), ui.avatar(n.author, 42), h('div.main',
+      h('div.feed-head', ui.userLink(n.author), ' ', h('span.muted', (NOTIF_TEXT[n.type] || (() => 'уведомление'))(n.author)), h('span.grow'), ui.time(n.time)),
+      n.link ? h('a.feed-desc', { href: n.link }, h('div', h('div.title', n.desc?.title || 'Перейти'), n.desc?.text ? h('div.small.muted', n.desc.text) : null)) : null,
+      invActs),
+      ui.btn('', { ic: 'x', small: true, title: 'Удалить', onclick: async () => { await api.del('/api/notification/' + n.id); reload(); } }));
+  });
   return [ui.pageHead('Уведомления', ui.btn('', { ic: 'settings', href: '/user/notification/settings', title: 'Настройки' }),
     data.total ? ui.btn('Очистить', { ic: 'trash', onclick: async () => { if (await ui.confirm('Удалить все уведомления?', { danger: true })) { await api.del('/api/notification'); reload(); } } }) : null),
     feedTabs('notif'), ui.card(rows.length ? h('div.list', rows) : ui.empty('Уведомлений нет', 'bell')), ui.pager(data)];

@@ -138,7 +138,8 @@ router.add('/user/settings/privacy', async ctx => {
     { name: 'privat_str', label: 'Кто видит мою страницу', type: 'select', value: s.privat_str, options: opts },
     { name: 'privat_mail', label: 'Кто может писать мне личные сообщения', type: 'select', value: s.privat_mail, options: opts },
     { name: 'ocenka', label: 'Кто может оценивать мой профиль', type: 'select', value: s.ocenka, options: opts },
-  ], { onSubmit: async v => { await api.put('/api/settings/privacy', { privat_str: +v.privat_str, privat_mail: +v.privat_mail, ocenka: +v.ocenka }); ui.ok('Изменения успешно приняты'); } });
+    { name: 'block_group_invites', label: 'Запретить приглашения в сообщества', type: 'checkbox', value: !!s.block_group_invites },
+  ], { onSubmit: async v => { await api.put('/api/settings/privacy', { privat_str: +v.privat_str, privat_mail: +v.privat_mail, ocenka: +v.ocenka, block_group_invites: !!v.block_group_invites }); ui.ok('Изменения успешно приняты'); } });
   return [ui.pageHead('Настройки'), setTabs('privacy'), ui.card(h('div.pad', form))];
 }, { auth: true });
 

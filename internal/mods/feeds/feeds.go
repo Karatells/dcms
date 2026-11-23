@@ -271,12 +271,17 @@ var notifDescribe = map[string]string{
 	"files_komm": "obmen", "obmen_komm": "obmen", "news_komm": "news", "status_komm": "status",
 	"foto_komm": "foto", "notes_komm": "notes", "them_komm": "them", "stena_komm2": "stena",
 	"shorts_komm": "shorts", "shorts_like": "shorts",
+	"group_invite": "group_invite", "group_req": "group", "group_req_ok": "group",
 }
 
 func notifLink(a *core.App, me int64, n model.Notification) (string, map[string]any) {
 	if dt, ok := notifDescribe[n.Type]; ok {
 		if d, ok := a.Describe(dt, n.IDObject); ok {
-			return d.Link, map[string]any{"title": d.Title, "text": d.Text, "image": d.Image}
+			m := map[string]any{"title": d.Title, "text": d.Text, "image": d.Image}
+			if d.Extra != nil {
+				m["extra"] = d.Extra
+			}
+			return d.Link, m
 		}
 		return "", nil
 	}

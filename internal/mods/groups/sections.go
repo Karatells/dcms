@@ -21,6 +21,9 @@ func registerSections(a *core.App) {
 		if !g.EnableBlog {
 			return core.ErrForbidden("Раздел «Блог» отключён в этом сообществе")
 		}
+		if !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
+		}
 		me := c.User()
 		pr := permsOf(me, g)
 		p := c.Page(15)
@@ -253,6 +256,9 @@ func registerSections(a *core.App) {
 		if !g.EnableForum {
 			return core.ErrForbidden("Раздел «Форум» отключён в этом сообществе")
 		}
+		if !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
+		}
 		ensureDefaultSub(g.ID)
 		me := c.User()
 		pr := permsOf(me, g)
@@ -343,6 +349,9 @@ func registerSections(a *core.App) {
 		}
 		if !g.EnableForum {
 			return core.ErrForbidden("Раздел «Форум» отключён в этом сообществе")
+		}
+		if !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
 		}
 		me := c.User()
 		pr := permsOf(me, g)
@@ -438,6 +447,9 @@ func registerSections(a *core.App) {
 			return core.ErrNotFound("Тема не найдена")
 		}
 		g, _ := groupsT.Get(t.IDGroup)
+		if !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
+		}
 		me := c.User()
 		pr := permsOf(me, g)
 		p := c.Page(20)
@@ -573,6 +585,9 @@ func registerSections(a *core.App) {
 		if !g.EnableChat {
 			return core.ErrForbidden("Раздел «Чат» отключён в этом сообществе")
 		}
+		if !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
+		}
 		me := c.User()
 		pr := permsOf(me, g)
 		list, total := chatT.Select(store.Opts[GroupChat]{Index: "group", Key: i(g.ID), Desc: true, Limit: 60})
@@ -645,6 +660,9 @@ func registerSections(a *core.App) {
 		}
 		if !g.EnableFiles {
 			return core.ErrForbidden("Раздел «Файлы» отключён в этом сообществе")
+		}
+		if !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
 		}
 		me := c.User()
 		pr := permsOf(me, g)
@@ -719,6 +737,9 @@ func registerSections(a *core.App) {
 		f, ok := filesT.Get(c.PathInt("fid"))
 		if !ok {
 			return core.ErrNotFound("Файл не найден")
+		}
+		if g, ok := groupsT.Get(f.IDGroup); ok && !canViewGroup(c.User(), g) {
+			return core.ErrForbidden("Это закрытое сообщество")
 		}
 		filesT.Update(f.ID, func(x *GroupFile) { x.Loads++ })
 		dlName := f.Name

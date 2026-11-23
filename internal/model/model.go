@@ -286,10 +286,11 @@ type UserLog struct {
 // UserSet — таблица `user_set` старого движка.
 type UserSet struct {
 	store.Base
-	IDUser     int64 `json:"id_user"`
-	PrivatStr  int64 `json:"privat_str"`
-	PrivatMail int64 `json:"privat_mail"`
-	Ocenka     int64 `json:"ocenka"`
+	IDUser            int64 `json:"id_user"`
+	PrivatStr         int64 `json:"privat_str"`
+	PrivatMail        int64 `json:"privat_mail"`
+	Ocenka            int64 `json:"ocenka"`
+	BlockGroupInvites bool  `json:"block_group_invites"`
 }
 
 // Spamus — таблица `spamus` старого движка.
