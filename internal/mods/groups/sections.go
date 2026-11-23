@@ -232,7 +232,110 @@ func registerSections(a *core.App) {
 		return c.OK()
 	}, core.Auth)
 
-	// ======================== ФОРУМ СООБЩЕСТВА ========================
+	// ======================== ФОРУМ СООБЩЕСТВА (ПОДФОРУМЫ И ТЕМЫ) ========================
+	ensureDefaultSub := func(gid int64) GroupSubforum {
+		list := subsT.By("group", i(gid))
+		if len(list) > 0 {
+			sort.Slice(list, func(x, y int) bool { return list[x].Pos < list[y].Pos || (list[x].Pos == list[y].Pos && list[x].ID < list[y].ID) })
+			return list[0]
+		}
+		s := GroupSubforum{IDGroup: gid, Name: "Общий раздел", Opis: "Основные обсуждения сообщества", Pos: 1, Time: core.Now()}
+		s.ID = subsT.Insert(&s)
+		return s
+	}
+
+	// Список подфорумов
+	a.GET("/api/groups/{id}/subforums", func(c *core.Ctx) error {
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound("Сообщество не найдено")
+		}
+		if !g.EnableForum {
+			return core.ErrForbidden("Раздел «Форум» отключён в этом сообществе")
+		}
+		ensureDefaultSub(g.ID)
+		me := c.User()
+		pr := permsOf(me, g)
+		list := subsT.By("group", i(g.ID))
+		sort.Slice(list, func(x, y int) bool {
+			if list[x].Pos != list[y].Pos {
+				return list[x].Pos < list[y].Pos
+			}
+			return list[x].ID < list[y].ID
+		})
+		// Привязываем старые темы без подфорума к первому подфоруму
+		firstID := list[0].ID
+		for _, t := range topicsT.By("group", i(g.ID)) {
+			if t.IDSub == 0 {
+				topicsT.Update(t.ID, func(x *GroupTopic) { x.IDSub = firstID })
+			}
+		}
+		items := make([]map[string]any, 0, len(list))
+		for _, s := range list {
+			items = append(items, map[string]any{
+				"id":     s.ID,
+				"name":   s.Name,
+				"opis":   s.Opis,
+				"topics": topicsT.CountBy("sub", i(s.ID)),
+			})
+		}
+		return c.JSON(map[string]any{"items": items, "can_mod": pr.ModForum})
+	})
+
+	a.POST("/api/groups/{id}/subforums", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok || !g.EnableForum {
+			return core.ErrNotFound()
+		}
+		if !permsOf(me, g).ModForum {
+			return core.ErrForbidden("Создавать подфорумы могут только модераторы форума и администраторы")
+		}
+		var in struct {
+			Name string `json:"name"`
+			Opis string `json:"opis"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		name := a.Text.Clean(strings.TrimSpace(in.Name))
+		if utf8.RuneCountInString(name) < 2 || utf8.RuneCountInString(name) > 80 {
+			return core.ErrBad("Название подфорума: 2–80 символов")
+		}
+		opis := a.Text.Clean(strings.TrimSpace(in.Opis))
+		if utf8.RuneCountInString(opis) > 256 {
+			opis = core.Trunc(opis, 256)
+		}
+		pos := int64(subsT.CountBy("group", i(g.ID)) + 1)
+		id := subsT.Insert(&GroupSubforum{IDGroup: g.ID, Name: name, Opis: opis, Pos: pos, Time: core.Now()})
+		return c.OK("id", id)
+	}, core.Auth)
+
+	a.DELETE("/api/group-subforum/{sid}", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		s, ok := subsT.Get(c.PathInt("sid"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		g, _ := groupsT.Get(s.IDGroup)
+		if !permsOf(me, g).ModForum {
+			return core.ErrForbidden()
+		}
+		for _, t := range topicsT.By("sub", i(s.ID)) {
+			tpostsT.DeleteBy("topic", i(t.ID))
+			topicsT.Delete(t.ID)
+		}
+		subsT.Delete(s.ID)
+		return c.OK()
+	}, core.Auth)
+
+	// Темы форума (фильтрация по ?sub=<id>)
 	a.GET("/api/groups/{id}/forum", func(c *core.Ctx) error {
 		g, ok := groupsT.Get(c.PathInt("id"))
 		if !ok {
@@ -244,7 +347,19 @@ func registerSections(a *core.App) {
 		me := c.User()
 		pr := permsOf(me, g)
 		p := c.Page(20)
-		all := topicsT.By("group", i(g.ID))
+		subID := c.QInt("sub")
+		var subInfo map[string]any
+		var all []GroupTopic
+		if subID > 0 {
+			s, ok := subsT.Get(subID)
+			if !ok || s.IDGroup != g.ID {
+				return core.ErrNotFound("Подфорум не найден")
+			}
+			subInfo = map[string]any{"id": s.ID, "name": s.Name, "opis": s.Opis}
+			all = topicsT.By("sub", i(subID))
+		} else {
+			all = topicsT.By("group", i(g.ID))
+		}
 		sort.Slice(all, func(x, y int) bool {
 			if all[x].Pinned != all[y].Pinned {
 				return all[x].Pinned
@@ -264,6 +379,7 @@ func registerSections(a *core.App) {
 		for _, t := range sl {
 			items = append(items, map[string]any{
 				"id":        t.ID,
+				"id_sub":    t.IDSub,
 				"name":      t.Name,
 				"user":      a.Ref(t.IDUser),
 				"time":      t.Time,
@@ -274,7 +390,7 @@ func registerSections(a *core.App) {
 				"can_mod":   pr.ModForum,
 			})
 		}
-		return c.List(items, total, p)
+		return c.JSON(map[string]any{"sub": subInfo, "items": items, "total": total, "page": p.Page, "per": p.Per, "pages": max(1, (total+p.Per-1)/p.Per)})
 	})
 
 	a.POST("/api/groups/{id}/forum", func(c *core.Ctx) error {
@@ -290,11 +406,18 @@ func registerSections(a *core.App) {
 			return core.ErrForbidden("Вступите в сообщество, чтобы создавать темы")
 		}
 		var in struct {
+			Sub  int64  `json:"sub"`
 			Name string `json:"name"`
 			Msg  string `json:"msg"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
+		}
+		subID := in.Sub
+		if subID <= 0 {
+			subID = ensureDefaultSub(g.ID).ID
+		} else if s, ok := subsT.Get(subID); !ok || s.IDGroup != g.ID {
+			return core.ErrBad("Подфорум не найден")
 		}
 		name := a.Text.Clean(strings.TrimSpace(in.Name))
 		msg := a.Text.Clean(strings.TrimSpace(in.Msg))
@@ -305,7 +428,7 @@ func registerSections(a *core.App) {
 			return core.ErrBad("Текст темы: 2–4096 символов")
 		}
 		now := core.Now()
-		tid := topicsT.Insert(&GroupTopic{IDGroup: g.ID, IDUser: me.ID, Name: name, Msg: msg, Time: now, TimeLast: now})
+		tid := topicsT.Insert(&GroupTopic{IDGroup: g.ID, IDSub: subID, IDUser: me.ID, Name: name, Msg: msg, Time: now, TimeLast: now})
 		return c.OK("id", tid)
 	}, core.Auth)
 
@@ -329,9 +452,13 @@ func registerSections(a *core.App) {
 				"can_delete": pr.ModForum || (me != nil && me.ID == r.IDUser),
 			})
 		}
+		var subName string
+		if s, ok := subsT.Get(t.IDSub); ok {
+			subName = s.Name
+		}
 		return c.JSON(map[string]any{
 			"topic": map[string]any{
-				"id": t.ID, "group_id": t.IDGroup, "name": t.Name, "msg": a.Text.Render(t.Msg),
+				"id": t.ID, "group_id": t.IDGroup, "sub_id": t.IDSub, "sub_name": subName, "name": t.Name, "msg": a.Text.Render(t.Msg),
 				"user": a.Ref(t.IDUser), "time": t.Time, "closed": t.Closed, "pinned": t.Pinned,
 				"can_mod": pr.ModForum, "can_delete": pr.ModForum || (me != nil && me.ID == t.IDUser),
 				"can_reply": pr.IsMember && (!t.Closed || pr.ModForum),

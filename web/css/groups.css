@@ -1,27 +1,22 @@
 /* Сообщества / Группы */
 .grp-head { overflow: hidden; padding: 0; }
 .grp-banner { height: 150px; background: linear-gradient(125deg, var(--accent), color-mix(in srgb, var(--accent) 45%, #ec4899)); background-size: cover; background-position: center; position: relative; }
-.grp-main { display: flex; gap: 16px; align-items: flex-end; padding: 0 20px 18px; flex-wrap: wrap; margin-top: -46px; position: relative; }
-.grp-ava { width: 92px; height: 92px; border-radius: 22px; overflow: hidden; border: 4px solid var(--bg-card); background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #ec4899)); box-shadow: var(--shadow); flex: none; display: grid; place-items: center; color: #fff; font-size: 2rem; font-weight: 800; }
+.grp-main { display: flex; gap: 16px; align-items: flex-start; padding: 14px 20px 18px; flex-wrap: wrap; position: relative; }
+.grp-ava { width: 88px; height: 88px; margin-top: -54px; border-radius: 22px; overflow: hidden; border: 4px solid var(--bg-card); background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #ec4899)); box-shadow: var(--shadow); flex: none; display: grid; place-items: center; color: #fff; font-size: 2rem; font-weight: 800; }
 .grp-ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .grp-ava-sm { width: 48px; height: 48px; border-radius: 14px; overflow: hidden; background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #ec4899)); flex: none; display: grid; place-items: center; color: #fff; font-size: 1.15rem; font-weight: 800; }
 .grp-ava-sm img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.grp-info { flex: 1; min-width: 200px; padding-top: 50px; }
-.grp-info h1 { margin: 0 0 4px; font-size: 1.45rem; }
-.grp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.grp-info { flex: 1; min-width: 190px; }
+.grp-info h1 { margin: 0 0 4px; font-size: 1.4rem; line-height: 1.25; }
+.grp-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .grp-opis { padding: 0 20px 16px; color: var(--text); }
 
-.grp-chat-box { display: flex; flex-direction: column; height: min(62dvh, 520px); background: var(--bg-card); border: 1px solid var(--border-s); border-radius: var(--r); overflow: hidden; box-shadow: var(--shadow); }
-.grp-chat-list { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; background: var(--bg-sunken); display: flex; flex-direction: column; gap: 8px; }
-.grp-chat-row { display: flex; gap: 10px; align-items: flex-start; background: var(--bg-card); border: 1px solid var(--border-s); border-radius: 12px; padding: 8px 11px; }
-.grp-chat-row .main { flex: 1; min-width: 0; }
-.grp-chat-bar { flex: none; display: flex; gap: 8px; align-items: flex-end; padding: 8px 10px; border-top: 1px solid var(--border-s); background: var(--bg-card); }
-.grp-chat-bar textarea.input { min-height: 38px; max-height: 100px; border-radius: 18px; padding: 8px 14px; resize: none; }
-
 .grp-role-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+
 @media (max-width: 600px) {
   .grp-banner { height: 115px; }
-  .grp-main { padding: 0 14px 14px; }
-  .grp-ava { width: 76px; height: 76px; border-radius: 18px; }
-  .grp-info { padding-top: 40px; }
+  .grp-main { padding: 12px 14px 14px; gap: 12px; }
+  .grp-ava { width: 72px; height: 72px; margin-top: -46px; border-radius: 18px; font-size: 1.6rem; }
+  .grp-info h1 { font-size: 1.25rem; }
+  .grp-opis { padding: 0 14px 14px; }
 }

@@ -65,10 +65,21 @@ type GroupPostKomm struct {
 	Msg     string `json:"msg"`
 }
 
+// GroupSubforum — подфорум (раздел) внутри форума сообщества.
+type GroupSubforum struct {
+	store.Base
+	IDGroup int64  `json:"id_group"`
+	Name    string `json:"name"`
+	Opis    string `json:"opis"`
+	Pos     int64  `json:"pos"`
+	Time    int64  `json:"time"`
+}
+
 // GroupTopic — тема на форуме сообщества.
 type GroupTopic struct {
 	store.Base
 	IDGroup  int64  `json:"id_group"`
+	IDSub    int64  `json:"id_sub"`
 	IDUser   int64  `json:"id_user"`
 	Name     string `json:"name"`
 	Msg      string `json:"msg"`
@@ -116,6 +127,7 @@ var (
 	membersT *store.Table[GroupMember, *GroupMember]
 	blogT    *store.Table[GroupPost, *GroupPost]
 	blogKT   *store.Table[GroupPostKomm, *GroupPostKomm]
+	subsT    *store.Table[GroupSubforum, *GroupSubforum]
 	topicsT  *store.Table[GroupTopic, *GroupTopic]
 	tpostsT  *store.Table[GroupTopicPost, *GroupTopicPost]
 	chatT    *store.Table[GroupChat, *GroupChat]
@@ -228,6 +240,7 @@ func deleteGroupAll(a *core.App, g Group) {
 	}
 	blogT.DeleteBy("group", i(g.ID))
 	blogKT.DeleteBy("group", i(g.ID))
+	subsT.DeleteBy("group", i(g.ID))
 	topicsT.DeleteBy("group", i(g.ID))
 	tpostsT.DeleteBy("group", i(g.ID))
 	chatT.DeleteBy("group", i(g.ID))
@@ -248,8 +261,11 @@ func Register(a *core.App) {
 	blogKT = store.NewTable[GroupPostKomm](a.DB, "group_blog_komm").
 		Index("post", func(k *GroupPostKomm) string { return i(k.IDPost) }).
 		Index("group", func(k *GroupPostKomm) string { return i(k.IDGroup) })
+	subsT = store.NewTable[GroupSubforum](a.DB, "group_forum_r").
+		Index("group", func(s *GroupSubforum) string { return i(s.IDGroup) })
 	topicsT = store.NewTable[GroupTopic](a.DB, "group_forum_t").
-		Index("group", func(t *GroupTopic) string { return i(t.IDGroup) })
+		Index("group", func(t *GroupTopic) string { return i(t.IDGroup) }).
+		Index("sub", func(t *GroupTopic) string { return i(t.IDSub) })
 	tpostsT = store.NewTable[GroupTopicPost](a.DB, "group_forum_p").
 		Index("topic", func(p *GroupTopicPost) string { return i(p.IDTopic) }).
 		Index("group", func(p *GroupTopicPost) string { return i(p.IDGroup) })

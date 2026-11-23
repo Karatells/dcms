@@ -1,4 +1,4 @@
-import { h, api, ui, router, state, icon, link, fmt, events } from '../core.js';
+import { h, api, ui, router, state, icon, fmt, events } from '../core.js';
 
 if (!document.querySelector('link[href="/css/groups.css"]')) {
   document.head.append(h('link', { rel: 'stylesheet', href: '/css/groups.css' }));
@@ -20,6 +20,8 @@ function roleBadges(m) {
   }
   return b.length ? h('div.grp-role-badges', ...b) : null;
 }
+
+const grpCrumbs = (g, ...rest) => ui.breadcrumbs([{ href: '/groups', title: 'Сообщества' }, { href: '/groups/' + g.id, title: g.name }, ...rest]);
 
 // ───────── создание сообщества
 function openCreateGroupModal() {
@@ -102,7 +104,7 @@ router.add('/groups', async ctx => {
   ];
 });
 
-// ───────── страница сообщества /groups/:id
+// ───────── главная страница сообщества /groups/:id (шапка + плитки разделов)
 router.add('/groups/:id', async ctx => {
   const id = +ctx.params.id;
   const g = await api.get('/api/groups/' + id);
@@ -110,17 +112,6 @@ router.add('/groups/:id', async ctx => {
   ctx.title(g.name);
 
   const p = g.perms || {};
-  const enabledTabs = [];
-  if (g.enable_blog) enabledTabs.push({ key: 'blog', label: `Блог (${g.counts.blog})`, icon: 'book', href: `/groups/${id}?tab=blog` });
-  if (g.enable_forum) enabledTabs.push({ key: 'forum', label: `Форум (${g.counts.forum})`, icon: 'forum', href: `/groups/${id}?tab=forum` });
-  if (g.enable_chat) enabledTabs.push({ key: 'chat', label: 'Чат', icon: 'message-circle', href: `/groups/${id}?tab=chat` });
-  if (g.enable_files) enabledTabs.push({ key: 'files', label: `Файлы (${g.counts.files})`, icon: 'folder', href: `/groups/${id}?tab=files` });
-  enabledTabs.push({ key: 'members', label: `Участники (${g.members})`, icon: 'users', href: `/groups/${id}?tab=members` });
-  if (p.manage) enabledTabs.push({ key: 'settings', label: 'Настройки', icon: 'settings', href: `/groups/${id}?tab=settings` });
-
-  let tab = ctx.query.tab || (enabledTabs[0] ? enabledTabs[0].key : 'members');
-  if (!enabledTabs.some(t => t.key === tab)) tab = enabledTabs[0].key;
-
   const banner = h('div.grp-banner', g.banner ? { style: { backgroundImage: `url(${g.banner})` } } : {});
   const joinBtn = !me() ? null
     : p.is_creator ? h('span.badge.danger', 'Создатель')
@@ -138,27 +129,48 @@ router.add('/groups/:id', async ctx => {
       h('div.grp-actions', joinBtn)),
     g.opis_html ? h('div.grp-opis.text', { html: g.opis_html }) : null);
 
-  let bodyNode;
-  if (tab === 'blog') bodyNode = await renderBlog(g, ctx, reload);
-  else if (tab === 'forum') bodyNode = await renderForum(g, ctx, reload);
-  else if (tab === 'chat') bodyNode = await renderChat(g, ctx);
-  else if (tab === 'files') bodyNode = await renderFiles(g, ctx, reload);
-  else if (tab === 'members') bodyNode = await renderMembers(g, ctx, reload);
-  else if (tab === 'settings') bodyNode = renderSettings(g, reload);
+  const tiles = [];
+  if (g.enable_blog) tiles.push({ title: 'Блог', icon: 'book', href: `/groups/${id}/blog`, count: g.counts.blog });
+  if (g.enable_forum) tiles.push({ title: 'Форум', icon: 'forum', href: `/groups/${id}/forum`, count: g.counts.forum });
+  if (g.enable_chat) tiles.push({ title: 'Чат', icon: 'message-circle', href: `/groups/${id}/chat`, count: g.counts.chat });
+  if (g.enable_files) tiles.push({ title: 'Файлы', icon: 'folder', href: `/groups/${id}/files`, count: g.counts.files });
+  tiles.push({ title: 'Участники', icon: 'users', href: `/groups/${id}/members`, count: g.members });
+  if (p.manage) tiles.push({ title: 'Настройки', icon: 'settings', href: `/groups/${id}/settings`, count: null });
 
-  return [
+  const grid = h('div.grid-links', tiles.map(t =>
+    h('a.ptile', { href: t.href }, icon(t.icon, 22), h('div.t', t.title), t.count != null ? h('div.c', fmt.num(t.count)) : null)));
+
+  const out = [
     ui.breadcrumbs([{ href: '/groups', title: 'Сообщества' }, { title: g.name }]),
     headerCard,
-    ui.tabs(enabledTabs, tab),
-    bodyNode,
+    grid,
   ];
+
+  // Свежие записи блога на главной сообщества
+  if (g.enable_blog && g.counts.blog > 0) {
+    const bd = await api.get(`/api/groups/${id}/blog`, { page: 1 });
+    if (bd.items && bd.items.length) {
+      out.push(ui.section('Последние записи блога',
+        h('div.list', ...bd.items.slice(0, 3).map(post => h('a.list-item', { href: `/groups/${id}/blog` },
+          ui.avatar(post.user, 36),
+          h('div.main',
+            h('div.title', post.title || 'Запись в блоге'),
+            h('div.small.muted', post.user.nick, ' · ', fmt.ago(post.time))),
+          h('span.badge', icon('heart', 12), ' ', post.likes)))),
+        ui.btn('Все записи', { small: true, href: `/groups/${id}/blog` })));
+    }
+  }
+  return out;
 });
 
-// ───────── БЛОГ СООБЩЕСТВА
-async function renderBlog(g, ctx, reload) {
-  const d = await api.get(`/api/groups/${g.id}/blog`, { page: ctx.page });
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: БЛОГ (/groups/:id/blog)
+router.add('/groups/:id/blog', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/blog`, { page: ctx.page })]);
+  const reload = () => router.render();
+  ctx.title(`Блог · ${g.name}`);
   const p = g.perms || {};
-  const out = [];
+  const out = [grpCrumbs(g, { title: 'Блог' }), ui.pageHead(`Блог · ${g.name}`)];
 
   if (p.mod_blog || (g.open_blog && p.is_member)) {
     const ti = h('input.input', { placeholder: 'Заголовок (необязательно)', maxlength: 120 });
@@ -166,7 +178,7 @@ async function renderBlog(g, ctx, reload) {
     out.push(h('details.card.pad',
       h('summary', icon('plus', 16), ' Написать запись'),
       h('div.stack', { style: { marginTop: '10px' } }, ti, ed.el,
-        ui.btn('Опубликовать', { ic: 'send', kind: 'primary', onclick: async () => { await api.post(`/api/groups/${g.id}/blog`, { title: ti.value, msg: ed.value }); ui.ok('Запись опубликована'); reload(); } }))));
+        ui.btn('Опубликовать', { ic: 'send', kind: 'primary', onclick: async () => { await api.post(`/api/groups/${id}/blog`, { title: ti.value, msg: ed.value }); ui.ok('Запись опубликована'); reload(); } }))));
   }
 
   if (!d.items.length) {
@@ -206,108 +218,181 @@ async function renderBlog(g, ctx, reload) {
     });
   }
   out.push(ui.pager(d));
-  return h('div.stack', ...out);
-}
+  return out;
+});
 
-// ───────── ФОРУМ СООБЩЕСТВА
-async function renderForum(g, ctx, reload) {
-  const tid = +(ctx.query.topic || 0);
-  if (tid) {
-    const d = await api.get(`/api/group-forum/${tid}`, { page: ctx.page });
-    const t = d.topic;
-    const out = [
-      ui.btn('← Все темы форума', { small: true, href: `/groups/${g.id}?tab=forum` }),
-      h('div.card.pad.stack-s',
-        h('div.row', h('h2.grow', t.name),
-          t.pinned ? h('span.badge.primary', 'Закреплена') : null,
-          t.closed ? h('span.badge.warn', 'Закрыта') : null),
-        h('div.row.small.muted', ui.avatar(t.user, 26), ui.userLink(t.user), fmt.datetime(t.time)),
-        h('div.text', { html: t.msg }),
-        h('div.row',
-          t.can_mod ? ui.btn(t.pinned ? 'Открепить' : 'Закрепить', { ic: 'pin', small: true, onclick: async () => { await api.post(`/api/group-forum/${tid}/toggle`, { field: 'pinned' }); reload(); } }) : null,
-          t.can_mod ? ui.btn(t.closed ? 'Открыть' : 'Закрыть', { ic: 'lock', small: true, onclick: async () => { await api.post(`/api/group-forum/${tid}/toggle`, { field: 'closed' }); reload(); } }) : null,
-          t.can_delete ? ui.btn('Удалить тему', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить тему?', { danger: true })) { await api.del('/api/group-forum/' + tid); router.go(`/groups/${g.id}?tab=forum`); } } }) : null)),
-      ui.card(d.items.length ? h('div.posts', d.items.map(r => ui.post({
-        user: r.user, time: r.time, body: h('div.text', { html: r.msg }),
-        actions: r.can_delete ? [ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/group-forum-post/' + r.id); reload(); } })] : [],
-      }))) : ui.empty('Ответов пока нет', 'message-circle')),
-      ui.pager(d),
-    ];
-    if (t.can_reply) {
-      const ed = ui.bbEditor({ rows: 3, placeholder: 'Ваш ответ в теме…', maxlength: 4096 });
-      out.push(h('div.card.pad.stack', ed.el, ui.btn('Ответить', { ic: 'send', kind: 'primary', onclick: async () => { await api.post(`/api/group-forum/${tid}/posts`, { msg: ed.value }); ui.ok('Ответ добавлен'); reload(); } })));
-    }
-    return h('div.stack', ...out);
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: ФОРУМ (список подфорумов) (/groups/:id/forum)
+router.add('/groups/:id/forum', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/subforums`)]);
+  const reload = () => router.render();
+  ctx.title(`Форум · ${g.name}`);
+  const out = [grpCrumbs(g, { title: 'Форум' }), ui.pageHead(`Форум · ${g.name}`)];
+
+  if (d.can_mod) {
+    const nm = h('input.input', { placeholder: 'Название подфорума', maxlength: 80 });
+    const op = h('input.input', { placeholder: 'Краткое описание (необязательно)', maxlength: 256 });
+    out.push(h('details.card.pad',
+      h('summary', icon('plus', 16), ' Создать подфорум'),
+      h('div.stack', { style: { marginTop: '10px' } }, nm, op,
+        ui.btn('Создать', { ic: 'check', kind: 'primary', onclick: async () => { await api.post(`/api/groups/${id}/subforums`, { name: nm.value, opis: op.value }); ui.ok('Подфорум создан'); reload(); } }))));
   }
 
-  const d = await api.get(`/api/groups/${g.id}/forum`, { page: ctx.page });
+  out.push(ui.card(d.items.length ? h('div.list', d.items.map(s => h('div.list-item',
+    h('a.row.nowrap.grow', { href: `/groups/${id}/forum/${s.id}`, style: { color: 'inherit', textDecoration: 'none' } },
+      h('div.forum-ico', icon('forum', 20)),
+      h('div.main', h('div.title', s.name), s.opis ? h('div.small.muted', s.opis) : null)),
+    h('span.badge', `${s.topics} тем`),
+    d.can_mod && d.items.length > 1 ? ui.btn('', { ic: 'trash', small: true, kind: 'danger', title: 'Удалить подфорум', onclick: async () => { if (await ui.confirm(`Удалить подфорум «${s.name}» со всеми темами?`, { danger: true })) { await api.del('/api/group-subforum/' + s.id); reload(); } } }) : null))) : ui.empty('Подфорумов пока нет', 'forum')));
+  return out;
+});
+
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: ПОДФОРУМ (темы раздела) (/groups/:id/forum/:subId)
+router.add('/groups/:id/forum/:subId', async ctx => {
+  const id = +ctx.params.id, subId = +ctx.params.subId;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/forum`, { sub: subId, page: ctx.page })]);
+  const reload = () => router.render();
+  const subName = (d.sub && d.sub.name) || 'Подфорум';
+  ctx.title(`${subName} · ${g.name}`);
   const p = g.perms || {};
-  const out = [];
+  const out = [grpCrumbs(g, { href: `/groups/${id}/forum`, title: 'Форум' }, { title: subName }), ui.pageHead(subName)];
+
   if (p.is_member) {
     const nm = h('input.input', { placeholder: 'Название темы', maxlength: 120 });
     const ed = ui.bbEditor({ rows: 3, placeholder: 'Текст первого сообщения…', maxlength: 4096 });
     out.push(h('details.card.pad',
       h('summary', icon('plus', 16), ' Создать тему'),
       h('div.stack', { style: { marginTop: '10px' } }, nm, ed.el,
-        ui.btn('Создать', { ic: 'check', kind: 'primary', onclick: async () => { const r = await api.post(`/api/groups/${g.id}/forum`, { name: nm.value, msg: ed.value }); router.go(`/groups/${g.id}?tab=forum&topic=${r.id}`); } }))));
+        ui.btn('Создать', { ic: 'check', kind: 'primary', onclick: async () => { const r = await api.post(`/api/groups/${id}/forum`, { sub: subId, name: nm.value, msg: ed.value }); router.go(`/groups/${id}/forum/topic/${r.id}`); } }))));
   }
-  out.push(ui.card(d.items.length ? h('div.list', d.items.map(t => h('a.list-item', { href: `/groups/${g.id}?tab=forum&topic=${t.id}` },
+
+  out.push(ui.card(d.items.length ? h('div.list', d.items.map(t => h('a.list-item', { href: `/groups/${id}/forum/topic/${t.id}` },
     h('div.forum-ico', icon(t.closed ? 'lock' : t.pinned ? 'pin' : 'forum', 20)),
     h('div.main', h('div.title', t.name), h('div.small.muted', t.user.nick, ' · ', fmt.ago(t.time_last))),
-    h('span.badge', t.posts)))) : ui.empty('Тем на форуме пока нет', 'forum')), ui.pager(d));
-  return h('div.stack', ...out);
-}
+    h('span.badge', t.posts)))) : ui.empty('Тем в этом подфоруме пока нет', 'forum')), ui.pager(d));
+  return out;
+});
 
-// ───────── ЧАТ СООБЩЕСТВА (SSE в реальном времени)
-async function renderChat(g, ctx) {
-  const d = await api.get(`/api/groups/${g.id}/chat`);
-  const listEl = h('div.grp-chat-list');
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: ТЕМА ФОРУМА (/groups/:id/forum/topic/:tid)
+router.add('/groups/:id/forum/topic/:tid', async ctx => {
+  const id = +ctx.params.id, tid = +ctx.params.tid;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/group-forum/${tid}`, { page: ctx.page })]);
+  const reload = () => router.render();
+  const t = d.topic;
+  ctx.title(`${t.name} · ${g.name}`);
+  const crumbs = [
+    { href: `/groups/${id}/forum`, title: 'Форум' },
+    t.sub_id ? { href: `/groups/${id}/forum/${t.sub_id}`, title: t.sub_name || 'Подфорум' } : null,
+    { title: t.name },
+  ].filter(Boolean);
+
+  const out = [
+    grpCrumbs(g, ...crumbs),
+    h('div.card.pad.stack-s',
+      h('div.row', h('h2.grow', t.name),
+        t.pinned ? h('span.badge.primary', 'Закреплена') : null,
+        t.closed ? h('span.badge.warn', 'Закрыта') : null),
+      h('div.row.small.muted', ui.avatar(t.user, 26), ui.userLink(t.user), fmt.datetime(t.time)),
+      h('div.text', { html: t.msg }),
+      h('div.row',
+        t.can_mod ? ui.btn(t.pinned ? 'Открепить' : 'Закрепить', { ic: 'pin', small: true, onclick: async () => { await api.post(`/api/group-forum/${tid}/toggle`, { field: 'pinned' }); reload(); } }) : null,
+        t.can_mod ? ui.btn(t.closed ? 'Открыть' : 'Закрыть', { ic: 'lock', small: true, onclick: async () => { await api.post(`/api/group-forum/${tid}/toggle`, { field: 'closed' }); reload(); } }) : null,
+        t.can_delete ? ui.btn('Удалить тему', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить тему?', { danger: true })) { await api.del('/api/group-forum/' + tid); router.go(t.sub_id ? `/groups/${id}/forum/${t.sub_id}` : `/groups/${id}/forum`); } } }) : null)),
+    ui.card(d.items.length ? h('div.posts', d.items.map(r => ui.post({
+      user: r.user, time: r.time, body: h('div.text', { html: r.msg }),
+      actions: r.can_delete ? [ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/group-forum-post/' + r.id); reload(); } })] : [],
+    }))) : ui.empty('Ответов пока нет', 'message-circle')),
+    ui.pager(d),
+  ];
+  if (t.can_reply) {
+    const ed = ui.bbEditor({ rows: 3, placeholder: 'Ваш ответ в теме…', maxlength: 4096 });
+    out.push(h('div.card.pad.stack', ed.el, ui.btn('Ответить', { ic: 'send', kind: 'primary', onclick: async () => { await api.post(`/api/group-forum/${tid}/posts`, { msg: ed.value }); ui.ok('Ответ добавлен'); reload(); } })));
+  }
+  return out;
+});
+
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: ЧАТ (полноэкранный мессенджер-формат) (/groups/:id/chat)
+router.add('/groups/:id/chat', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/chat`)]);
+  ctx.title(`Чат · ${g.name}`);
+  document.body.classList.add('msg-page');
+
+  const scrollEl = h('div.msg-scroll');
   let items = d.items || [];
 
   const draw = () => {
-    if (!items.length) { listEl.replaceChildren(ui.empty('Чат пуст — начните общение!', 'message-circle')); return; }
-    listEl.replaceChildren(...items.map(m => h('div.grp-chat-row',
-      ui.avatar(m.user, 32),
-      h('div.main',
-        h('div.row', ui.userLink(m.user), h('span.small.muted', fmt.ago(m.time)), h('span.grow'),
-          m.can_delete ? ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/group-chat/' + m.id); items = items.filter(x => x.id !== m.id); draw(); } }) : null),
-        h('div.text', { html: m.msg })))));
-    requestAnimationFrame(() => { listEl.scrollTop = listEl.scrollHeight; });
+    if (!items.length) { scrollEl.replaceChildren(ui.empty('Чат пуст — начните общение!', 'message-circle')); return; }
+    scrollEl.replaceChildren(...items.map(m => {
+      const mine = me() && me().id === m.user.id;
+      return h('div.bubble-row' + (mine ? '.mine' : ''),
+        !mine ? ui.avatar(m.user, 28) : null,
+        h('div.bubble' + (mine ? '.mine' : ''),
+          !mine ? h('div', { style: { fontWeight: '700', fontSize: '.78rem', marginBottom: '2px' } }, ui.userLink(m.user)) : null,
+          ui.html(m.msg, 'text'),
+          h('div.bubble-meta',
+            h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
+            m.can_delete ? h('button.link', { title: 'Удалить', onclick: async () => { await api.del('/api/group-chat/' + m.id); items = items.filter(x => x.id !== m.id); draw(); } }, icon('trash', 12)) : null)));
+    }));
+    requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
   };
 
-  const leaveSSE = events.join('group:' + g.id, (ev, data) => {
-    if (ev === 'group_chat' && data && data.group_id === g.id && !items.some(x => x.id === data.id)) {
+  const leaveSSE = events.join('group:' + id, (ev, data) => {
+    if (ev === 'group_chat' && data && data.group_id === id && !items.some(x => x.id === data.id)) {
       items.push({ ...data, can_delete: d.can_mod || (me() && me().id === data.user.id) });
       draw();
     }
   });
-  ctx.onLeave(() => leaveSSE && leaveSSE());
+  ctx.onLeave(() => {
+    document.body.classList.remove('msg-page');
+    leaveSSE && leaveSSE();
+  });
 
-  let bar;
+  const head = h('div.msg-head',
+    h('a.icon-btn', { href: '/groups/' + id, title: 'К сообществу' }, icon('arrow-left', 20)),
+    h('div.grp-ava-sm', { style: { width: '36px', height: '36px', borderRadius: '10px', fontSize: '.95rem' } }, g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
+    h('div.msg-head-info', h('b', g.name), h('div.msg-status', `Чат сообщества · участников: ${fmt.num(g.members)}`)));
+
+  const foot = h('div.msg-foot');
   if (d.can_write) {
-    const ta = h('textarea.input', { rows: 1, placeholder: 'Написать в чат…', maxlength: 1024 });
+    const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Написать в чат…', maxlength: 1024 });
+    const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', disabled: true }, icon('send', 18));
+    const sync = () => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(110, Math.max(38, ta.scrollHeight)) + 'px';
+      sendBtn.disabled = !ta.value.trim();
+    };
     const send = async () => {
       const msg = ta.value.trim();
-      if (!msg) return;
-      ta.value = '';
-      const r = await api.post(`/api/groups/${g.id}/chat`, { msg });
-      if (!items.some(x => x.id === r.id)) { items.push({ ...r, can_delete: true }); draw(); }
+      if (!msg || sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      try {
+        ta.value = ''; sync();
+        const r = await api.post(`/api/groups/${id}/chat`, { msg });
+        if (!items.some(x => x.id === r.id)) { items.push({ ...r, can_delete: true }); draw(); }
+      } finally { sync(); }
     };
-    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
-    bar = h('div.grp-chat-bar', ta, ui.btn('', { ic: 'send', kind: 'primary', onclick: send }));
+    sendBtn.onclick = send;
+    ta.oninput = sync;
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); send(); } };
+    foot.append(h('div.msg-compose', h('div.msg-input-wrap', ta), sendBtn));
   } else {
-    bar = h('div.pad.small.muted.center', 'Вступите в сообщество, чтобы писать в чат.');
+    foot.append(h('div.pad.small.muted.center', 'Вступите в сообщество, чтобы писать в чат.'));
   }
 
   draw();
-  return h('div.grp-chat-box', listEl, bar);
-}
+  return h('div.msg-shell', head, scrollEl, foot);
+});
 
-// ───────── ФАЙЛЫ СООБЩЕСТВА
-async function renderFiles(g, ctx, reload) {
-  const d = await api.get(`/api/groups/${g.id}/files`, { page: ctx.page });
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: ФАЙЛЫ (/groups/:id/files)
+router.add('/groups/:id/files', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/files`, { page: ctx.page })]);
+  const reload = () => router.render();
+  ctx.title(`Файлы · ${g.name}`);
   const p = g.perms || {};
-  const out = [];
+  const out = [grpCrumbs(g, { title: 'Файлы' }), ui.pageHead(`Файлы · ${g.name}`)];
+
   if (p.is_member) {
     const fi = h('input', { type: 'file' });
     const nm = h('input.input', { placeholder: 'Название (по умолчанию — имя файла)', maxlength: 120 });
@@ -319,7 +404,7 @@ async function renderFiles(g, ctx, reload) {
           ic: 'upload', kind: 'primary',
           onclick: async () => {
             if (!fi.files[0]) return ui.toast('Выберите файл', 'warn');
-            await api.upload(`/api/groups/${g.id}/files`, { file: fi.files[0], name: nm.value, opis: op.value });
+            await api.upload(`/api/groups/${id}/files`, { file: fi.files[0], name: nm.value, opis: op.value });
             ui.ok('Файл загружен'); reload();
           },
         }))));
@@ -332,12 +417,15 @@ async function renderFiles(g, ctx, reload) {
       h('div.small.muted', f.size_str, ' · ', f.user.nick, ' · ', fmt.ago(f.time), ' · ⬇ ', f.loads)),
     ui.btn('', { ic: 'download', small: true, kind: 'primary', href: f.download }),
     f.can_delete ? ui.btn('', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить файл?', { danger: true })) { await api.del('/api/group-files/' + f.id); reload(); } } }) : null))) : ui.empty('Файлов пока нет', 'folder')), ui.pager(d));
-  return h('div.stack', ...out);
-}
+  return out;
+});
 
-// ───────── УЧАСТНИКИ И НАЗНАЧЕНИЕ РОЛЕЙ
-async function renderMembers(g, ctx, reload) {
-  const d = await api.get(`/api/groups/${g.id}/members`, { page: ctx.page });
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: УЧАСТНИКИ (/groups/:id/members)
+router.add('/groups/:id/members', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/members`, { page: ctx.page })]);
+  const reload = () => router.render();
+  ctx.title(`Участники · ${g.name}`);
   const p = g.perms || {};
 
   const openRoleModal = m => {
@@ -366,7 +454,7 @@ async function renderMembers(g, ctx, reload) {
         {
           label: 'Сохранить', kind: 'primary',
           onclick: () => {
-            api.put(`/api/groups/${g.id}/members/${m.user.id}`, {
+            api.put(`/api/groups/${id}/members/${m.user.id}`, {
               role: roleSel.value, mod_blog: mb.checked, mod_forum: mf.checked, mod_chat: mc.checked, mod_files: mfl.checked,
             }).then(() => { modal.close(); ui.ok('Права обновлены'); reload(); });
             return false;
@@ -376,18 +464,27 @@ async function renderMembers(g, ctx, reload) {
     });
   };
 
-  return h('div.stack',
+  return [
+    grpCrumbs(g, { title: 'Участники' }),
+    ui.pageHead(`Участники · ${g.name}`),
     ui.card(d.items.length ? h('div.list', d.items.map(m => h('div.list-item',
       ui.avatar(m.user, 40),
       h('div.main', ui.userLink(m.user), roleBadges(m)),
       p.manage && m.role !== 'creator' ? h('span.row',
         ui.btn('Роль', { ic: 'shield', small: true, onclick: () => openRoleModal(m) }),
-        ui.btn('', { ic: 'trash', small: true, kind: 'danger', title: 'Исключить', onclick: async () => { if (await ui.confirm(`Исключить ${m.user.nick}?`, { danger: true })) { await api.del(`/api/groups/${g.id}/members/${m.user.id}`); reload(); } } })) : null))) : ui.empty('Участников нет', 'users')),
-    ui.pager(d));
-}
+        ui.btn('', { ic: 'trash', small: true, kind: 'danger', title: 'Исключить', onclick: async () => { if (await ui.confirm(`Исключить ${m.user.nick}?`, { danger: true })) { await api.del(`/api/groups/${id}/members/${m.user.id}`); reload(); } } })) : null))) : ui.empty('Участников нет', 'users')),
+    ui.pager(d),
+  ];
+});
 
-// ───────── НАСТРОЙКИ СООБЩЕСТВА (баннер, аватарка, включение/выключение разделов)
-function renderSettings(g, reload) {
+// ───────── ОТДЕЛЬНАЯ СТРАНИЦА: НАСТРОЙКИ (/groups/:id/settings)
+router.add('/groups/:id/settings', async ctx => {
+  const id = +ctx.params.id;
+  const g = await api.get('/api/groups/' + id);
+  const reload = () => router.render();
+  ctx.title(`Настройки · ${g.name}`);
+  if (!g.perms || !g.perms.manage) return [grpCrumbs(g, { title: 'Настройки' }), ui.forbidden()];
+
   const name = h('input.input', { value: g.name, maxlength: 64 });
   const cat = h('select.input', CATS.map(c => h('option', { value: c, selected: c === g.category }, c)));
   const opis = h('textarea.input', { rows: 3, maxlength: 1000 }, g.opis || '');
@@ -396,11 +493,12 @@ function renderSettings(g, reload) {
   const cChat = h('input', { type: 'checkbox', checked: g.enable_chat });
   const cFiles = h('input', { type: 'checkbox', checked: g.enable_files });
   const cOpenBlog = h('input', { type: 'checkbox', checked: g.open_blog });
-
   const avaIn = h('input', { type: 'file', accept: 'image/*' });
   const banIn = h('input', { type: 'file', accept: 'image/*' });
 
-  return h('div.stack',
+  return [
+    grpCrumbs(g, { title: 'Настройки' }),
+    ui.pageHead(`Настройки · ${g.name}`),
     h('div.card.pad.stack',
       h('h3', 'Основные настройки и разделы'),
       h('div.field', h('label', 'Название'), name),
@@ -416,7 +514,7 @@ function renderSettings(g, reload) {
       ui.btn('Сохранить настройки', {
         ic: 'check', kind: 'primary',
         onclick: async () => {
-          await api.put('/api/groups/' + g.id, {
+          await api.put('/api/groups/' + id, {
             name: name.value, category: cat.value, opis: opis.value,
             enable_blog: cBlog.checked, enable_forum: cForum.checked, enable_chat: cChat.checked, enable_files: cFiles.checked, open_blog: cOpenBlog.checked,
           });
@@ -426,12 +524,13 @@ function renderSettings(g, reload) {
     h('div.card.pad.stack',
       h('h3', 'Оформление (аватарка и баннер)'),
       h('div.row', h('div.field', h('label', 'Аватарка сообщества'), avaIn),
-        ui.btn('Загрузить аватарку', { ic: 'upload', small: true, onclick: async () => { if (!avaIn.files[0]) return; await api.upload(`/api/groups/${g.id}/avatar`, { file: avaIn.files[0] }); ui.ok('Аватарка обновлена'); reload(); } })),
+        ui.btn('Загрузить аватарку', { ic: 'upload', small: true, onclick: async () => { if (!avaIn.files[0]) return; await api.upload(`/api/groups/${id}/avatar`, { file: avaIn.files[0] }); ui.ok('Аватарка обновлена'); reload(); } })),
       h('div.row', h('div.field', h('label', 'Баннер (шапка сообщества)'), banIn),
-        ui.btn('Загрузить баннер', { ic: 'upload', small: true, onclick: async () => { if (!banIn.files[0]) return; await api.upload(`/api/groups/${g.id}/banner`, { file: banIn.files[0] }); ui.ok('Баннер обновлён'); reload(); } }))),
-    g.perms && (g.perms.is_creator || (me() && me().level >= 3)) ? h('div.card.pad',
+        ui.btn('Загрузить баннер', { ic: 'upload', small: true, onclick: async () => { if (!banIn.files[0]) return; await api.upload(`/api/groups/${id}/banner`, { file: banIn.files[0] }); ui.ok('Баннер обновлён'); reload(); } }))),
+    g.perms.is_creator || (me() && me().level >= 3) ? h('div.card.pad',
       ui.btn('Удалить сообщество навсегда', {
         ic: 'trash', kind: 'danger',
-        onclick: async () => { if (await ui.confirm('Удалить сообщество вместе со всеми темами, блогом, чатом и файлами?', { danger: true })) { await api.del('/api/groups/' + g.id); ui.ok('Сообщество удалено'); router.go('/groups'); } },
-      })) : null);
-}
+        onclick: async () => { if (await ui.confirm('Удалить сообщество вместе со всеми темами, блогом, чатом и файлами?', { danger: true })) { await api.del('/api/groups/' + id); ui.ok('Сообщество удалено'); router.go('/groups'); } },
+      })) : null,
+  ];
+});
