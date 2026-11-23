@@ -182,10 +182,13 @@ func Register(a *core.App) {
 		p := c.Page(12)
 
 		var list []Short
+		var pending []map[string]any
 		if uid > 0 {
 			for _, s := range shortsT.By("user", i(uid)) {
-				if s.Status == "ready" || (me != nil && me.ID == uid) {
+				if s.Status == "ready" {
 					list = append(list, s)
+				} else if me != nil && me.ID == uid {
+					pending = append(pending, shortView(a, s, me))
 				}
 			}
 		} else {
@@ -259,15 +262,6 @@ func Register(a *core.App) {
 			items = append(items, shortView(a, s, me))
 		}
 
-		// Показываем текущему пользователю его обрабатываемые/ошибочные клипы
-		var pending []map[string]any
-		if me != nil && p.Page == 1 && uid == 0 {
-			for _, s := range shortsT.By("user", i(me.ID)) {
-				if s.Status == "processing" || s.Status == "failed" {
-					pending = append(pending, shortView(a, s, me))
-				}
-			}
-		}
 		if pending == nil {
 			pending = []map[string]any{}
 		}
@@ -275,7 +269,7 @@ func Register(a *core.App) {
 		if pages < 1 {
 			pages = 1
 		}
-		return c.JSON(map[string]any{
+		resp := map[string]any{
 			"items":   items,
 			"total":   total,
 			"page":    p.Page,
@@ -284,7 +278,11 @@ func Register(a *core.App) {
 			"pending": pending,
 			"max_sec": a.Cfg.Int("shorts_max_sec"),
 			"max_mb":  a.Cfg.Int("shorts_max_mb"),
-		})
+		}
+		if uid > 0 {
+			resp["owner"] = a.Ref(uid)
+		}
+		return c.JSON(resp)
 	})
 
 	// ── Один клип (в т.ч. для проверки статуса обработки)

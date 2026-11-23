@@ -12,7 +12,7 @@ const fmtDur = s => {
   return `${m}:${r < 10 ? '0' : ''}${r}`;
 };
 
-// ───────── загрузка клипа с прогрессом
+// ───────── загрузка клипа с прогрессом (вызывается только на своей странице клипов)
 function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
   if (!me()) { router.go('/login'); return; }
   let pickedFile = null;
@@ -237,8 +237,8 @@ async function openShareModal(s) {
   }
 }
 
-// ───────── карточка вертикального видео в ленте
-function buildShortCard(s, { onDeleted, onUpdated }) {
+// ───────── карточка вертикального видео в полноэкранной ленте
+function buildShortSlide(s, { onDeleted, onUpdated }) {
   const video = h('video', {
     src: s.video_url,
     poster: s.poster_url,
@@ -254,9 +254,6 @@ function buildShortCard(s, { onDeleted, onUpdated }) {
   const viewsSpan = h('span', `${fmt.num(s.views)} просм.`);
   let viewedSent = false;
 
-  const syncMuteIcon = () => {
-    muteBtn.replaceChildren(icon(video.muted ? 'volume-x' : 'volume', 18));
-  };
   muteBtn.onclick = e => {
     e.stopPropagation();
     globalMuted = !video.muted;
@@ -391,13 +388,15 @@ function buildShortCard(s, { onDeleted, onUpdated }) {
       h('div.short-meta', viewsSpan, h('span', '· ' + fmt.ago(s.time)))),
     prog
   );
-  syncMuteIcon();
-  return { card, video };
+
+  const slide = h('section.short-slide', card);
+  return { slide, card, video };
 }
 
-// ───────── плитка для режима сетки
-function shortTile(s) {
-  return h('a.short-tile', { href: '/shorts/' + s.id },
+// ───────── плитка для страницы клипов пользователя
+function shortTile(s, uid) {
+  const href = uid ? `/shorts/${s.id}?user=${uid}` : `/shorts/${s.id}`;
+  return h('a.short-tile', { href },
     h('img', { src: s.poster_url, alt: s.title, loading: 'lazy' }),
     h('span.short-tile-dur', fmtDur(s.duration)),
     h('div.short-tile-ov',
@@ -405,35 +404,144 @@ function shortTile(s) {
       h('div.short-tile-meta', icon('heart', 12), fmt.num(s.likes), icon('eye', 12), fmt.num(s.views))));
 }
 
-// ───────── основная страница /shorts и /shorts/:id
-async function renderShorts(ctx, startID = 0) {
+// ───────── полноэкранная TikTok-лента (/shorts и /shorts/:id)
+async function renderShortsFeed(ctx, startID = 0) {
   const tab = ctx.query.tab || 'new';
-  const viewMode = ctx.query.view || 'feed'; // feed | grid
+  const filterUID = +(ctx.query.user || 0);
   ctx.title('Клипы');
 
-  const d = await api.get('/api/shorts', { tab, page: ctx.page, start: startID || undefined });
+  document.body.classList.add('shorts-fs');
+  let curPage = 1;
+  let totalPages = 1;
+  let loadingMore = false;
+
+  const d = await api.get('/api/shorts', { tab, user: filterUID || undefined, page: 1, start: startID || undefined });
+  totalPages = d.pages || 1;
   const reload = () => router.render();
 
+  const backHref = filterUID ? `/shorts/user/${filterUID}` : '/';
   const tabs = [['new', 'Новые'], ['popular', 'Популярные']];
   if (me()) tabs.push(['friends', 'Друзья']);
 
-  const topBar = h('div.shorts-top',
-    h('div.tabs', ...tabs.map(([k, l]) => h('a.tab' + (tab === k ? '.active' : ''), { href: `/shorts?tab=${k}&view=${viewMode}` }, l))),
-    h('div.row',
-      h('a.btn.sm' + (viewMode === 'feed' ? '.primary' : ''), { href: `/shorts?tab=${tab}&view=feed`, title: 'Лента' }, icon('video', 15), ' Лента'),
-      h('a.btn.sm' + (viewMode === 'grid' ? '.primary' : ''), { href: `/shorts?tab=${tab}&view=grid`, title: 'Сетка' }, icon('grid', 15), ' Сетка'),
-      me() ? ui.btn('Загрузить', { ic: 'plus', kind: 'primary', small: true, onclick: () => openUploadModal(d.max_sec || 60, d.max_mb || 100, reload) }) : null));
+  const headCenter = filterUID && d.owner
+    ? h('div.shorts-fs-tabs', h('span.shorts-fs-tab.active', `Клипы · ${d.owner.nick}`))
+    : h('div.shorts-fs-tabs', ...tabs.map(([k, l]) => h('a.shorts-fs-tab' + (tab === k ? '.active' : ''), { href: `/shorts?tab=${k}` }, l)));
 
-  const out = [ui.pageHead('Клипы', null), topBar];
+  const header = h('div.shorts-fs-head',
+    h('a.shorts-fs-back', { href: backHref, title: 'Назад', 'aria-label': 'Назад' }, icon('arrow-left', 20)),
+    headCenter,
+    h('span.shorts-fs-spacer'));
 
-  // Блок обрабатываемых видео текущего пользователя
-  if (d.pending && d.pending.length) {
+  const wrap = h('div.shorts-fs-wrap', header);
+
+  if (!d.items || !d.items.length) {
+    wrap.append(h('div.shorts-fs-empty', ui.empty(
+      tab === 'friends' ? 'У друзей пока нет клипов' : 'Клипов пока нет',
+      'video',
+      me() ? ui.btn('Перейти в мои клипы', { ic: 'video', kind: 'primary', href: `/shorts/user/${me().id}` }) : null
+    )));
+    ctx.onLeave(() => document.body.classList.remove('shorts-fs'));
+    return wrap;
+  }
+
+  const snap = h('div.shorts-snap');
+  const slides = [];
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      const v = en.target.querySelector('video');
+      if (!v) return;
+      if (en.isIntersecting && en.intersectionRatio >= 0.6) {
+        v.muted = globalMuted;
+        v.play().catch(() => {});
+        const idx = slides.findIndex(x => x.slide === en.target);
+        if (idx >= slides.length - 2 && curPage < totalPages && !loadingMore) {
+          loadMore();
+        }
+      } else {
+        v.pause();
+      }
+    });
+  }, { root: snap, threshold: [0.2, 0.6] });
+
+  const appendItems = items => {
+    items.forEach(s => {
+      const item = buildShortSlide(s, { onDeleted: reload, onUpdated: reload });
+      slides.push(item);
+      snap.append(item.slide);
+      io.observe(item.slide);
+    });
+  };
+
+  async function loadMore() {
+    loadingMore = true;
+    try {
+      const next = await api.get('/api/shorts', { tab, user: filterUID || undefined, page: curPage + 1 }, { silent: true });
+      curPage++;
+      totalPages = next.pages || totalPages;
+      if (next.items && next.items.length) appendItems(next.items);
+    } finally { loadingMore = false; }
+  }
+
+  appendItems(d.items);
+  wrap.append(snap);
+
+  // Клавиатура: стрелки вверх/вниз, пробел, M, Esc
+  const onKey = e => {
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+    if (document.querySelector('.modal-back')) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const curIdx = slides.findIndex(c => !c.video.paused);
+      const next = Math.max(0, Math.min(slides.length - 1, (curIdx < 0 ? 0 : curIdx) + (e.key === 'ArrowDown' ? 1 : -1)));
+      if (slides[next]) {
+        e.preventDefault();
+        slides[next].slide.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } else if (e.key === ' ') {
+      const active = slides.find(c => !c.video.paused) || slides[0];
+      if (active) { e.preventDefault(); active.video.paused ? active.video.play().catch(() => {}) : active.video.pause(); }
+    } else if (e.key.toLowerCase() === 'm') {
+      globalMuted = !globalMuted;
+      slides.forEach(c => { c.video.muted = globalMuted; });
+      document.querySelectorAll('.short-mute').forEach(b => b.replaceChildren(icon(globalMuted ? 'volume-x' : 'volume', 18)));
+    }
+  };
+  document.addEventListener('keydown', onKey);
+  ctx.onLeave(() => {
+    document.body.classList.remove('shorts-fs');
+    io.disconnect();
+    document.removeEventListener('keydown', onKey);
+    slides.forEach(c => c.video.pause());
+  });
+
+  return wrap;
+}
+
+router.add('/shorts', ctx => renderShortsFeed(ctx, 0));
+router.add('/shorts/:id', ctx => renderShortsFeed(ctx, +ctx.params.id));
+
+// ───────── клипы конкретного пользователя (загрузка доступна ТОЛЬКО на своей странице)
+router.add('/shorts/user/:uid', async ctx => {
+  const uid = +ctx.params.uid;
+  const d = await api.get('/api/shorts', { user: uid, page: ctx.page });
+  const isMe = !!(me() && me().id === uid);
+  const nick = (d.owner && d.owner.nick) || (isMe ? me().nick : 'Пользователь');
+  const reload = () => router.render();
+  ctx.title(isMe ? 'Мои клипы' : `Клипы · ${nick}`);
+
+  const out = [
+    ui.breadcrumbs([{ href: '/id' + uid, title: nick }, { title: 'Клипы' }]),
+    ui.pageHead(isMe ? 'Мои клипы' : `Клипы · ${nick}`,
+      isMe ? ui.btn('Загрузить клип', { ic: 'upload', kind: 'primary', small: true, onclick: () => openUploadModal(d.max_sec || 60, d.max_mb || 100, reload) }) : null),
+  ];
+
+  // Показываем статус обработки ffmpeg только владельцу на его странице
+  if (isMe && d.pending && d.pending.length) {
     const pCard = h('div.card.pad.stack-s');
     d.pending.forEach(p => {
       pCard.append(h('div.row',
         p.status === 'processing' ? h('span.badge.primary', 'Обработка ffmpeg…') : h('span.badge.danger', 'Ошибка'),
         h('b', p.title),
-        p.err_msg ? h('span.small.err', p.err_msg) : h('span.small.muted', 'Видео сжимается и скоро появится в ленте'),
+        p.err_msg ? h('span.small.err', p.err_msg) : h('span.small.muted', 'Видео сжимается и скоро появится здесь и в общей ленте'),
         h('span.grow'),
         p.status === 'failed' ? ui.btn('Убрать', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/shorts/' + p.id); reload(); } }) : null));
     });
@@ -444,93 +552,17 @@ async function renderShorts(ctx, startID = 0) {
     }
   }
 
-  if (!d.items || !d.items.length) {
-    out.push(ui.card(ui.empty(
-      tab === 'friends' ? 'У друзей пока нет клипов' : 'Клипов пока нет — загрузите первый!',
-      'video',
-      me() ? ui.btn('Загрузить клип', { ic: 'upload', kind: 'primary', onclick: () => openUploadModal(d.max_sec || 60, d.max_mb || 100, reload) }) : null
-    )));
-    return out;
-  }
-
-  if (viewMode === 'grid' && !startID) {
-    out.push(h('div.shorts-grid', ...d.items.map(shortTile)), ui.pager(d));
-    return out;
-  }
-
-  // Вертикальная лента с автовоспроизведением видимого ролика
-  const feed = h('div.shorts-feed');
-  const cards = [];
-  d.items.forEach(s => {
-    const item = buildShortCard(s, {
-      onDeleted: () => reload(),
-      onUpdated: () => reload(),
-    });
-    cards.push(item);
-    feed.append(item.card);
-  });
-
-  const io = new IntersectionObserver(entries => {
-    entries.forEach(en => {
-      const v = en.target.querySelector('video');
-      if (!v) return;
-      if (en.isIntersecting && en.intersectionRatio >= 0.65) {
-        v.muted = globalMuted;
-        v.play().catch(() => {});
-      } else {
-        v.pause();
-      }
-    });
-  }, { threshold: [0.2, 0.65] });
-  cards.forEach(c => io.observe(c.card));
-
-  // Навигация с клавиатуры (стрелки вверх/вниз, пробел, M)
-  const onKey = e => {
-    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const curIdx = cards.findIndex(c => !c.video.paused);
-      const next = Math.max(0, Math.min(cards.length - 1, (curIdx < 0 ? 0 : curIdx) + (e.key === 'ArrowDown' ? 1 : -1)));
-      if (cards[next]) {
-        e.preventDefault();
-        cards[next].card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    } else if (e.key === ' ') {
-      const active = cards.find(c => !c.video.paused) || cards[0];
-      if (active) { e.preventDefault(); active.video.paused ? active.video.play().catch(() => {}) : active.video.pause(); }
-    } else if (e.key.toLowerCase() === 'm') {
-      globalMuted = !globalMuted;
-      cards.forEach(c => { c.video.muted = globalMuted; });
-      document.querySelectorAll('.short-mute').forEach(b => b.replaceChildren(icon(globalMuted ? 'volume-x' : 'volume', 18)));
-    }
-  };
-  document.addEventListener('keydown', onKey);
-  ctx.onLeave(() => {
-    io.disconnect();
-    document.removeEventListener('keydown', onKey);
-    cards.forEach(c => c.video.pause());
-  });
-
-  out.push(feed, ui.pager(d));
-  return out;
-}
-
-router.add('/shorts', ctx => renderShorts(ctx, 0));
-router.add('/shorts/:id', ctx => renderShorts(ctx, +ctx.params.id));
-
-// ───────── клипы конкретного пользователя
-router.add('/shorts/user/:uid', async ctx => {
-  const uid = +ctx.params.uid;
-  ctx.title('Клипы пользователя');
-  const d = await api.get('/api/shorts', { user: uid, page: ctx.page });
-  const isMe = me() && me().id === uid;
-  return [
-    ui.breadcrumbs([{ href: '/shorts', title: 'Клипы' }, { href: '/id' + uid, title: 'Профиль' }, { title: 'Клипы' }]),
-    ui.pageHead('Клипы пользователя', isMe ? ui.btn('Загрузить клип', { ic: 'plus', kind: 'primary', small: true, onclick: () => openUploadModal(d.max_sec || 60, d.max_mb || 100, () => router.render()) }) : null),
+  out.push(
     d.items && d.items.length
-      ? h('div.shorts-grid', ...d.items.map(shortTile))
-      : ui.card(ui.empty('У пользователя пока нет клипов', 'video')),
-    ui.pager(d),
-  ];
+      ? h('div.shorts-grid', ...d.items.map(s => shortTile(s, uid)))
+      : ui.card(ui.empty(
+        isMe ? 'У вас пока нет клипов' : 'У пользователя пока нет клипов',
+        'video',
+        isMe ? ui.btn('Загрузить первый клип', { ic: 'upload', kind: 'primary', onclick: () => openUploadModal(d.max_sec || 60, d.max_mb || 100, reload) }) : null
+      )),
+    ui.pager(d)
+  );
+  return out;
 });
 
 // Уведомление в реальном времени о завершении обработки ffmpeg
