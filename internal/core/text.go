@@ -3,6 +3,7 @@ package core
 import (
 	"html"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -25,12 +26,12 @@ func newText(a *App) *Text { return &Text{a: a} }
 func (t *Text) SetSmiles(fn func() []Smile) { t.smiles = fn }
 
 var (
-	reURL   = regexp.MustCompile(`(^|[\s>(])((?:https?|ftp)://[^\s<>"']+)`)
+	reURL   = regexp.MustCompile(`(^|[\s>(])((?:https?)://[^\s<>"']+)`)
 	reTag   = regexp.MustCompile(`(?is)\[(i|b|u|big|small|red|yellow|green|blue|white)\](.*?)\[/(?:i|b|u|big|small|red|yellow|green|blue|white)\]`)
 	reSize  = regexp.MustCompile(`(?is)\[size=(\d{1,2})\](.*?)\[/size\]`)
-	reURLBB = regexp.MustCompile(`(?is)\[url=((?:https?|ftp)://[^\]\s"']+|/[^\]\s"']*)\](.*?)\[/url\]`)
-	reURLB2 = regexp.MustCompile(`(?is)\[url\]((?:https?|ftp)://[^\[\s"']+|/[^\[\s"']*)\[/url\]`)
-	reImg   = regexp.MustCompile(`(?is)\[img\]((?:https?://|/)[^\[\s"'<>]+)\[/img\]`)
+	reURLBB = regexp.MustCompile(`(?is)\[url=((?:https?://|/[^/])[^\]\s"']*)\](.*?)\[/url\]`)
+	reURLB2 = regexp.MustCompile(`(?is)\[url\]((?:https?://|/[^/])[^\[\s"']*)\[/url\]`)
+	reImg   = regexp.MustCompile(`(?is)\[img\]((?:https?://|/[^/])[^\[\s"'<>]*)\[/img\]`)
 	reCode  = regexp.MustCompile(`(?is)\[code\](.*?)\[/code\]`)
 	reQuote = regexp.MustCompile(`(?is)\[quote(?:=([^\]]{0,40}))?\](.*?)\[/quote\]`)
 	reBR    = regexp.MustCompile(`(?i)\[br\]`)
@@ -60,23 +61,38 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 	cfg := t.a.Cfg
 	s := html.EscapeString(raw)
 	s = strings.ReplaceAll(s, "\r\n", "\n")
-	var codes []string
+	var slots []string
+	hold := func(frag string) string {
+		slots = append(slots, frag)
+		return "\x00S" + strconv.Itoa(len(slots)-1) + "\x00"
+	}
 	if bb && cfg.Bool("bb_code") {
 		s = reCode.ReplaceAllStringFunc(s, func(m string) string {
 			inner := reCode.FindStringSubmatch(m)[1]
-			codes = append(codes, `<pre class="bb-code"><code>`+inner+`</code></pre>`)
-			return "\x00C" + string(rune('A'+len(codes)-1)) + "\x00"
+			return hold(`<pre class="bb-code"><code>` + inner + `</code></pre>`)
 		})
 	}
 	if bb && cfg.Bool("bb_img") {
-		s = reImg.ReplaceAllString(s, `<img class="bb-img" src="$1" alt="" loading="lazy">`)
+		s = reImg.ReplaceAllStringFunc(s, func(m string) string {
+			sm := reImg.FindStringSubmatch(m)
+			return hold(`<img class="bb-img" src="` + sm[1] + `" alt="" loading="lazy">`)
+		})
 	}
 	if bb && cfg.Bool("bb_url") {
-		s = reURLBB.ReplaceAllString(s, `<a href="$1" target="_blank" rel="noopener nofollow ugc">$2</a>`)
-		s = reURLB2.ReplaceAllString(s, `<a href="$1" target="_blank" rel="noopener nofollow ugc">$1</a>`)
+		s = reURLBB.ReplaceAllStringFunc(s, func(m string) string {
+			sm := reURLBB.FindStringSubmatch(m)
+			return hold(`<a href="` + sm[1] + `" target="_blank" rel="noopener nofollow ugc">` + sm[2] + `</a>`)
+		})
+		s = reURLB2.ReplaceAllStringFunc(s, func(m string) string {
+			sm := reURLB2.FindStringSubmatch(m)
+			return hold(`<a href="` + sm[1] + `" target="_blank" rel="noopener nofollow ugc">` + sm[1] + `</a>`)
+		})
 	}
 	if links && cfg.Bool("bb_http") {
-		s = reURL.ReplaceAllString(s, `$1<a href="$2" target="_blank" rel="noopener nofollow ugc">$2</a>`)
+		s = reURL.ReplaceAllStringFunc(s, func(m string) string {
+			sm := reURL.FindStringSubmatch(m)
+			return sm[1] + hold(`<a href="`+sm[2]+`" target="_blank" rel="noopener nofollow ugc">`+sm[2]+`</a>`)
+		})
 	}
 	if smiles {
 		s = t.applySmiles(s)
@@ -95,7 +111,16 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 			})
 		}
 		if cfg.Bool("bb_size") {
-			s = reSize.ReplaceAllString(s, `<span style="font-size:$1px">$2</span>`)
+			s = reSize.ReplaceAllStringFunc(s, func(m string) string {
+				sm := reSize.FindStringSubmatch(m)
+				sz, _ := strconv.Atoi(sm[1])
+				if sz < 10 {
+					sz = 10
+				} else if sz > 36 {
+					sz = 36
+				}
+				return `<span style="font-size:` + strconv.Itoa(sz) + `px">` + sm[2] + `</span>`
+			})
 		}
 		s = reQuote.ReplaceAllStringFunc(s, func(m string) string {
 			sm := reQuote.FindStringSubmatch(m)
@@ -107,8 +132,8 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 		})
 	}
 	s = strings.ReplaceAll(s, "\n", "<br>")
-	for i, c := range codes {
-		s = strings.Replace(s, "\x00C"+string(rune('A'+i))+"\x00", c, 1)
+	for i := len(slots) - 1; i >= 0; i-- {
+		s = strings.Replace(s, "\x00S"+strconv.Itoa(i)+"\x00", slots[i], 1)
 	}
 	return s
 }

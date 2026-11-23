@@ -263,6 +263,9 @@ func (c *Ctx) Status(code int, v any) error {
 	h := c.W.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "SAMEORIGIN")
+	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 	c.W.WriteHeader(code)
 	if v == nil {
 		v = map[string]any{}
@@ -311,7 +314,7 @@ func (a *App) wrap(h Handler, mw []Middleware) http.HandlerFunc {
 			}
 		}()
 		a.authenticate(c)
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-DCMS") == "" && !strings.HasPrefix(r.Header.Get("Content-Type"), "text/event") {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-DCMS") == "" {
 			c.Status(403, map[string]string{"error": "CSRF: нет заголовка X-DCMS"})
 			return
 		}

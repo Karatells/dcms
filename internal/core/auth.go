@@ -147,8 +147,9 @@ func (a *App) Login(c *Ctx, uid int64) {
 	now := Now()
 	tok := RandToken(32)
 	a.T.Sessions.Insert(&model.Session{Token: tok, UserID: uid, Created: now, Last: now, IP: c.IP(), UA: c.R.UserAgent()})
+	secure := c.R.TLS != nil || (a.Cfg.Bool("trust_proxy") && c.R.Header.Get("X-Forwarded-Proto") == "https")
 	http.SetCookie(c.W, &http.Cookie{Name: cookieName, Value: tok, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
-		Expires: time.Now().Add(180 * 24 * time.Hour), Secure: c.R.TLS != nil || c.R.Header.Get("X-Forwarded-Proto") == "https"})
+		Expires: time.Now().Add(180 * 24 * time.Hour), Secure: secure})
 	a.T.Users.Update(uid, func(u *model.User) { u.DateAut = now; u.DateLast = now; u.IP = c.IP() })
 	a.T.UserLog.Insert(&model.UserLog{IDUser: uid, Method: true, Time: now, IP: ipToInt(c.IP()), Ua: trunc(c.R.UserAgent(), 32)})
 }
@@ -158,7 +159,8 @@ func (a *App) Logout(c *Ctx) {
 	if c.Sess != nil {
 		a.T.Sessions.Delete(c.Sess.ID)
 	}
-	http.SetCookie(c.W, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	secure := c.R.TLS != nil || (a.Cfg.Bool("trust_proxy") && c.R.Header.Get("X-Forwarded-Proto") == "https")
+	http.SetCookie(c.W, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure})
 }
 
 // LogoutAll закрывает все сессии пользователя (кроме keep, если >0).

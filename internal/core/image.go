@@ -228,6 +228,8 @@ func (c *Ctx) ServeFile(path, name, mime string) error {
 	}
 	if name != "" {
 		c.W.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''`+urlEscape(name))
+	} else {
+		c.W.Header().Set("Content-Security-Policy", "sandbox")
 	}
 	c.W.Header().Set("X-Content-Type-Options", "nosniff")
 	c.done = true

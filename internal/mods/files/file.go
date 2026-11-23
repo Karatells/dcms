@@ -151,10 +151,12 @@ func registerFiles(a *core.App) {
 		files.Update(f.ID, func(x *File) { x.KLoads++ })
 		name := f.Name + "." + f.Ras
 		mime := f.Type
-		if c.Q("inline") == "1" && (strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/") || strings.HasPrefix(mime, "image/")) {
+		safeInline := strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/") ||
+			mime == "image/jpeg" || mime == "image/png" || mime == "image/gif" || mime == "image/webp"
+		if c.Q("inline") == "1" && safeInline {
 			return c.ServeFile(filePath(a, f.ID), "", mime)
 		}
-		return c.ServeFile(filePath(a, f.ID), name, mime)
+		return c.ServeFile(filePath(a, f.ID), name, "application/octet-stream")
 	})
 
 	a.PUT("/api/obmen/file/{id}", func(c *core.Ctx) error {
