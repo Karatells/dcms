@@ -2,7 +2,6 @@ package admin
 
 import (
 	"archive/zip"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -172,38 +171,32 @@ func registerSystem(a *core.App) {
 			}
 			return nil
 		})
+		dbStats, _ := a.DB.Stats()
 		return c.OK("go", runtime.Version(), "os", runtime.GOOS+"/"+runtime.GOARCH, "cpus", runtime.NumCPU(), "goroutines", runtime.NumGoroutine(),
 			"mem", ms.Alloc, "uptime", int64(time.Since(started).Seconds()), "data_size", size,
+			"db_version", dbStats.Version, "db_size", dbStats.SizeBytes, "db_tables", dbStats.Tables,
 			"users", a.T.Users.Len(), "bans", a.T.Bans.Len(), "spam", a.T.Spam.Len(), "sessions", a.T.Sessions.Len())
 	}, core.Auth)
 
-	// резервная копия данных (замена SQL-консоли): снимок + журнал в zip
+	// резервная копия базы данных MySQL/MariaDB (SQL-дамп в zip)
 	a.GET("/api/admin/backup", func(c *core.Ctx) error {
 		if err := c.NeedAccess("adm_mysql"); err != nil {
 			return err
 		}
-		if err := a.DB.Compact(); err != nil {
-			return core.ErrBad("Не удалось создать снимок")
-		}
 		c.W.Header().Set("Content-Type", "application/zip")
 		c.W.Header().Set("Content-Disposition", `attachment; filename="backup-`+time.Now().Format("2006-01-02_15-04")+`.zip"`)
 		zw := zip.NewWriter(c.W)
-		defer zw.Close()
-		dir := a.DB.Dir()
-		ents, _ := os.ReadDir(dir)
-		for _, e := range ents {
-			if e.IsDir() {
-				continue
-			}
-			f, err := os.Open(filepath.Join(dir, e.Name()))
-			if err != nil {
-				continue
-			}
-			w, _ := zw.Create("data/" + e.Name())
-			io.Copy(w, f)
-			f.Close()
+		w, err := zw.Create("database.sql")
+		if err != nil {
+			_ = zw.Close()
+			return core.ErrBad("Не удалось создать архив")
 		}
-		a.AdminLog(c.UID(), "Система", "Резервная копия", "Скачана резервная копия данных")
+		if err := a.DB.DumpSQL(w); err != nil {
+			_ = zw.Close()
+			return core.ErrBad("Не удалось выгрузить базу данных")
+		}
+		_ = zw.Close()
+		a.AdminLog(c.UID(), "Система", "Резервная копия", "Скачан SQL-дамп базы данных")
 		return nil
 	}, core.Auth)
 

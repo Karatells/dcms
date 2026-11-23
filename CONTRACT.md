@@ -13,7 +13,7 @@
 ```
 /home/claude/dcms
   main.go                      — регистрирует все модули (НЕ править)
-  internal/store               — встроенное хранилище (WAL + память), generics
+  internal/store               — хранилище на MySQL / MariaDB (database/sql + go-sql-driver/mysql), generics
   internal/model/model.go      — ЦЕНТРАЛЬНЫЕ модели (User, Ban, Friends, Notification, Tape, Discussions, Likes, Bookmarks, Menu …)
   internal/core                — App, Ctx, auth, права, Config, Text(BBCode), feed-сервисы, Hub(SSE), image, registry
   internal/mods/<модуль>       — ВАШ модуль (пакет), Register(a *core.App)

@@ -51,7 +51,8 @@ router.add('/admin/info', async ctx => {
   const d = await api.get('/api/admin/info');
   const up = d.uptime, upS = `${Math.floor(up / 86400)} д ${Math.floor(up % 86400 / 3600)} ч ${Math.floor(up % 3600 / 60)} мин`;
   const rows = [['Пользователей', fmt.num(d.users)], ['Активных сессий', fmt.num(d.sessions)], ['Действующих банов', fmt.num(d.bans)], ['Жалоб', fmt.num(d.spam)],
-    ['Данные на диске', fmt.size(d.data_size)], ['Память процесса', fmt.size(d.mem)], ['Горутин', d.goroutines], ['Процессоров', d.cpus], ['Платформа', d.os], ['Версия Go', d.go], ['Работает', upS]];
+    ['СУБД (MySQL/MariaDB)', d.db_version || '—'], ['Размер БД', fmt.size(d.db_size || 0)], ['Таблиц в БД', fmt.num(d.db_tables || 0)],
+    ['Загруженные файлы', fmt.size(d.data_size)], ['Память процесса', fmt.size(d.mem)], ['Горутин', d.goroutines], ['Процессоров', d.cpus], ['Платформа', d.os], ['Версия Go', d.go], ['Работает', upS]];
   return [crumbs({ title: 'Информация' }), ui.pageHead('Общая информация'), ui.card(h('div.list', rows.map(([k, v]) => h('div.list-item', h('div.main', k), h('b', S(v))))))];
 }, { auth: true, access: 'adm_info' });
 
@@ -250,6 +251,6 @@ router.add('/admin/groups', async ctx => {
 // ───────── резервная копия
 router.add('/admin/backup', async ctx => {
   ctx.title('Резервная копия');
-  return [crumbs({ title: 'Резервная копия' }), ui.pageHead('Резервная копия'), h('div.card.pad.stack', h('p', 'Встроенное хранилище заменяет MySQL: все данные лежат в снимке и журнале изменений. Архив содержит их целиком (загруженные файлы в него не входят).'),
-    h('a.btn.primary', { href: '/api/admin/backup', download: '' }, icon('download', 16), h('span', 'Скачать резервную копию')))];
+  return [crumbs({ title: 'Резервная копия' }), ui.pageHead('Резервная копия'), h('div.card.pad.stack', h('p', 'Архив содержит полный SQL-дамп базы данных MySQL / MariaDB (загруженные файлы в него не входят).'),
+    h('a.btn.primary', { href: '/api/admin/backup', download: '' }, icon('download', 16), h('span', 'Скачать SQL-дамп (.zip)')))];
 }, { auth: true, access: 'adm_mysql' });

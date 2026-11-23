@@ -1,10 +1,11 @@
-// DCMS Social на Go — социальная сеть: один бинарник, встроенное хранилище, REST API + SPA.
+// DCMS Social на Go — социальная сеть: один бинарник, база данных MySQL / MariaDB, REST API + SPA.
 package main
 
 import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -29,7 +30,8 @@ var webFS embed.FS
 
 func main() {
 	addr := flag.String("addr", envOr("DCMS_ADDR", ":8080"), "адрес HTTP")
-	data := flag.String("data", envOr("DCMS_DATA", "data"), "каталог данных")
+	data := flag.String("data", envOr("DCMS_DATA", "data"), "каталог загруженных файлов")
+	dsn := flag.String("dsn", defaultDSN(), "строка подключения MySQL/MariaDB (user:pass@tcp(host:3306)/dbname)")
 	webDir := flag.String("web", os.Getenv("DCMS_WEB"), "каталог фронтенда (для разработки; по умолчанию вшитый)")
 	flag.Parse()
 
@@ -46,7 +48,7 @@ func main() {
 		}
 		web = sub
 	}
-	a, err := core.New(*data, web)
+	a, err := core.New(*data, *dsn, web)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -69,6 +71,18 @@ func main() {
 		os.Exit(0)
 	}()
 	log.Fatal(a.Run(*addr))
+}
+
+func defaultDSN() string {
+	if v := os.Getenv("DCMS_DSN"); v != "" {
+		return v
+	}
+	user := envOr("DCMS_DB_USER", "dcms")
+	pass := envOr("DCMS_DB_PASS", "dcms")
+	host := envOr("DCMS_DB_HOST", "127.0.0.1")
+	port := envOr("DCMS_DB_PORT", "3306")
+	name := envOr("DCMS_DB_NAME", "dcms")
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4", user, pass, host, port, name)
 }
 
 func envOr(k, d string) string {

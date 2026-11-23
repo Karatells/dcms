@@ -56,8 +56,11 @@ type Handler func(c *Ctx) error
 type Middleware func(Handler) Handler
 
 // New создаёт приложение. Модули создают свои таблицы через a.DB до вызова Start().
-func New(dataDir string, web fs.FS) (*App, error) {
-	db, err := store.Open(filepath.Join(dataDir, "db"))
+func New(dataDir, dsn string, web fs.FS) (*App, error) {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return nil, err
+	}
+	db, err := store.Open(dsn)
 	if err != nil {
 		return nil, err
 	}

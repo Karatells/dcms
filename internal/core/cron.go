@@ -30,7 +30,6 @@ func (a *App) startCrons() {
 		}
 		// просроченные сессии (год без активности)
 		a.T.Sessions.DeleteWhere(func(s *model.Session) bool { return s.Last < now-365*86400 })
-		_ = a.DB.Compact()
 	})
 	for _, j := range a.crons {
 		j := j

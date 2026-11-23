@@ -14,8 +14,12 @@ import (
 func main() {
 	addr := flag.String("addr", ":18100", "")
 	data := flag.String("data", "/tmp/dcms-dev", "")
+	dsn := flag.String("dsn", os.Getenv("DCMS_DSN"), "MySQL/MariaDB DSN")
 	flag.Parse()
-	a, err := core.New(*data, os.DirFS("web"))
+	if *dsn == "" {
+		*dsn = "dcms:dcms@tcp(127.0.0.1:3306)/dcms?charset=utf8mb4"
+	}
+	a, err := core.New(*data, *dsn, os.DirFS("web"))
 	if err != nil {
 		log.Fatal(err)
 	}
