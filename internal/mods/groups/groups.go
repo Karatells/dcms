@@ -30,6 +30,9 @@ type Group struct {
 	EnableFiles bool   `json:"enable_files"`
 	OpenBlog    bool   `json:"open_blog"` // могут ли обычные участники публиковать посты в блог
 	Private     bool   `json:"private"`   // приватное сообщество (вступление по одобрению или ссылке)
+	Hidden      bool   `json:"hidden"`
+	Blocked     bool   `json:"blocked"`
+	BlockReason string `json:"block_reason"`
 }
 
 // GroupMember — участник сообщества и его роль / права модератора по разделам.
@@ -145,22 +148,34 @@ func memberOf(gid, uid int64) (GroupMember, bool) {
 }
 
 type perms struct {
-	IsMember  bool `json:"is_member"`
-	IsCreator bool `json:"is_creator"`
-	IsAdmin   bool `json:"is_admin"`
-	Manage    bool `json:"manage"` // creator | admin | site admin
-	ModBlog   bool `json:"mod_blog"`
-	ModForum  bool `json:"mod_forum"`
-	ModChat   bool `json:"mod_chat"`
-	ModFiles  bool `json:"mod_files"`
-	Role      string `json:"role"`
+	IsMember       bool   `json:"is_member"`
+	IsCreator      bool   `json:"is_creator"`
+	IsAdmin        bool   `json:"is_admin"`
+	Manage         bool   `json:"manage"` // creator | admin | site group mod
+	CanBlock       bool   `json:"can_block"`
+	CanDeleteGroup bool   `json:"can_delete_group"`
+	ModBlog        bool   `json:"mod_blog"`
+	ModForum       bool   `json:"mod_forum"`
+	ModChat        bool   `json:"mod_chat"`
+	ModFiles       bool   `json:"mod_files"`
+	Role           string `json:"role"`
+}
+
+var appRef *core.App
+
+func canBlockGroup(u *model.User) bool {
+	return u != nil && (u.Level >= 3 || (appRef != nil && appRef.Can(u.ID, "groups_block")))
+}
+
+func canDeleteGroup(u *model.User, g Group) bool {
+	return u != nil && (g.IDCreator == u.ID || u.Level >= 3 || (appRef != nil && appRef.Can(u.ID, "groups_delete")))
 }
 
 func permsOf(u *model.User, g Group) perms {
 	if u == nil {
 		return perms{}
 	}
-	siteAdm := u.Level >= 3
+	siteAdm := u.Level >= 3 || (appRef != nil && appRef.Can(u.ID, "groups_edit"))
 	m, ok := memberOf(g.ID, u.ID)
 	isCreator := g.IDCreator == u.ID || (ok && m.Role == "creator")
 	isAdmin := ok && m.Role == "admin"
@@ -173,15 +188,17 @@ func permsOf(u *model.User, g Group) perms {
 		role = "creator"
 	}
 	return perms{
-		IsMember:  ok || isCreator,
-		IsCreator: isCreator,
-		IsAdmin:   isAdmin,
-		Manage:    manage,
-		ModBlog:   manage || (ok && m.ModBlog),
-		ModForum:  manage || (ok && m.ModForum),
-		ModChat:   manage || (ok && m.ModChat),
-		ModFiles:  manage || (ok && m.ModFiles),
-		Role:      role,
+		IsMember:       ok || isCreator,
+		IsCreator:      isCreator,
+		IsAdmin:        isAdmin,
+		Manage:         manage,
+		CanBlock:       canBlockGroup(u),
+		CanDeleteGroup: canDeleteGroup(u, g),
+		ModBlog:        manage || (ok && m.ModBlog),
+		ModForum:       manage || (ok && m.ModForum),
+		ModChat:        manage || (ok && m.ModChat),
+		ModFiles:       manage || (ok && m.ModFiles),
+		Role:           role,
 	}
 }
 
@@ -230,6 +247,9 @@ func groupCard(a *core.App, g Group, viewer *model.User) map[string]any {
 		"enable_files":    g.EnableFiles,
 		"open_blog":       g.OpenBlog,
 		"private":         g.Private,
+		"hidden":          g.Hidden,
+		"blocked":         g.Blocked,
+		"block_reason":    g.BlockReason,
 		"can_view":        canViewGroup(viewer, g),
 		"pending_request": pendingReq,
 		"requests_count":  reqCnt,
@@ -266,6 +286,7 @@ func deleteGroupAll(a *core.App, g Group) {
 
 // Register регистрирует таблицы, хуки и маршруты модуля сообществ.
 func Register(a *core.App) {
+	appRef = a
 	groupsT = store.NewTable[Group](a.DB, "groups").
 		Index("creator", func(g *Group) string { return i(g.IDCreator) })
 	membersT = store.NewTable[GroupMember](a.DB, "group_members").
@@ -352,6 +373,9 @@ func Register(a *core.App) {
 
 		var filt []Group
 		for _, g := range list {
+			if (g.Hidden || g.Blocked) && tab != "my" && uid == 0 && !canBlockGroup(me) {
+				continue
+			}
 			if cat != "" && g.Category != cat {
 				continue
 			}
@@ -510,11 +534,109 @@ func Register(a *core.App) {
 		if !ok {
 			return core.ErrNotFound("Сообщество не найдено")
 		}
-		if g.IDCreator != me.ID && me.Level < 3 {
-			return core.ErrForbidden("Удалить сообщество может только создатель")
+		if !canDeleteGroup(me, g) {
+			return core.ErrForbidden("Удалить сообщество может только создатель или модератор сообществ")
 		}
 		deleteGroupAll(a, g)
+		if me.ID != g.IDCreator {
+			a.AdminLog(me.ID, "Сообщества", "Удаление", "Удалено сообщество #"+i(g.ID)+" ("+g.Name+")")
+		}
 		return c.OK()
+	}, core.Auth)
+
+	// ── Модерация сообщества (скрыть / заблокировать)
+	a.POST("/api/groups/{id}/moderate", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if !canBlockGroup(me) {
+			return core.ErrForbidden()
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound("Сообщество не найдено")
+		}
+		var in struct {
+			Hidden  *bool  `json:"hidden"`
+			Blocked *bool  `json:"blocked"`
+			Reason  string `json:"reason"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		upd, _ := groupsT.Update(g.ID, func(x *Group) {
+			if in.Hidden != nil {
+				x.Hidden = *in.Hidden
+			}
+			if in.Blocked != nil {
+				x.Blocked = *in.Blocked
+				if x.Blocked {
+					x.BlockReason = a.Text.Clean(strings.TrimSpace(in.Reason))
+				} else {
+					x.BlockReason = ""
+				}
+			}
+		})
+		act := "Модерация"
+		if in.Blocked != nil {
+			if *in.Blocked {
+				act = "Блокировка"
+			} else {
+				act = "Разблокировка"
+			}
+		} else if in.Hidden != nil {
+			if *in.Hidden {
+				act = "Скрытие"
+			} else {
+				act = "Показ"
+			}
+		}
+		a.AdminLog(me.ID, "Сообщества", act, "Сообщество #"+i(g.ID)+" ("+g.Name+")")
+		return c.JSON(groupCard(a, upd, me))
+	}, core.Auth)
+
+	// ── Админ-список сообществ для модераторов сообществ
+	a.GET("/api/admin/communities", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if !canBlockGroup(me) && !a.Can(me.ID, "groups_delete") {
+			return core.ErrForbidden()
+		}
+		filter := c.Q("filter") // all | hidden | blocked
+		q := strings.ToLower(strings.TrimSpace(c.Q("q")))
+		p := c.Page(20)
+		all := groupsT.All()
+		var filt []Group
+		for _, g := range all {
+			if filter == "hidden" && !g.Hidden {
+				continue
+			}
+			if filter == "blocked" && !g.Blocked {
+				continue
+			}
+			if q != "" && !strings.Contains(strings.ToLower(g.Name), q) && !strings.Contains(strings.ToLower(g.Opis), q) {
+				continue
+			}
+			filt = append(filt, g)
+		}
+		sort.Slice(filt, func(x, y int) bool { return filt[x].ID > filt[y].ID })
+		total := len(filt)
+		end := p.Offset + p.Per
+		if end > total {
+			end = total
+		}
+		var sl []Group
+		if p.Offset < total {
+			sl = filt[p.Offset:end]
+		}
+		items := make([]map[string]any, 0, len(sl))
+		for _, g := range sl {
+			items = append(items, groupCard(a, g, me))
+		}
+		return c.List(items, total, p)
 	}, core.Auth)
 
 	// ── Загрузка аватарки и баннера сообщества

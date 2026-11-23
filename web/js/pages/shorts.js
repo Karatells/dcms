@@ -6,6 +6,15 @@ if (!document.querySelector('link[href="/css/shorts.css"]')) {
 
 const me = () => state.user;
 let globalMuted = true;
+
+state.adminLinks.push({
+  group: 'Модерация',
+  title: 'Модерация клипов',
+  href: '/admin/shorts',
+  access: 'shorts_block',
+  icon: 'video',
+  desc: 'Скрытие, блокировка и удаление клипов',
+});
 const fmtDur = s => {
   s = Math.max(0, Math.round(s || 0));
   const m = Math.floor(s / 60), r = s % 60;
@@ -397,6 +406,31 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
     { label: 'Все клипы автора', href: '/shorts/user/' + s.user.id, icon: 'video' },
     { label: 'Скопировать ссылку', icon: 'copy', onclick: () => navigator.clipboard?.writeText(`${location.origin}/shorts/${s.id}`).then(() => ui.ok('Ссылка скопирована')) },
   ];
+  if (s.can_block) {
+    moreItems.push({ sep: true }, {
+      label: s.hidden ? 'Показать в ленте' : 'Скрыть из ленты', icon: s.hidden ? 'eye' : 'eye-off',
+      onclick: async () => {
+        const upd = await api.post(`/api/shorts/${s.id}/moderate`, { hidden: !s.hidden });
+        ui.ok(upd.hidden ? 'Клип скрыт из ленты' : 'Клип возвращён в ленту');
+        onUpdated && onUpdated(upd);
+      },
+    }, {
+      label: s.blocked ? 'Разблокировать клип' : 'Заблокировать клип', icon: s.blocked ? 'check' : 'lock', danger: !s.blocked,
+      onclick: async () => {
+        if (s.blocked) {
+          const upd = await api.post(`/api/shorts/${s.id}/moderate`, { blocked: false });
+          ui.ok('Клип разблокирован');
+          onUpdated && onUpdated(upd);
+        } else {
+          const reason = await ui.prompt('Причина блокировки (необязательно)', '', { title: 'Заблокировать клип' });
+          if (reason === null) return;
+          const upd = await api.post(`/api/shorts/${s.id}/moderate`, { blocked: true, reason });
+          ui.ok('Клип заблокирован');
+          onUpdated && onUpdated(upd);
+        }
+      },
+    });
+  }
   if (s.can_edit) {
     moreItems.push({ sep: true }, {
       label: 'Редактировать', icon: 'edit',
@@ -446,10 +480,16 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
 
   const descEl = s.opis_html ? h('div.short-desc', { html: s.opis_html, onclick: e => { e.stopPropagation(); descEl.classList.toggle('open'); } }) : null;
 
+  const statusPill = s.blocked
+    ? h('span.short-pill', { style: { background: 'rgba(220,38,38,.85)' } }, icon('lock', 13), ' Заблокирован')
+    : s.hidden
+      ? h('span.short-pill', { style: { background: 'rgba(217,119,6,.85)' } }, 'Скрыт')
+      : null;
+
   card.append(
     video,
     h('div.short-play-flash', h('span', icon('play', 28))),
-    h('div.short-top-bar', h('span.short-pill', icon('video', 14), fmtDur(s.duration)), muteBtn),
+    h('div.short-top-bar', h('div.row', h('span.short-pill', icon('video', 14), fmtDur(s.duration)), statusPill), muteBtn),
     h('div.short-rail', likeBtn, kommBtn, bmBtn, shareBtn, moreBtn),
     h('div.short-info',
       h('div.short-author', ui.avatar(s.user, 32), ui.userLink(s.user)),
@@ -466,8 +506,14 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
 // ───────── плитка для страницы клипов пользователя
 function shortTile(s, uid) {
   const href = uid ? `/shorts/${s.id}?user=${uid}` : `/shorts/${s.id}`;
+  const modBadge = s.blocked
+    ? h('span.badge.danger', { style: { position: 'absolute', top: '6px', left: '6px', zIndex: 2 } }, 'Заблокирован')
+    : s.hidden
+      ? h('span.badge.warn', { style: { position: 'absolute', top: '6px', left: '6px', zIndex: 2 } }, 'Скрыт')
+      : null;
   return h('a.short-tile', { href },
     h('img', { src: s.poster_url, alt: s.title, loading: 'lazy' }),
+    modBadge,
     h('span.short-tile-dur', fmtDur(s.duration)),
     h('div.short-tile-ov',
       h('div.short-tile-title', s.title),
@@ -634,6 +680,79 @@ router.add('/shorts/user/:uid', async ctx => {
   );
   return out;
 });
+
+// ───────── панель модерации клипов (/admin/shorts)
+router.add('/admin/shorts', async ctx => {
+  const filter = ctx.query.filter || 'all';
+  const q = ctx.query.q || '';
+  ctx.title('Модерация клипов');
+  const d = await api.get('/api/admin/shorts', { filter: filter === 'all' ? '' : filter, q, page: ctx.page });
+  const reload = () => router.render();
+
+  const searchIn = h('input.input', { value: q, placeholder: 'Поиск по названию или описанию…' });
+  const goSearch = () => router.go(`/admin/shorts?filter=${filter}&q=${encodeURIComponent(searchIn.value.trim())}`);
+  searchIn.onkeydown = e => e.key === 'Enter' && goSearch();
+
+  const tabs = [
+    { key: 'all', label: 'Все', href: `/admin/shorts?filter=all&q=${encodeURIComponent(q)}` },
+    { key: 'hidden', label: 'Скрытые', href: `/admin/shorts?filter=hidden&q=${encodeURIComponent(q)}` },
+    { key: 'blocked', label: 'Заблокированные', href: `/admin/shorts?filter=blocked&q=${encodeURIComponent(q)}` },
+  ];
+
+  const list = (d.items || []).map(s => h('div.list-item',
+    h('img', { src: s.poster_url, alt: s.title, style: { width: '44px', height: '64px', objectFit: 'cover', borderRadius: '6px', flexShrink: '0' } }),
+    h('div.main',
+      h('div.title',
+        link('/shorts/' + s.id, s.title),
+        s.blocked ? h('span.badge.danger', { style: { marginLeft: '6px' } }, 'Заблокирован') : null,
+        s.hidden ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'Скрыт') : null),
+      h('div.small.muted', ui.userLink(s.user), ' · ', fmtDur(s.duration), ' · ', fmt.num(s.views), ' просм. · ', fmt.ago(s.time)),
+      s.block_reason ? h('div.small.err', 'Причина: ', s.block_reason) : null),
+    h('div.row',
+      ui.btn(s.hidden ? 'Показать' : 'Скрыть', {
+        small: true,
+        onclick: async () => {
+          await api.post(`/api/shorts/${s.id}/moderate`, { hidden: !s.hidden });
+          ui.ok(s.hidden ? 'Клип возвращён в ленту' : 'Клип скрыт');
+          reload();
+        },
+      }),
+      ui.btn(s.blocked ? 'Разблокировать' : 'Заблокировать', {
+        small: true, kind: s.blocked ? '' : 'danger',
+        onclick: async () => {
+          if (s.blocked) {
+            await api.post(`/api/shorts/${s.id}/moderate`, { blocked: false });
+            ui.ok('Клип разблокирован');
+            reload();
+          } else {
+            const reason = await ui.prompt('Причина блокировки (необязательно)', '', { title: 'Заблокировать клип' });
+            if (reason === null) return;
+            await api.post(`/api/shorts/${s.id}/moderate`, { blocked: true, reason });
+            ui.ok('Клип заблокирован');
+            reload();
+          }
+        },
+      }),
+      ui.btn('', {
+        ic: 'trash', small: true, kind: 'danger', title: 'Удалить навсегда',
+        onclick: async () => {
+          if (await ui.confirm(`Удалить клип «${s.title}» навсегда?`, { danger: true })) {
+            await api.del('/api/shorts/' + s.id);
+            ui.ok('Клип удалён');
+            reload();
+          }
+        },
+      }))));
+
+  return [
+    ui.breadcrumbs([{ href: '/admin', title: 'Панель управления' }, { title: 'Модерация клипов' }]),
+    ui.pageHead('Модерация клипов'),
+    ui.tabs(tabs, filter),
+    h('div.card.pad', h('div.row.nowrap', searchIn, ui.btn('Найти', { ic: 'search', kind: 'primary', onclick: goSearch }))),
+    ui.card(list.length ? h('div.list', list) : ui.empty('Клипов не найдено', 'video')),
+    ui.pager(d),
+  ];
+}, { auth: true, access: 'shorts_block' });
 
 // Уведомление в реальном времени о завершении обработки ffmpeg
 bus.on('sse:shorts_ready', d => {

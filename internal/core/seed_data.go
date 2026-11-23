@@ -64,6 +64,12 @@ var seedAccesses = [][2]string{
 	{"forum_post_close", "Форум - возможность писать в закрытой теме"},
 	{"notes_edit", "Блоги - Редактирование"},
 	{"notes_delete", "Блоги - Удаление"},
+	{"shorts_edit", "Клипы - редактирование"},
+	{"shorts_delete", "Клипы - удаление"},
+	{"shorts_block", "Клипы - скрытие и блокировка"},
+	{"groups_edit", "Сообщества - редактирование и модерация"},
+	{"groups_delete", "Сообщества - удаление"},
+	{"groups_block", "Сообщества - скрытие и блокировка"},
 }
 
 var seedGroups = []struct {
@@ -83,6 +89,8 @@ var seedGroups = []struct {
 	{15, "Создатель", 10},
 	{11, "Модератор дневников", 1},
 	{12, "Модератор гостевой", 1},
+	{13, "Модератор клипов", 1},
+	{14, "Модератор сообществ", 1},
 }
 
 var seedGroupAccess = []struct {
@@ -361,6 +369,37 @@ var seedGroupAccess = []struct {
 	{15, "user_show_ip"},
 	{15, "user_settings"},
 	{15, "user_show_ua"},
+	// Модератор клипов (13)
+	{13, "adm_panel_show"},
+	{13, "adm_info"},
+	{13, "adm_show_adm"},
+	{13, "adm_banlist"},
+	{13, "user_ban_set_h"},
+	{13, "shorts_edit"},
+	{13, "shorts_delete"},
+	{13, "shorts_block"},
+	// Модератор сообществ (14)
+	{14, "adm_panel_show"},
+	{14, "adm_info"},
+	{14, "adm_show_adm"},
+	{14, "adm_banlist"},
+	{14, "user_ban_set_h"},
+	{14, "groups_edit"},
+	{14, "groups_delete"},
+	{14, "groups_block"},
+	// Общий модератор (7) и Администратор (8) также получают права на клипы и сообщества
+	{7, "shorts_edit"},
+	{7, "shorts_delete"},
+	{7, "shorts_block"},
+	{7, "groups_edit"},
+	{7, "groups_delete"},
+	{7, "groups_block"},
+	{8, "shorts_edit"},
+	{8, "shorts_delete"},
+	{8, "shorts_block"},
+	{8, "groups_edit"},
+	{8, "groups_delete"},
+	{8, "groups_block"},
 }
 
 var seedMenu = []struct {

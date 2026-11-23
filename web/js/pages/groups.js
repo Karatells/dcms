@@ -8,6 +8,15 @@ const me = () => state.user;
 const CATS = ['Общение', 'Игры', 'Музыка', 'Технологии', 'Спорт', 'Творчество', 'Кино', 'Образование', 'Другое'];
 const initialOf = s => (Array.from((s || 'Г').trim())[0] || 'Г').toUpperCase();
 
+state.adminLinks.push({
+  group: 'Модерация',
+  title: 'Модерация сообществ',
+  href: '/admin/communities',
+  access: 'groups_block',
+  icon: 'users',
+  desc: 'Скрытие, блокировка и удаление сообществ',
+});
+
 function roleBadges(m) {
   const b = [];
   if (m.role === 'creator') b.push(h('span.badge.danger', 'Создатель'));
@@ -191,19 +200,54 @@ router.add('/groups/:id', async ctx => {
     h('div.grp-main',
       h('div.grp-ava', g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
       h('div.grp-info',
-        h('h1', g.name, g.private ? h('span.badge.warn', { style: { marginLeft: '8px', verticalAlign: 'middle' } }, icon('lock', 12), ' Приватное') : null),
+        h('h1', g.name,
+          g.private ? h('span.badge.warn', { style: { marginLeft: '8px', verticalAlign: 'middle' } }, icon('lock', 12), ' Приватное') : null,
+          g.hidden ? h('span.badge.warn', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Скрыто') : null,
+          g.blocked ? h('span.badge.danger', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Заблокировано') : null),
         h('div.small.muted', g.category, ' · участников: ', fmt.num(g.members), ' · создатель: ', ui.userLink(g.creator))),
       h('div.grp-actions', inviteBtn, joinBtn)),
     g.opis_html ? h('div.grp-opis.text', { html: g.opis_html }) : null);
+
+  const modBar = p.can_block ? h('div.card.pad.row',
+    h('span.small.muted', icon('shield', 14), ' Модерация:'),
+    g.blocked && g.block_reason ? h('span.small.err', 'Причина: ', g.block_reason) : null,
+    h('span.grow'),
+    ui.btn(g.hidden ? 'Показать в каталоге' : 'Скрыть из каталога', {
+      small: true,
+      onclick: async () => {
+        await api.post(`/api/groups/${id}/moderate`, { hidden: !g.hidden });
+        ui.ok(g.hidden ? 'Сообщество возвращено в каталог' : 'Сообщество скрыто из каталога');
+        reload();
+      },
+    }),
+    ui.btn(g.blocked ? 'Разблокировать' : 'Заблокировать', {
+      small: true, kind: g.blocked ? '' : 'danger',
+      onclick: async () => {
+        if (g.blocked) {
+          await api.post(`/api/groups/${id}/moderate`, { blocked: false });
+          ui.ok('Сообщество разблокировано');
+          reload();
+        } else {
+          const reason = await ui.prompt('Причина блокировки (необязательно)', '', { title: 'Заблокировать сообщество' });
+          if (reason === null) return;
+          await api.post(`/api/groups/${id}/moderate`, { blocked: true, reason });
+          ui.ok('Сообщество заблокировано');
+          reload();
+        }
+      },
+    })) : null;
 
   if (!g.can_view) {
     return [
       ui.breadcrumbs([{ href: '/groups', title: 'Сообщества' }, { title: g.name }]),
       headerCard,
-      ui.card(ui.empty(
-        g.pending_request ? 'Ваша заявка на вступление рассматривается администрацией' : 'Это приватное сообщество. Подайте заявку или воспользуйтесь ссылкой-приглашением, чтобы открыть разделы.',
-        'lock'
-      )),
+      modBar,
+      ui.card(g.blocked
+        ? ui.empty('Сообщество заблокировано администрацией' + (g.block_reason ? `: ${g.block_reason}` : '.'), 'lock')
+        : ui.empty(
+          g.pending_request ? 'Ваша заявка на вступление рассматривается администрацией' : 'Это приватное сообщество. Подайте заявку или воспользуйтесь ссылкой-приглашением, чтобы открыть разделы.',
+          'lock'
+        )),
     ];
   }
 
@@ -223,6 +267,7 @@ router.add('/groups/:id', async ctx => {
   const out = [
     ui.breadcrumbs([{ href: '/groups', title: 'Сообщества' }, { title: g.name }]),
     headerCard,
+    modBar,
     grid,
   ];
 
@@ -663,10 +708,84 @@ router.add('/groups/:id/settings', async ctx => {
         ui.btn('Загрузить аватарку', { ic: 'upload', small: true, onclick: async () => { if (!avaIn.files[0]) return; await api.upload(`/api/groups/${id}/avatar`, { file: avaIn.files[0] }); ui.ok('Аватарка обновлена'); reload(); } })),
       h('div.row', h('div.field', h('label', 'Баннер (шапка сообщества)'), banIn),
         ui.btn('Загрузить баннер', { ic: 'upload', small: true, onclick: async () => { if (!banIn.files[0]) return; await api.upload(`/api/groups/${id}/banner`, { file: banIn.files[0] }); ui.ok('Баннер обновлён'); reload(); } }))),
-    g.perms.is_creator || (me() && me().level >= 3) ? h('div.card.pad',
+    g.perms.can_delete_group || g.perms.is_creator || (me() && me().level >= 3) ? h('div.card.pad',
       ui.btn('Удалить сообщество навсегда', {
         ic: 'trash', kind: 'danger',
         onclick: async () => { if (await ui.confirm('Удалить сообщество вместе со всеми темами, блогом, чатом и файлами?', { danger: true })) { await api.del('/api/groups/' + id); ui.ok('Сообщество удалено'); router.go('/groups'); } },
       })) : null,
   ];
 });
+
+// ───────── панель модерации сообществ (/admin/communities)
+router.add('/admin/communities', async ctx => {
+  const filter = ctx.query.filter || 'all';
+  const q = ctx.query.q || '';
+  ctx.title('Модерация сообществ');
+  const d = await api.get('/api/admin/communities', { filter: filter === 'all' ? '' : filter, q, page: ctx.page });
+  const reload = () => router.render();
+
+  const searchIn = h('input.input', { value: q, placeholder: 'Поиск по названию или описанию…' });
+  const goSearch = () => router.go(`/admin/communities?filter=${filter}&q=${encodeURIComponent(searchIn.value.trim())}`);
+  searchIn.onkeydown = e => e.key === 'Enter' && goSearch();
+
+  const tabs = [
+    { key: 'all', label: 'Все', href: `/admin/communities?filter=all&q=${encodeURIComponent(q)}` },
+    { key: 'hidden', label: 'Скрытые', href: `/admin/communities?filter=hidden&q=${encodeURIComponent(q)}` },
+    { key: 'blocked', label: 'Заблокированные', href: `/admin/communities?filter=blocked&q=${encodeURIComponent(q)}` },
+  ];
+
+  const list = (d.items || []).map(g => h('div.list-item',
+    h('div.grp-ava-sm', g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
+    h('div.main',
+      h('div.title',
+        h('a', { href: '/groups/' + g.id }, g.name),
+        g.private ? h('span.badge', { style: { marginLeft: '6px' } }, icon('lock', 11), ' Приватное') : null,
+        g.blocked ? h('span.badge.danger', { style: { marginLeft: '6px' } }, 'Заблокировано') : null,
+        g.hidden ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'Скрыто') : null),
+      h('div.small.muted', g.category, ' · участников: ', fmt.num(g.members), ' · создатель: ', ui.userLink(g.creator)),
+      g.block_reason ? h('div.small.err', 'Причина: ', g.block_reason) : null),
+    h('div.row',
+      ui.btn(g.hidden ? 'Показать' : 'Скрыть', {
+        small: true,
+        onclick: async () => {
+          await api.post(`/api/groups/${g.id}/moderate`, { hidden: !g.hidden });
+          ui.ok(g.hidden ? 'Сообщество возвращено в каталог' : 'Сообщество скрыто');
+          reload();
+        },
+      }),
+      ui.btn(g.blocked ? 'Разблокировать' : 'Заблокировать', {
+        small: true, kind: g.blocked ? '' : 'danger',
+        onclick: async () => {
+          if (g.blocked) {
+            await api.post(`/api/groups/${g.id}/moderate`, { blocked: false });
+            ui.ok('Сообщество разблокировано');
+            reload();
+          } else {
+            const reason = await ui.prompt('Причина блокировки (необязательно)', '', { title: 'Заблокировать сообщество' });
+            if (reason === null) return;
+            await api.post(`/api/groups/${g.id}/moderate`, { blocked: true, reason });
+            ui.ok('Сообщество заблокировано');
+            reload();
+          }
+        },
+      }),
+      ui.btn('', {
+        ic: 'trash', small: true, kind: 'danger', title: 'Удалить навсегда',
+        onclick: async () => {
+          if (await ui.confirm(`Удалить сообщество «${g.name}» навсегда?`, { danger: true })) {
+            await api.del('/api/groups/' + g.id);
+            ui.ok('Сообщество удалено');
+            reload();
+          }
+        },
+      }))));
+
+  return [
+    ui.breadcrumbs([{ href: '/admin', title: 'Панель управления' }, { title: 'Модерация сообществ' }]),
+    ui.pageHead('Модерация сообществ'),
+    ui.tabs(tabs, filter),
+    h('div.card.pad', h('div.row.nowrap', searchIn, ui.btn('Найти', { ic: 'search', kind: 'primary', onclick: goSearch }))),
+    ui.card(list.length ? h('div.list', list) : ui.empty('Сообществ не найдено', 'users')),
+    ui.pager(d),
+  ];
+}, { auth: true, access: 'groups_block' });

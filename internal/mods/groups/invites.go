@@ -46,13 +46,16 @@ var (
 )
 
 func canViewGroup(u *model.User, g Group) bool {
+	if g.Blocked {
+		return canBlockGroup(u)
+	}
 	if !g.Private {
 		return true
 	}
 	if u == nil {
 		return false
 	}
-	return u.Level >= 3 || permsOf(u, g).IsMember
+	return canBlockGroup(u) || permsOf(u, g).IsMember
 }
 
 func registerInvites(a *core.App) {

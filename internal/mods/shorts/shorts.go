@@ -23,17 +23,20 @@ func init() {
 // Short — короткое видео (таблица shorts).
 type Short struct {
 	store.Base
-	IDUser   int64  `json:"id_user"`
-	Title    string `json:"title"`
-	Opis     string `json:"opis"`
-	Time     int64  `json:"time"`
-	Duration int64  `json:"duration"`
-	Size     int64  `json:"size"`
-	Width    int64  `json:"width"`
-	Height   int64  `json:"height"`
-	Views    int64  `json:"views"`
-	Status   string `json:"status"` // processing | ready | failed
-	ErrMsg   string `json:"err_msg"`
+	IDUser      int64  `json:"id_user"`
+	Title       string `json:"title"`
+	Opis        string `json:"opis"`
+	Time        int64  `json:"time"`
+	Duration    int64  `json:"duration"`
+	Size        int64  `json:"size"`
+	Width       int64  `json:"width"`
+	Height      int64  `json:"height"`
+	Views       int64  `json:"views"`
+	Status      string `json:"status"` // processing | ready | failed
+	ErrMsg      string `json:"err_msg"`
+	Hidden      bool   `json:"hidden"`
+	Blocked     bool   `json:"blocked"`
+	BlockReason string `json:"block_reason"`
 }
 
 // ShortKomm — комментарий к клипу (таблица shorts_komm).
@@ -61,7 +64,11 @@ func canManage(a *core.App, u *model.User, s Short) bool {
 	if u == nil {
 		return false
 	}
-	return u.ID == s.IDUser || u.Level >= 2 || a.Can(u.ID, "obmen_file_delete")
+	return u.ID == s.IDUser || u.Level >= 2 || a.Can(u.ID, "shorts_edit") || a.Can(u.ID, "shorts_delete")
+}
+
+func canBlockShort(a *core.App, u *model.User) bool {
+	return u != nil && (u.Level >= 2 || a.Can(u.ID, "shorts_block"))
 }
 
 func shortView(a *core.App, s Short, viewer *model.User) map[string]any {
@@ -102,9 +109,13 @@ func shortView(a *core.App, s Short, viewer *model.User) map[string]any {
 		"liked":      liked,
 		"bookmarked": bookmarked,
 		"komms":      kommsT.CountBy("short", i(s.ID)),
-		"video_url":  "/api/shorts/" + i(s.ID) + "/video",
-		"poster_url": "/api/shorts/" + i(s.ID) + "/poster",
-		"can_edit":   canManage(a, viewer, s),
+		"video_url":    "/api/shorts/" + i(s.ID) + "/video",
+		"poster_url":   "/api/shorts/" + i(s.ID) + "/poster",
+		"hidden":       s.Hidden,
+		"blocked":      s.Blocked,
+		"block_reason": s.BlockReason,
+		"can_edit":     canManage(a, viewer, s),
+		"can_block":    canBlockShort(a, viewer),
 	}
 	return m
 }
@@ -183,16 +194,25 @@ func Register(a *core.App) {
 
 		var list []Short
 		var pending []map[string]any
+		isMod := canBlockShort(a, me)
 		if uid > 0 {
 			for _, s := range shortsT.By("user", i(uid)) {
 				if s.Status == "ready" {
+					if (s.Hidden || s.Blocked) && !isMod && (me == nil || me.ID != uid) {
+						continue
+					}
 					list = append(list, s)
 				} else if me != nil && me.ID == uid {
 					pending = append(pending, shortView(a, s, me))
 				}
 			}
 		} else {
-			list = shortsT.By("status", "ready")
+			for _, s := range shortsT.By("status", "ready") {
+				if s.Hidden || s.Blocked {
+					continue
+				}
+				list = append(list, s)
+			}
 		}
 
 		if tab == "friends" && me != nil {
@@ -425,9 +445,107 @@ func Register(a *core.App) {
 		if !ok || s.Status != "ready" {
 			return core.ErrNotFound()
 		}
+		if (s.Hidden || s.Blocked) && !canBlockShort(a, c.User()) && (c.User() == nil || c.User().ID != s.IDUser) {
+			return core.ErrForbidden("Клип скрыт или заблокирован модератором")
+		}
 		c.W.Header().Set("Cache-Control", "public, max-age=604800")
 		return c.ServeFile(videoPath(a, s.ID), "", "video/mp4")
 	})
+
+	// ── Модерация клипа (скрыть / заблокировать)
+	a.POST("/api/shorts/{id}/moderate", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if !canBlockShort(a, me) {
+			return core.ErrForbidden()
+		}
+		s, ok := shortsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound("Клип не найден")
+		}
+		var in struct {
+			Hidden  *bool  `json:"hidden"`
+			Blocked *bool  `json:"blocked"`
+			Reason  string `json:"reason"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		upd, _ := shortsT.Update(s.ID, func(x *Short) {
+			if in.Hidden != nil {
+				x.Hidden = *in.Hidden
+			}
+			if in.Blocked != nil {
+				x.Blocked = *in.Blocked
+				if x.Blocked {
+					x.BlockReason = a.Text.Clean(strings.TrimSpace(in.Reason))
+				} else {
+					x.BlockReason = ""
+				}
+			}
+		})
+		act := "Модерация"
+		if in.Blocked != nil {
+			if *in.Blocked {
+				act = "Блокировка"
+			} else {
+				act = "Разблокировка"
+			}
+		} else if in.Hidden != nil {
+			if *in.Hidden {
+				act = "Скрытие"
+			} else {
+				act = "Показ"
+			}
+		}
+		a.AdminLog(me.ID, "Клипы", act, "Клип #"+i(s.ID)+" ("+s.Title+")")
+		return c.JSON(shortView(a, upd, me))
+	}, core.Auth)
+
+	// ── Админ-список клипов для модераторов клипов
+	a.GET("/api/admin/shorts", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if !canBlockShort(a, me) && !a.Can(me.ID, "shorts_delete") {
+			return core.ErrForbidden()
+		}
+		filter := c.Q("filter") // all | hidden | blocked
+		q := strings.ToLower(strings.TrimSpace(c.Q("q")))
+		p := c.Page(20)
+		all := shortsT.All()
+		var filt []Short
+		for _, s := range all {
+			if filter == "hidden" && !s.Hidden {
+				continue
+			}
+			if filter == "blocked" && !s.Blocked {
+				continue
+			}
+			if q != "" && !strings.Contains(strings.ToLower(s.Title), q) && !strings.Contains(strings.ToLower(s.Opis), q) {
+				continue
+			}
+			filt = append(filt, s)
+		}
+		sort.Slice(filt, func(x, y int) bool { return filt[x].ID > filt[y].ID })
+		total := len(filt)
+		end := p.Offset + p.Per
+		if end > total {
+			end = total
+		}
+		var sl []Short
+		if p.Offset < total {
+			sl = filt[p.Offset:end]
+		}
+		items := make([]map[string]any, 0, len(sl))
+		for _, s := range sl {
+			items = append(items, shortView(a, s, me))
+		}
+		return c.List(items, total, p)
+	}, core.Auth)
 
 	// ── Обложка (JPEG)
 	a.GET("/api/shorts/{id}/poster", func(c *core.Ctx) error {
