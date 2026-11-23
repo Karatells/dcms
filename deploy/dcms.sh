@@ -79,16 +79,17 @@ ensure_mariadb() {
       pkg_install mariadb-server mariadb
     fi
   fi
-  if systemctl list-unit-files | grep -q '^mariadb\.service'; then
+  systemctl daemon-reload
+  if systemctl cat mariadb.service >/dev/null 2>&1; then
     systemctl enable --now mariadb
-  elif systemctl list-unit-files | grep -q '^mysql\.service'; then
+  elif systemctl cat mysql.service >/dev/null 2>&1; then
     systemctl enable --now mysql
   else
     die "Не найдена systemd-служба mariadb/mysql"
   fi
   local db_pass="${DB_PASS:-}"
   if [ -z "$db_pass" ]; then
-    db_pass="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)"
+    db_pass="$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
   fi
   local sql_bin; sql_bin="$(command -v mariadb || command -v mysql)"
   "$sql_bin" <<SQLEOF
