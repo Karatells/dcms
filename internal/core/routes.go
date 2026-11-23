@@ -134,8 +134,10 @@ func (a *App) serveWeb(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	st, _ := f.Stat()
-	if strings.HasSuffix(p, ".html") {
-		w.Header().Set("Cache-Control", "no-cache")
+	if strings.HasSuffix(p, ".html") || strings.HasSuffix(p, ".js") || strings.HasSuffix(p, ".css") {
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=300")
 	}
