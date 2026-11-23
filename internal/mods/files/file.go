@@ -8,12 +8,23 @@ import (
 	"dcms/internal/store"
 )
 
-// fileAccess — доступ к файлу: пароль личной папки (родителей тоже).
-func fileOpen(a *core.App, c *core.Ctx, f File) bool {
-	if fo, ok := folders.Get(f.MyDir); ok {
-		return folderChainOpen(a, c, fo)
+// fileAccessReason — причина ограничения доступа к файлу: "" (открыт), "private", "friends", "password".
+func fileAccessReason(a *core.App, c *core.Ctx, f File) string {
+	me := c.User()
+	if me != nil && (me.ID == f.IDUser || a.Can(me.ID, "obmen_dir_edit")) {
+		return ""
 	}
-	return true
+	if f.Hidden {
+		return "private"
+	}
+	if fo, ok := folders.Get(f.MyDir); ok {
+		return folderChainAccess(a, c, fo)
+	}
+	return ""
+}
+
+func fileOpen(a *core.App, c *core.Ctx, f File) bool {
+	return fileAccessReason(a, c, f) == ""
 }
 
 func registerFiles(a *core.App) {
@@ -30,12 +41,14 @@ func registerFiles(a *core.App) {
 		fo, _ := folders.Get(f.MyDir)
 		out := map[string]any{"id": f.ID, "name": f.Name, "ras": f.Ras, "owner": a.Ref(f.IDUser), "dir": map[string]any{"id": d.ID, "name": d.Name, "my": d.My},
 			"folder": map[string]any{"id": fo.ID, "name": fo.Name, "path": folderPath(fo)}, "echo_ras": a.Cfg.Int("echo_rassh")}
-		if !fileOpen(a, c, f) {
-			out["blocked"] = "password"
+		if reason := fileAccessReason(a, c, f); reason != "" {
+			out["blocked"] = reason
 			out["folder_id"] = fo.ID
 			return c.JSON(out)
 		}
 		out["metka"] = f.Metka
+		out["hidden"] = f.Hidden
+		out["can_publish"] = !f.Hidden && folderChainPublic(fo)
 		if !adultOK(c, f) {
 			out["adult"] = true
 			out["need_login"] = me == nil
@@ -172,9 +185,10 @@ func registerFiles(a *core.App) {
 			return core.ErrForbidden()
 		}
 		var in struct {
-			Name  string `json:"name"`
-			Opis  string `json:"opis"`
-			Metka bool   `json:"metka"`
+			Name   string `json:"name"`
+			Opis   string `json:"opis"`
+			Metka  bool   `json:"metka"`
+			Hidden *bool  `json:"hidden"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -186,7 +200,15 @@ func registerFiles(a *core.App) {
 		if err := lenOK(in.Opis, 0, 2048, "Описание"); err != nil {
 			return err
 		}
-		files.Update(f.ID, func(x *File) { x.Name, x.Opis, x.Metka = a.Text.Clean(in.Name), in.Opis, in.Metka })
+		files.Update(f.ID, func(x *File) {
+			x.Name, x.Opis, x.Metka = a.Text.Clean(in.Name), in.Opis, in.Metka
+			if in.Hidden != nil {
+				x.Hidden = *in.Hidden
+				if x.Hidden {
+					x.IDDir, x.TimeGo = myDir().ID, 0
+				}
+			}
+		})
 		if me.ID != f.IDUser {
 			a.AdminLog(me.ID, "Обменник", "Редактирование файла", "Редактирование файла [url=/obmen/file/"+i(f.ID)+"]"+f.Name+"[/url]")
 		}
@@ -232,6 +254,12 @@ func registerFiles(a *core.App) {
 			files.Update(f.ID, func(x *File) { x.IDDir, x.TimeGo = myDir().ID, 0 })
 			return c.OK()
 		}
+		if f.Hidden {
+			return core.ErrBad("Скрытый файл нельзя добавить в общий обменник — сначала сделайте его видимым")
+		}
+		if fo, ok := folders.Get(f.MyDir); ok && !folderChainPublic(fo) {
+			return core.ErrBad("Файл находится в закрытой папке (пароль / только друзьям / скрытая) — его нельзя добавить в общий обменник")
+		}
 		d, ok := dirs.Get(in.Dir)
 		if !ok || !d.Upload || d.My {
 			return core.ErrBad("Эта папка не доступна!")
@@ -269,8 +297,38 @@ func registerFiles(a *core.App) {
 		if !ok || fo.IDUser != me.ID {
 			return core.ErrBad("Папка не найдена")
 		}
-		files.Update(f.ID, func(x *File) { x.MyDir = fo.ID })
+		files.Update(f.ID, func(x *File) {
+			x.MyDir = fo.ID
+			if !folderChainPublic(fo) {
+				x.IDDir, x.TimeGo = myDir().ID, 0
+			}
+		})
 		return c.OK()
+	}, core.Auth)
+
+	// быстро скрыть / показать личный файл
+	a.POST("/api/obmen/file/{id}/hidden", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		f, ok := files.Get(c.PathInt("id"))
+		if !ok || f.IDUser != me.ID {
+			return core.ErrForbidden()
+		}
+		var in struct {
+			Hidden bool `json:"hidden"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		files.Update(f.ID, func(x *File) {
+			x.Hidden = in.Hidden
+			if x.Hidden {
+				x.IDDir, x.TimeGo = myDir().ID, 0
+			}
+		})
+		return c.OK("hidden", in.Hidden)
 	}, core.Auth)
 
 	a.POST("/api/obmen/file/{id}/like", func(c *core.Ctx) error {

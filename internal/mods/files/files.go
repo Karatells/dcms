@@ -39,6 +39,7 @@ type Folder struct {
 	Parent int64  `json:"parent"` // 0 — корень
 	Osn    int64  `json:"osn"`    // уровень вложенности; 1 — корневая папка
 	Pass   string `json:"pass"`
+	Privat int64  `json:"privat"` // 0 — всем, 1 — только друзьям, 2 — скрытая (только владельцу)
 }
 
 // File — файл (obmennik_files).
@@ -58,6 +59,7 @@ type File struct {
 	Opis     string `json:"opis"`
 	Metka    bool   `json:"metka"`
 	Screen   bool   `json:"screen"`
+	Hidden   bool   `json:"hidden"` // скрыт владельцем (виден только ему)
 }
 
 // Komm — комментарий к файлу.
@@ -234,26 +236,53 @@ func folderToken(f Folder) string {
 	return hex.EncodeToString(h[:8])
 }
 
-// folderOpen — можно ли текущему пользователю смотреть содержимое личной папки.
-func folderOpen(a *core.App, c *core.Ctx, f Folder) bool {
-	if f.Pass == "" {
-		return true
-	}
+// folderAccess — причина ограничения доступа к папке: "" (открыта), "private", "friends", "password".
+func folderAccess(a *core.App, c *core.Ctx, f Folder) string {
 	me := c.User()
 	if me != nil && (me.ID == f.IDUser || a.Can(me.ID, "obmen_dir_edit")) {
-		return true
+		return ""
 	}
-	// пароль родительских папок тоже действует
-	if ck, err := c.R.Cookie(fmt.Sprintf("pf%d", f.ID)); err == nil && ck.Value == folderToken(f) {
-		return true
+	if f.Privat == 2 {
+		return "private"
 	}
-	return false
+	if f.Privat == 1 && (me == nil || !a.IsFriend(f.IDUser, me.ID)) {
+		return "friends"
+	}
+	if f.Pass != "" {
+		if ck, err := c.R.Cookie(fmt.Sprintf("pf%d", f.ID)); err != nil || ck.Value != folderToken(f) {
+			return "password"
+		}
+	}
+	return ""
+}
+
+// folderChainAccess проверяет доступ ко всей цепочке папок (от текущей до корня).
+func folderChainAccess(a *core.App, c *core.Ctx, f Folder) string {
+	for n := 0; n < 8; n++ {
+		if reason := folderAccess(a, c, f); reason != "" {
+			return reason
+		}
+		if f.Parent == 0 {
+			return ""
+		}
+		p, ok := folders.Get(f.Parent)
+		if !ok {
+			return ""
+		}
+		f = p
+	}
+	return ""
 }
 
 // folderChainOpen — открыта ли папка и все её родители.
 func folderChainOpen(a *core.App, c *core.Ctx, f Folder) bool {
+	return folderChainAccess(a, c, f) == ""
+}
+
+// folderChainPublic — открыта ли цепочка папок для всех (без пароля, друзей и скрытия).
+func folderChainPublic(f Folder) bool {
 	for n := 0; n < 8; n++ {
-		if !folderOpen(a, c, f) {
+		if f.Privat > 0 || f.Pass != "" {
 			return false
 		}
 		if f.Parent == 0 {
@@ -264,6 +293,16 @@ func folderChainOpen(a *core.App, c *core.Ctx, f Folder) bool {
 			return true
 		}
 		f = p
+	}
+	return true
+}
+
+func filePublic(f File) bool {
+	if f.Hidden {
+		return false
+	}
+	if fo, ok := folders.Get(f.MyDir); ok {
+		return folderChainPublic(fo)
 	}
 	return true
 }

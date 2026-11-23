@@ -85,14 +85,18 @@ func registerDirs(a *core.App) {
 			for _, x := range subtree(d.ID) {
 				ids[x] = true
 			}
-			total := files.Count(func(f *File) bool { return ids[f.IDDir] })
-			news := files.Count(func(f *File) bool { return ids[f.IDDir] && f.TimeGo > since && since > 0 })
+			total := files.Count(func(f *File) bool { return ids[f.IDDir] && filePublic(*f) })
+			news := files.Count(func(f *File) bool { return ids[f.IDDir] && filePublic(*f) && f.TimeGo > since && since > 0 })
 			list = append(list, map[string]any{"id": d.ID, "name": d.Name, "files": total, "new": news, "upload": d.Upload, "my": d.My})
 		}
 		sortMode := c.Q("sort") // new | pop
 		var fl []File
 		if id != 0 && cur.ID != my.ID {
-			fl = files.By("dir", i(id))
+			for _, f := range files.By("dir", i(id)) {
+				if filePublic(f) {
+					fl = append(fl, f)
+				}
+			}
 		} else if id != 0 && manage {
 			fl = files.By("dir", i(id))
 		}
@@ -288,7 +292,7 @@ func registerDirs(a *core.App) {
 		my := myDir()
 		list, total := files.Select(store.Opts[File]{Desc: true, Offset: c.Page().Offset, Limit: c.Page().Per, Less: func(x, y *File) bool { return x.Time < y.Time },
 			Where: func(f *File) bool {
-				return f.IDDir != my.ID && (strings.Contains(strings.ToLower(f.Name), q) || strings.Contains(strings.ToLower(f.Opis), q))
+				return f.IDDir != my.ID && filePublic(*f) && (strings.Contains(strings.ToLower(f.Name), q) || strings.Contains(strings.ToLower(f.Opis), q))
 			}})
 		items := make([]map[string]any, 0, len(list))
 		for _, f := range list {

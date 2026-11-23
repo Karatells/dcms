@@ -7,9 +7,12 @@ const fileHref = f => '/obmen/file/' + f.id;
 const fname = (f, echo) => f.name + (echo ? '.' + f.ras : '');
 
 const fileItem = (f, echo = 1) => h('a.list-item', { href: fileHref(f) },
-  f.screen ? h('img.thumb', { src: f.screen_url, alt: '' }) : h('div.forum-ico', icon('file', 22)),
-  h('div.main', h('div.title', fname(f, echo), f.metka ? h('span.badge.danger', { style: { marginLeft: '6px' } }, '18+') : null),
-    f.opis ? h('div.small.muted.clip', f.opis) : null, h('div.small.muted', f.size_str, ' · ', f.owner.nick, ' · ', fmt.ago(f.time), f.dir ? ' · ' + f.dir.name : '', ' · ⬇ ', f.loads)),
+  f.screen ? h('img.thumb', { src: f.screen_url, alt: '' }) : h('div.forum-ico', icon(f.hidden ? 'lock' : 'file', 22)),
+  h('div.main', h('div.title', fname(f, echo),
+    f.hidden ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'Скрытый') : null,
+    f.published ? h('span.badge.primary', { style: { marginLeft: '6px' } }, 'В обменнике') : null,
+    f.metka ? h('span.badge.danger', { style: { marginLeft: '6px' } }, '18+') : null),
+    f.opis ? h('div.small.muted.clip', f.opis) : null, h('div.small.muted', f.size_str, ' · ', f.owner.nick, ' · ', fmt.ago(f.time), f.dir && !f.dir.my ? ' · ' + f.dir.name : '', ' · ⬇ ', f.loads)),
   h('span.badge', icon('message', 12), ' ', f.komm));
 
 const dirItem = d => h('a.list-item', { href: '/obmen/dir/' + d.id }, h('div.forum-ico', icon(d.my ? 'lock' : 'folder', 22)), h('div.main', h('div.title', d.name)),
@@ -34,8 +37,9 @@ async function renderDir(ctx, id) {
   const pList = Array.isArray(d.path) ? d.path : [];
   const path = [{ href: '/obmen', title: 'Обменник' }, ...pList.map((p, k) => k < pList.length - 1 ? { href: '/obmen/dir/' + p.id, title: p.name } : { title: p.name })];
   if (!id) path.pop(), path.push({ title: 'Обменник' });
-  const out = [ui.breadcrumbs(path), ui.pageHead(id ? d.name : 'Файловый обменник', h('div.row', ui.btn('Поиск', { ic: 'search', small: true, href: '/obmen/search' }),
-    me() && d.upload ? ui.btn('Добавить файл', { ic: 'upload', kind: 'primary', small: true, href: `/user/personalfiles/${me().id}/0/upload?obmen_dir=${id}` }) : null))];
+  const out = [ui.breadcrumbs(path), ui.pageHead(id ? d.name : 'Файловый обменник', h('div.row',
+    ui.btn('Поиск', { ic: 'search', small: true, href: '/obmen/search' }),
+    me() ? ui.btn('Мои файлы', { ic: 'folder', kind: 'primary', small: true, href: `/user/personalfiles/${me().id}/0` }) : null))];
   if (id && d.items.some(x => x.kind === 'file') && d.upload) out.push(h('div.chips', [['', 'Новые'], ['pop', 'Популярные']].map(([v, l]) => h('a.chip' + ((d.sort || '') === v ? '.active' : ''), { href: `/obmen/dir/${id}?sort=${v}` }, l))));
   out.push(ui.card(d.items.length ? h('div.list', d.items.map(x => x.kind === 'dir' ? dirItem(x) : fileItem(x, d.echo_ras))) : ui.empty('Нет результатов', 'folder')), ui.pager(d));
   if (d.upload) out.push(h('div.card.pad.small.muted', `Разрешено: ${d.ras || '—'} · размер до ${d.maxsize_str}`, d.limit ? ` · нужно баллов: ${d.limit}` : ''));
@@ -68,7 +72,12 @@ router.add('/obmen/file/:id', async ctx => {
   const d = await api.get('/api/obmen/file/' + id, { page: ctx.query.page || ctx.page, sort: ctx.query.sort });
   ctx.title(d.name);
   const path = [{ href: '/id' + d.owner.id, title: d.owner.nick }, { href: `/user/personalfiles/${d.owner.id}/0`, title: 'Файлы' }, ...d.folder.path.slice(1).map(p => ({ href: `/user/personalfiles/${d.owner.id}/${p.id}`, title: p.name })), { title: d.name }];
-  const head = [ui.breadcrumbs(path), ui.pageHead(d.name + (d.echo_ras ? '.' + d.ras : ''), d.metka ? h('span.badge.danger', '18+') : null)];
+  const head = [ui.breadcrumbs(path), ui.pageHead(d.name + (d.echo_ras ? '.' + d.ras : ''), h('div.row',
+    d.hidden ? h('span.badge.warn', 'Скрытый') : null,
+    d.dir && !d.dir.my ? h('span.badge.primary', 'В обменнике') : null,
+    d.metka ? h('span.badge.danger', '18+') : null))];
+  if (d.blocked === 'private') return [...head, h('div.card.pad', icon('lock', 16), ' Файл скрыт владельцем и доступен только ему.')];
+  if (d.blocked === 'friends') return [...head, h('div.card.pad', icon('users', 16), ' Доступ к этому файлу открыт только друзьям владельца.')];
   if (d.blocked) {
     const p = h('input.input', { type: 'password', placeholder: 'Пароль' });
     const go = async () => { await api.post(`/api/pfiles/folder/${d.folder_id}/unlock`, { password: p.value }); reload(); };
@@ -86,8 +95,15 @@ router.add('/obmen/file/:id', async ctx => {
       ui.btn(String(d.dislikes), { ic: 'thumbs-down', small: true, kind: d.my_like === 0 ? 'primary' : undefined, onclick: me() && !d.mine && d.my_like < 0 ? async () => { await api.post(`/api/obmen/file/${id}/like`, { like: false }); reload(); } : undefined }))));
   const acts = [];
   if (d.mine) {
-    acts.push(ui.btn(d.dir.my ? 'В зону обмена' : 'Сменить папку обмена', { ic: 'folder', small: true, onclick: () => publish(d, reload) }));
-    if (!d.dir.my) acts.push(ui.btn('Снять с публикации', { small: true, onclick: async () => { await api.post(`/api/obmen/file/${id}/publish`, { dir: 0 }); reload(); } }));
+    acts.push(ui.btn(d.dir.my ? 'Добавить в обменник' : 'Сменить раздел обменника', {
+      ic: 'share', small: true, kind: d.dir.my ? 'primary' : undefined,
+      onclick: () => publish(d, reload),
+    }));
+    if (!d.dir.my) acts.push(ui.btn('Убрать из обменника', { small: true, onclick: async () => { await api.post(`/api/obmen/file/${id}/publish`, { dir: 0 }); ui.ok('Файл убран из обменника'); reload(); } }));
+    acts.push(ui.btn(d.hidden ? 'Сделать видимым' : 'Скрыть файл', {
+      ic: d.hidden ? 'eye' : 'lock', small: true,
+      onclick: async () => { await api.post(`/api/obmen/file/${id}/hidden`, { hidden: !d.hidden }); ui.ok(d.hidden ? 'Файл снова видим' : 'Файл скрыт (виден только вам)'); reload(); },
+    }));
     acts.push(ui.btn('В другую папку', { ic: 'folder', small: true, onclick: () => moveFolder(d, reload) }));
   }
   if (d.can_delete) acts.push(ui.btn('Удалить', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить файл?', { danger: true })) { const r = await api.del('/api/obmen/file/' + id); ui.ok('Файл удалён'); router.go(`/user/personalfiles/${r.owner}/${r.folder}`); } } }));
@@ -112,16 +128,34 @@ router.add('/obmen/file/:id', async ctx => {
 });
 
 async function publish(d, reload) {
+  if (!d.can_publish) {
+    return ui.toast(d.hidden ? 'Сначала сделайте файл видимым, чтобы добавить в обменник' : 'Файл в закрытой папке (пароль / только друзьям / скрытая) нельзя добавить в общий обменник', 'warn');
+  }
   const tree = (await api.get('/api/obmen/tree')).filter(t => t.upload);
-  const sel = h('select.input', tree.map(t => h('option', { value: t.id }, '  '.repeat(t.depth) + t.name + ` (${t.ras})`)));
-  ui.modal({ title: 'Выложить в зону обмена', body: sel, actions: [{ label: 'Отмена' }, { label: 'Выложить', kind: 'primary', onclick: () => { api.post(`/api/obmen/file/${d.id}/publish`, { dir: +sel.value }).then(() => { ui.ok('Файл добавлен в зону обмена'); reload(); }); } }] });
+  if (!tree.length) return ui.toast('Нет доступных разделов в обменнике', 'warn');
+  const sel = h('select.input', tree.map(t => h('option', { value: t.id, selected: t.id === d.dir.id }, '  '.repeat(t.depth) + t.name + ` (${t.ras})`)));
+  const modal = ui.modal({
+    title: 'Добавить в обменник',
+    body: h('div.stack', h('div.small.muted', 'Выберите раздел и директорию обменника, в которой появится ссылка на этот файл:'), sel),
+    actions: [
+      { label: 'Отмена' },
+      { label: 'Добавить', kind: 'primary', onclick: () => { api.post(`/api/obmen/file/${d.id}/publish`, { dir: +sel.value }).then(() => { modal.close(); ui.ok('Файл добавлен в обменник'); reload(); }); return false; } },
+    ],
+  });
 }
 async function moveFolder(d, reload) {
   const all = [];
   const walk = async fid => { const r = await api.get(`/api/pfiles/${d.owner.id}/${fid}`, { page: 1 }); all.push({ id: r.id, name: r.name, depth: r.osn - 1 }); for (const x of r.items.filter(i => i.kind === 'dir' && !i.lock)) await walk(x.id); };
   await walk(0);
   const sel = h('select.input', all.map(t => h('option', { value: t.id, selected: t.id === d.folder.id }, '  '.repeat(t.depth) + t.name)));
-  ui.modal({ title: 'Переместить файл', body: sel, actions: [{ label: 'Отмена' }, { label: 'Переместить', kind: 'primary', onclick: () => { api.post(`/api/obmen/file/${d.id}/move`, { folder: +sel.value }).then(() => { ui.ok('Файл перемещён'); reload(); }); } }] });
+  const modal = ui.modal({
+    title: 'Переместить файл',
+    body: sel,
+    actions: [
+      { label: 'Отмена' },
+      { label: 'Переместить', kind: 'primary', onclick: () => { api.post(`/api/obmen/file/${d.id}/move`, { folder: +sel.value }).then(() => { modal.close(); ui.ok('Файл перемещён'); reload(); }); return false; } },
+    ],
+  });
 }
 
 // ───────── личные файлы
@@ -129,18 +163,24 @@ router.add('/user/personalfiles/:uid/:dir/upload', async ctx => {
   const { uid, dir } = ctx.params;
   ctx.title('Загрузка файла');
   const root = await api.get(`/api/pfiles/${uid}/${dir}`);
-  const tree = (await api.get('/api/obmen/tree')).filter(t => t.upload);
-  const sel = h('select.input', h('option', { value: 0 }, 'Только в личную папку'), tree.map(t => h('option', { value: t.id, selected: String(t.id) === ctx.query.obmen_dir }, '  '.repeat(t.depth) + t.name + ` (${t.ras}, до ${Math.round(t.maxsize / 1048576)} МБ)`)));
   const file = h('input', { type: 'file' }), screen = h('input', { type: 'file', accept: 'image/*' });
-  const name = h('input.input', { maxlength: 128, placeholder: 'Название (по умолчанию — имя файла)' }), msg = h('textarea.input', { rows: 3, placeholder: 'Описание' }), metka = h('input', { type: 'checkbox' });
+  const name = h('input.input', { maxlength: 128, placeholder: 'Название (по умолчанию — имя файла)' }), msg = h('textarea.input', { rows: 3, placeholder: 'Описание' });
+  const hidden = h('input', { type: 'checkbox' }), metka = h('input', { type: 'checkbox' });
   const send = async () => {
     if (!file.files[0]) return ui.toast('Выберите файл', 'warn');
-    const r = await api.upload('/api/pfiles/upload', { folder: root.id, obmen_dir: sel.value, file: file.files[0], screen: screen.files[0] || '', name: name.value, msg: msg.value, metka: metka.checked ? '1' : '0' });
-    ui.ok('Файл выгружен'); router.go('/obmen/file/' + r.id);
+    const r = await api.upload('/api/pfiles/upload', { folder: root.id, obmen_dir: '0', file: file.files[0], screen: screen.files[0] || '', name: name.value, msg: msg.value, hidden: hidden.checked ? '1' : '0', metka: metka.checked ? '1' : '0' });
+    ui.ok('Файл загружен в личную папку'); router.go('/obmen/file/' + r.id);
   };
-  return [crumbs({ href: `/user/personalfiles/${uid}/0`, title: 'Файлы' }, { title: 'Загрузка' }), ui.pageHead('Загрузка файла в «' + root.name + '»'),
-    h('div.card.pad.stack', h('div.field', h('label', 'Файл'), file), h('div.field', h('label', 'Название'), name), h('div.field', h('label', 'Описание'), msg), h('div.field', h('label', 'Скриншот / обложка (необязательно)'), screen),
-      h('div.field', h('label', 'Куда выложить'), sel), h('label.check', metka, ' Метка ', h('b.danger-text', '18+')), ui.btn('Загрузить', { ic: 'upload', kind: 'primary', onclick: send }))];
+  return [crumbs({ href: `/user/personalfiles/${uid}/${root.id}`, title: root.name }, { title: 'Загрузка' }), ui.pageHead('Загрузка файла в «' + root.name + '»'),
+    h('div.card.pad.stack',
+      h('div.field', h('label', 'Файл'), file),
+      h('div.field', h('label', 'Название'), name),
+      h('div.field', h('label', 'Описание'), msg),
+      h('div.field', h('label', 'Скриншот / обложка (необязательно)'), screen),
+      h('label.check', hidden, ' Скрытый файл (виден только мне)'),
+      h('label.check', metka, ' Метка ', h('b.danger-text', '18+')),
+      h('div.small.muted', 'После загрузки вы сможете добавить файл в общий обменник прямо со страницы файла.'),
+      ui.btn('Загрузить', { ic: 'upload', kind: 'primary', onclick: send }))];
 }, { auth: true });
 
 const pf = async ctx => {
@@ -149,31 +189,45 @@ const pf = async ctx => {
   const d = await api.get(`/api/pfiles/${uid}/${dir}`, { page: ctx.page });
   ctx.title(d.name + ' — ' + d.owner.nick);
   const head = [ui.breadcrumbs([{ href: '/id' + d.owner.id, title: d.owner.nick }, ...d.path.map((p, k) => k < d.path.length - 1 ? { href: `/user/personalfiles/${uid}/${p.id}`, title: p.name } : { title: p.name })]), ui.pageHead(d.name, d.mine ? ui.btn('Загрузить файл', { ic: 'upload', kind: 'primary', small: true, href: `/user/personalfiles/${uid}/${d.id}/upload` }) : null)];
+  if (d.blocked === 'private') return [...head, h('div.card.pad', icon('lock', 16), ' Папка скрыта владельцем.')];
+  if (d.blocked === 'friends') return [...head, h('div.card.pad', icon('users', 16), ' Папка доступна только друзьям пользователя.')];
   if (d.blocked) {
     const p = h('input.input', { type: 'password', placeholder: 'Пароль' });
     const go = async () => { await api.post(`/api/pfiles/folder/${d.id}/unlock`, { password: p.value }); reload(); };
     return [...head, h('div.card.pad.stack', h('div', icon('lock', 16), ' Папка защищена паролем'), p, ui.btn('Войти', { kind: 'primary', onclick: go }))];
   }
+  const privBadge = x => [
+    x.privat === 2 ? h('span.badge.warn', { style: { marginLeft: '6px' } }, 'Скрытая') : null,
+    x.privat === 1 ? h('span.badge.primary', { style: { marginLeft: '6px' } }, 'Друзьям') : null,
+    x.lock ? h('span.badge', { style: { marginLeft: '6px' } }, 'Пароль') : null,
+  ];
   const out = [...head, d.msg ? h('div.muted', { html: d.msg }) : null];
   out.push(ui.card(d.items.length ? h('div.list', d.items.map(x => x.kind === 'dir'
-    ? h('div.list-item', h('a.row.nowrap.grow', { href: `/user/personalfiles/${uid}/${x.id}` }, h('div.forum-ico', icon(x.lock ? 'lock' : 'folder', 22)), h('div.main', h('div.title', x.name), x.msg ? h('div.small.muted', x.msg) : null)), h('span.badge', `${x.folders}/${x.files}`),
+    ? h('div.list-item', h('a.row.nowrap.grow', { href: `/user/personalfiles/${uid}/${x.id}` }, h('div.forum-ico', icon(x.lock || x.privat ? 'lock' : 'folder', 22)), h('div.main', h('div.title', x.name, ...privBadge(x)), x.msg ? h('div.small.muted', x.msg) : null)), h('span.badge', `${x.folders}/${x.files}`),
       x.can_edit ? h('span.row', ui.btn('', { ic: 'edit', small: true, onclick: () => editFolder(x.id, reload) }), ui.btn('', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm(`Удалить папку «${x.name}» со всем содержимым?`, { danger: true })) { const r = await api.del('/api/pfiles/folder/' + x.id); ui.ok(`Удалено папок: ${r.folders}, файлов: ${r.files}`); reload(); } } })) : null)
     : fileItem(x))) : ui.empty('Папка пуста', 'folder')), ui.pager(d));
   if (d.can_create) out.push(h('details.card.pad', h('summary', icon('plus', 16), ' Создать папку'), folderForm({}, async v => { await api.post('/api/pfiles/folder', { ...v, parent: d.id }); ui.ok('Папка создана'); reload(); }, 'Создать')));
-  if (d.can_edit && d.osn > 1) out.push(h('details.card.pad', h('summary', icon('settings', 16), ' Настройки этой папки'), folderForm({ name: d.name, msg: d.raw_msg, pass: d.pass }, async v => { await api.put('/api/pfiles/folder/' + d.id, v); ui.ok('Сохранено'); reload(); }, 'Сохранить')));
+  if (d.can_edit && d.osn > 1) out.push(h('details.card.pad', h('summary', icon('settings', 16), ' Настройки этой папки'), folderForm({ name: d.name, msg: d.raw_msg, pass: d.pass, privat: d.privat }, async v => { await api.put('/api/pfiles/folder/' + d.id, v); ui.ok('Сохранено'); reload(); }, 'Сохранить')));
   return out;
 };
 router.add('/user/personalfiles/:uid', pf);
 router.add('/user/personalfiles/:uid/:dir', pf);
 
 function folderForm(f, onSubmit, submit) {
-  const name = h('input.input', { value: f.name || '', maxlength: 30, placeholder: 'Название' }), msg = h('textarea.input', { rows: 2, maxlength: 256, placeholder: 'Описание' }, f.msg || ''), pass = h('input.input', { value: f.pass || '', maxlength: 12, placeholder: 'Пароль (необязательно)' });
-  return h('div.stack', name, msg, pass, ui.btn(submit, { ic: 'check', kind: 'primary', onclick: () => onSubmit({ name: name.value, msg: msg.value, pass: pass.value }) }));
+  const name = h('input.input', { value: f.name || '', maxlength: 30, placeholder: 'Название' });
+  const msg = h('textarea.input', { rows: 2, maxlength: 256, placeholder: 'Описание' }, f.msg || '');
+  const privat = h('select.input',
+    h('option', { value: 0, selected: !(f.privat > 0) }, 'Доступ: всем'),
+    h('option', { value: 1, selected: f.privat === 1 }, 'Доступ: только друзьям'),
+    h('option', { value: 2, selected: f.privat === 2 }, 'Доступ: скрытая (только мне)'));
+  const pass = h('input.input', { value: f.pass || '', maxlength: 12, placeholder: 'Пароль (необязательно)' });
+  return h('div.stack', name, msg, privat, pass, ui.btn(submit, { ic: 'check', kind: 'primary', onclick: () => onSubmit({ name: name.value, msg: msg.value, pass: pass.value, privat: +privat.value }) }));
 }
 async function editFolder(id, reload) {
   const r = await api.get(`/api/pfiles/${state.user.id}/${id}`);
-  const box = h('div'); const form = folderForm({ name: r.name, msg: r.raw_msg, pass: r.pass }, async v => { await api.put('/api/pfiles/folder/' + id, v); ui.ok('Сохранено'); reload(); }, 'Сохранить');
-  box.append(form); ui.modal({ title: 'Редактирование папки', body: box, actions: [{ label: 'Закрыть' }] });
+  const box = h('div');
+  const modal = ui.modal({ title: 'Редактирование папки', body: box, actions: [{ label: 'Закрыть' }] });
+  box.append(folderForm({ name: r.name, msg: r.raw_msg, pass: r.pass, privat: r.privat }, async v => { await api.put('/api/pfiles/folder/' + id, v); modal.close(); ui.ok('Сохранено'); reload(); }, 'Сохранить'));
 }
 
 // ───────── админка

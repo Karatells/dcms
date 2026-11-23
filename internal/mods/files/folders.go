@@ -65,19 +65,32 @@ func registerFolders(a *core.App) {
 		}
 		me := c.User()
 		mine := me != nil && me.ID == owner.ID
-		out := map[string]any{"owner": a.Ref(owner.ID), "id": cur.ID, "name": cur.Name, "msg": a.Text.Render(cur.Msg), "path": folderPath(cur), "mine": mine, "osn": cur.Osn, "has_pass": cur.Pass != ""}
-		if !folderChainOpen(a, c, cur) {
-			out["blocked"] = "password"
+		isMod := c.Can("obmen_dir_edit")
+		out := map[string]any{"owner": a.Ref(owner.ID), "id": cur.ID, "name": cur.Name, "msg": a.Text.Render(cur.Msg), "path": folderPath(cur), "mine": mine, "osn": cur.Osn, "has_pass": cur.Pass != "", "privat": cur.Privat}
+		if reason := folderChainAccess(a, c, cur); reason != "" {
+			out["blocked"] = reason
 			return c.JSON(out)
 		}
-		if mine || c.Can("obmen_dir_edit") {
+		if mine || isMod {
 			out["raw_msg"], out["pass"] = cur.Msg, cur.Pass
 		}
-		out["can_edit"] = mine || c.Can("obmen_dir_edit")
+		out["can_edit"] = mine || isMod
 		out["can_create"] = mine && cur.Osn < 6
-		subs := folders.By("parent", i(cur.ID))
+		var subs []Folder
+		for _, s := range folders.By("parent", i(cur.ID)) {
+			if s.Privat == 2 && !mine && !isMod {
+				continue
+			}
+			subs = append(subs, s)
+		}
 		sort.Slice(subs, func(x, y int) bool { return subs[x].Time > subs[y].Time })
-		fl := files.By("mydir", i(cur.ID))
+		var fl []File
+		for _, f := range files.By("mydir", i(cur.ID)) {
+			if f.Hidden && !mine && !isMod {
+				continue
+			}
+			fl = append(fl, f)
+		}
 		sort.Slice(fl, func(x, y int) bool { return fl[x].Time > fl[y].Time })
 		p := c.Page()
 		total := len(subs) + len(fl)
@@ -90,16 +103,17 @@ func registerFolders(a *core.App) {
 					if x != s.ID {
 						nf++
 					}
-					nfiles += files.CountBy("mydir", i(x))
+					nfiles += files.Count(func(ff *File) bool { return ff.MyDir == x && (!ff.Hidden || mine || isMod) })
 				}
-				items = append(items, map[string]any{"kind": "dir", "id": s.ID, "name": s.Name, "msg": a.Text.Plain(s.Msg, 80), "lock": s.Pass != "", "folders": nf, "files": nfiles,
-					"can_edit": mine || c.Can("obmen_dir_edit")})
+				items = append(items, map[string]any{"kind": "dir", "id": s.ID, "name": s.Name, "msg": a.Text.Plain(s.Msg, 80), "lock": s.Pass != "", "privat": s.Privat, "folders": nf, "files": nfiles,
+					"can_edit": mine || isMod})
 			} else {
 				f := fl[k-len(subs)]
 				d, _ := dirs.Get(f.IDDir)
 				m := fileRow(a, f, &d)
 				m["kind"] = "file"
 				m["published"] = !d.My
+				m["hidden"] = f.Hidden
 				items = append(items, m)
 			}
 		}
@@ -130,9 +144,13 @@ func registerFolders(a *core.App) {
 		Name   string `json:"name"`
 		Msg    string `json:"msg"`
 		Pass   string `json:"pass"`
+		Privat int64  `json:"privat"`
 	}
 	check := func(in *folderIn) error {
 		in.Name, in.Msg, in.Pass = strings.TrimSpace(in.Name), strings.TrimSpace(in.Msg), strings.TrimSpace(in.Pass)
+		if in.Privat < 0 || in.Privat > 2 {
+			in.Privat = 0
+		}
 		if err := lenOK(in.Name, 3, 30, "Название"); err != nil {
 			return err
 		}
@@ -163,7 +181,7 @@ func registerFolders(a *core.App) {
 		if err := check(&in); err != nil {
 			return err
 		}
-		id := folders.Insert(&Folder{IDUser: me.ID, Name: a.Text.Clean(in.Name), Msg: in.Msg, Pass: in.Pass, Parent: par.ID, Osn: par.Osn + 1, Time: core.Now()})
+		id := folders.Insert(&Folder{IDUser: me.ID, Name: a.Text.Clean(in.Name), Msg: in.Msg, Pass: in.Pass, Privat: in.Privat, Parent: par.ID, Osn: par.Osn + 1, Time: core.Now()})
 		return c.OK("id", id)
 	}, core.Auth)
 
@@ -183,7 +201,18 @@ func registerFolders(a *core.App) {
 		if err := check(&in); err != nil {
 			return err
 		}
-		folders.Update(f.ID, func(x *Folder) { x.Name, x.Msg, x.Pass = a.Text.Clean(in.Name), in.Msg, in.Pass })
+		folders.Update(f.ID, func(x *Folder) { x.Name, x.Msg, x.Pass, x.Privat = a.Text.Clean(in.Name), in.Msg, in.Pass, in.Privat })
+		// Если папка стала приватной или под паролем — снимаем её файлы с общего обменника
+		if in.Privat > 0 || in.Pass != "" {
+			md := myDir().ID
+			for _, fid := range folderSubtree(f.ID) {
+				for _, fl := range files.By("mydir", i(fid)) {
+					if fl.IDDir != md {
+						files.Update(fl.ID, func(x *File) { x.IDDir, x.TimeGo = md, 0 })
+					}
+				}
+			}
+		}
 		return c.OK()
 	}, core.Auth)
 
@@ -277,8 +306,12 @@ func registerFolders(a *core.App) {
 			return err
 		}
 		now := core.Now()
-		f := File{IDUser: me.ID, IDDir: target.ID, MyDir: fo.ID, Name: a.Text.Clean(name), Ras: ext, Type: up.MIME, Time: now, TimeLast: now, Size: up.Size, Opis: opis, Metka: c.FormValue("metka") == "1"}
-		if !target.My {
+		hidden := c.FormValue("hidden") == "1"
+		if hidden {
+			target = myDir()
+		}
+		f := File{IDUser: me.ID, IDDir: target.ID, MyDir: fo.ID, Name: a.Text.Clean(name), Ras: ext, Type: up.MIME, Time: now, TimeLast: now, Size: up.Size, Opis: opis, Metka: c.FormValue("metka") == "1", Hidden: hidden}
+		if !target.My && !hidden {
 			f.TimeGo = now
 		}
 		f.ID = files.Insert(&f)
