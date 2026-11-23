@@ -177,28 +177,28 @@ async function renderBlog(g, ctx, reload) {
       let kommOpen = false;
       const loadKomms = async () => {
         kommBox.replaceChildren(ui.loading());
-        const kd = await api.get(`/api/groups/blog/${post.id}/komms`);
+        const kd = await api.get(`/api/group-blog/${post.id}/komms`);
         const kIn = h('input.input', { placeholder: 'Комментарий…', maxlength: 1024 });
-        const sendK = async () => { if (!kIn.value.trim()) return; await api.post(`/api/groups/blog/${post.id}/komms`, { msg: kIn.value }); kIn.value = ''; loadKomms(); };
+        const sendK = async () => { if (!kIn.value.trim()) return; await api.post(`/api/group-blog/${post.id}/komms`, { msg: kIn.value }); kIn.value = ''; loadKomms(); };
         kIn.onkeydown = e => e.key === 'Enter' && sendK();
         kommBox.replaceChildren(h('div.stack-s', { style: { marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-s)' } },
           kd.items.length ? h('div.posts', kd.items.map(k => ui.post({
             user: k.user, time: k.time, body: h('div.text', { html: k.msg }),
-            actions: k.can_delete ? [ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/groups/blog/komm/' + k.id); loadKomms(); } })] : [],
+            actions: k.can_delete ? [ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/group-blog-komm/' + k.id); loadKomms(); } })] : [],
           }))) : h('div.small.muted', 'Комментариев пока нет'),
           me() ? h('div.row.nowrap', kIn, ui.btn('', { ic: 'send', small: true, kind: 'primary', onclick: sendK })) : null));
       };
       const likeBtn = ui.reaction('heart', post.likes, post.liked, async () => {
         if (!me()) return router.go('/login');
-        const r = await api.post(`/api/groups/blog/${post.id}/like`);
+        const r = await api.post(`/api/group-blog/${post.id}/like`);
         likeBtn.classList.toggle('active', r.liked);
         likeBtn.querySelector('span').textContent = fmt.num(r.likes);
       });
       out.push(h('div.card.pad.stack-s',
         h('div.row', ui.avatar(post.user, 34), h('div.grow', ui.userLink(post.user), h('div.small.muted', fmt.ago(post.time))),
           post.pinned ? h('span.badge.primary', icon('pin', 12), ' Закреплено') : null,
-          post.can_pin ? ui.btn('', { ic: 'pin', small: true, title: post.pinned ? 'Открепить' : 'Закрепить', onclick: async () => { await api.post(`/api/groups/blog/${post.id}/pin`); reload(); } }) : null,
-          post.can_delete ? ui.btn('', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить запись?', { danger: true })) { await api.del('/api/groups/blog/' + post.id); reload(); } } }) : null),
+          post.can_pin ? ui.btn('', { ic: 'pin', small: true, title: post.pinned ? 'Открепить' : 'Закрепить', onclick: async () => { await api.post(`/api/group-blog/${post.id}/pin`); reload(); } }) : null,
+          post.can_delete ? ui.btn('', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить запись?', { danger: true })) { await api.del('/api/group-blog/' + post.id); reload(); } } }) : null),
         post.title ? h('h3', post.title) : null,
         h('div.text', { html: post.msg }),
         h('div.row', likeBtn, ui.btn(`Комментарии (${post.komms})`, { ic: 'message-circle', small: true, onclick: () => { kommOpen = !kommOpen; if (kommOpen) loadKomms(); else kommBox.replaceChildren(); } })),
@@ -213,7 +213,7 @@ async function renderBlog(g, ctx, reload) {
 async function renderForum(g, ctx, reload) {
   const tid = +(ctx.query.topic || 0);
   if (tid) {
-    const d = await api.get(`/api/groups/forum/${tid}`, { page: ctx.page });
+    const d = await api.get(`/api/group-forum/${tid}`, { page: ctx.page });
     const t = d.topic;
     const out = [
       ui.btn('← Все темы форума', { small: true, href: `/groups/${g.id}?tab=forum` }),
@@ -224,18 +224,18 @@ async function renderForum(g, ctx, reload) {
         h('div.row.small.muted', ui.avatar(t.user, 26), ui.userLink(t.user), fmt.datetime(t.time)),
         h('div.text', { html: t.msg }),
         h('div.row',
-          t.can_mod ? ui.btn(t.pinned ? 'Открепить' : 'Закрепить', { ic: 'pin', small: true, onclick: async () => { await api.post(`/api/groups/forum/${tid}/toggle`, { field: 'pinned' }); reload(); } }) : null,
-          t.can_mod ? ui.btn(t.closed ? 'Открыть' : 'Закрыть', { ic: 'lock', small: true, onclick: async () => { await api.post(`/api/groups/forum/${tid}/toggle`, { field: 'closed' }); reload(); } }) : null,
-          t.can_delete ? ui.btn('Удалить тему', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить тему?', { danger: true })) { await api.del('/api/groups/forum/' + tid); router.go(`/groups/${g.id}?tab=forum`); } } }) : null)),
+          t.can_mod ? ui.btn(t.pinned ? 'Открепить' : 'Закрепить', { ic: 'pin', small: true, onclick: async () => { await api.post(`/api/group-forum/${tid}/toggle`, { field: 'pinned' }); reload(); } }) : null,
+          t.can_mod ? ui.btn(t.closed ? 'Открыть' : 'Закрыть', { ic: 'lock', small: true, onclick: async () => { await api.post(`/api/group-forum/${tid}/toggle`, { field: 'closed' }); reload(); } }) : null,
+          t.can_delete ? ui.btn('Удалить тему', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить тему?', { danger: true })) { await api.del('/api/group-forum/' + tid); router.go(`/groups/${g.id}?tab=forum`); } } }) : null)),
       ui.card(d.items.length ? h('div.posts', d.items.map(r => ui.post({
         user: r.user, time: r.time, body: h('div.text', { html: r.msg }),
-        actions: r.can_delete ? [ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/groups/forum/post/' + r.id); reload(); } })] : [],
+        actions: r.can_delete ? [ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/group-forum-post/' + r.id); reload(); } })] : [],
       }))) : ui.empty('Ответов пока нет', 'message-circle')),
       ui.pager(d),
     ];
     if (t.can_reply) {
       const ed = ui.bbEditor({ rows: 3, placeholder: 'Ваш ответ в теме…', maxlength: 4096 });
-      out.push(h('div.card.pad.stack', ed.el, ui.btn('Ответить', { ic: 'send', kind: 'primary', onclick: async () => { await api.post(`/api/groups/forum/${tid}/posts`, { msg: ed.value }); ui.ok('Ответ добавлен'); reload(); } })));
+      out.push(h('div.card.pad.stack', ed.el, ui.btn('Ответить', { ic: 'send', kind: 'primary', onclick: async () => { await api.post(`/api/group-forum/${tid}/posts`, { msg: ed.value }); ui.ok('Ответ добавлен'); reload(); } })));
     }
     return h('div.stack', ...out);
   }
@@ -270,7 +270,7 @@ async function renderChat(g, ctx) {
       ui.avatar(m.user, 32),
       h('div.main',
         h('div.row', ui.userLink(m.user), h('span.small.muted', fmt.ago(m.time)), h('span.grow'),
-          m.can_delete ? ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/groups/chat/' + m.id); items = items.filter(x => x.id !== m.id); draw(); } }) : null),
+          m.can_delete ? ui.btn('', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/group-chat/' + m.id); items = items.filter(x => x.id !== m.id); draw(); } }) : null),
         h('div.text', { html: m.msg })))));
     requestAnimationFrame(() => { listEl.scrollTop = listEl.scrollHeight; });
   };
@@ -331,7 +331,7 @@ async function renderFiles(g, ctx, reload) {
       f.opis ? h('div.small.muted', { html: f.opis }) : null,
       h('div.small.muted', f.size_str, ' · ', f.user.nick, ' · ', fmt.ago(f.time), ' · ⬇ ', f.loads)),
     ui.btn('', { ic: 'download', small: true, kind: 'primary', href: f.download }),
-    f.can_delete ? ui.btn('', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить файл?', { danger: true })) { await api.del('/api/groups/files/' + f.id); reload(); } } }) : null))) : ui.empty('Файлов пока нет', 'folder')), ui.pager(d));
+    f.can_delete ? ui.btn('', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить файл?', { danger: true })) { await api.del('/api/group-files/' + f.id); reload(); } } }) : null))) : ui.empty('Файлов пока нет', 'folder')), ui.pager(d));
   return h('div.stack', ...out);
 }
 

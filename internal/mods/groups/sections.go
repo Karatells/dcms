@@ -103,7 +103,7 @@ func registerSections(a *core.App) {
 		return c.OK("id", pid)
 	}, core.Auth)
 
-	a.POST("/api/groups/blog/{pid}/like", func(c *core.Ctx) error {
+	a.POST("/api/group-blog/{pid}/like", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -129,7 +129,7 @@ func registerSections(a *core.App) {
 		return c.OK("liked", liked, "likes", cnt)
 	}, core.Auth)
 
-	a.POST("/api/groups/blog/{pid}/pin", func(c *core.Ctx) error {
+	a.POST("/api/group-blog/{pid}/pin", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -146,7 +146,7 @@ func registerSections(a *core.App) {
 		return c.OK("pinned", upd.Pinned)
 	}, core.Auth)
 
-	a.DELETE("/api/groups/blog/{pid}", func(c *core.Ctx) error {
+	a.DELETE("/api/group-blog/{pid}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -165,7 +165,7 @@ func registerSections(a *core.App) {
 		return c.OK()
 	}, core.Auth)
 
-	a.GET("/api/groups/blog/{pid}/komms", func(c *core.Ctx) error {
+	a.GET("/api/group-blog/{pid}/komms", func(c *core.Ctx) error {
 		post, ok := blogT.Get(c.PathInt("pid"))
 		if !ok {
 			return core.ErrNotFound()
@@ -188,7 +188,7 @@ func registerSections(a *core.App) {
 		return c.List(items, total, p)
 	})
 
-	a.POST("/api/groups/blog/{pid}/komms", func(c *core.Ctx) error {
+	a.POST("/api/group-blog/{pid}/komms", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -215,7 +215,7 @@ func registerSections(a *core.App) {
 		return c.OK("id", id)
 	}, core.Auth)
 
-	a.DELETE("/api/groups/blog/komm/{kid}", func(c *core.Ctx) error {
+	a.DELETE("/api/group-blog-komm/{kid}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -309,7 +309,7 @@ func registerSections(a *core.App) {
 		return c.OK("id", tid)
 	}, core.Auth)
 
-	a.GET("/api/groups/forum/{tid}", func(c *core.Ctx) error {
+	a.GET("/api/group-forum/{tid}", func(c *core.Ctx) error {
 		t, ok := topicsT.Get(c.PathInt("tid"))
 		if !ok {
 			return core.ErrNotFound("Тема не найдена")
@@ -340,7 +340,7 @@ func registerSections(a *core.App) {
 		})
 	})
 
-	a.POST("/api/groups/forum/{tid}/posts", func(c *core.Ctx) error {
+	a.POST("/api/group-forum/{tid}/posts", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -373,7 +373,7 @@ func registerSections(a *core.App) {
 		return c.OK("id", pid)
 	}, core.Auth)
 
-	a.POST("/api/groups/forum/{tid}/toggle", func(c *core.Ctx) error {
+	a.POST("/api/group-forum/{tid}/toggle", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -402,7 +402,7 @@ func registerSections(a *core.App) {
 		return c.OK("pinned", upd.Pinned, "closed", upd.Closed)
 	}, core.Auth)
 
-	a.DELETE("/api/groups/forum/{tid}", func(c *core.Ctx) error {
+	a.DELETE("/api/group-forum/{tid}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -420,7 +420,7 @@ func registerSections(a *core.App) {
 		return c.OK()
 	}, core.Auth)
 
-	a.DELETE("/api/groups/forum/post/{pid}", func(c *core.Ctx) error {
+	a.DELETE("/api/group-forum-post/{pid}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -493,7 +493,7 @@ func registerSections(a *core.App) {
 		return c.JSON(payload)
 	}, core.Auth)
 
-	a.DELETE("/api/groups/chat/{mid}", func(c *core.Ctx) error {
+	a.DELETE("/api/group-chat/{mid}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
@@ -535,7 +535,7 @@ func registerSections(a *core.App) {
 				"time":       f.Time,
 				"loads":      f.Loads,
 				"user":       a.Ref(f.IDUser),
-				"download":   "/api/groups/files/" + i(f.ID) + "/download",
+				"download":   "/api/group-files/" + i(f.ID) + "/download",
 				"can_delete": pr.ModFiles || (me != nil && me.ID == f.IDUser),
 			})
 		}
@@ -588,7 +588,7 @@ func registerSections(a *core.App) {
 		return c.OK("id", id)
 	}, core.Auth)
 
-	a.GET("/api/groups/files/{fid}/download", func(c *core.Ctx) error {
+	a.GET("/api/group-files/{fid}/download", func(c *core.Ctx) error {
 		f, ok := filesT.Get(c.PathInt("fid"))
 		if !ok {
 			return core.ErrNotFound("Файл не найден")
@@ -601,7 +601,7 @@ func registerSections(a *core.App) {
 		return c.ServeFile(gfilePath(a, f.ID), dlName, "application/octet-stream")
 	})
 
-	a.DELETE("/api/groups/files/{fid}", func(c *core.Ctx) error {
+	a.DELETE("/api/group-files/{fid}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
