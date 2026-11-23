@@ -55,66 +55,66 @@ function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
   };
 
   let uploading = false;
-  const submitBtn = ui.btn('Загрузить клип', {
-    ic: 'upload', kind: 'primary',
-    onclick: () => {
-      if (uploading) return;
-      if (!pickedFile) { errBox.textContent = 'Выберите видео до 1 минуты'; return; }
-      errBox.textContent = '';
-      uploading = true;
-      submitBtn.disabled = true;
-      progWrap.style.display = '';
-      progText.textContent = 'Загрузка на сервер: 0%';
+  let modal;
+  const doUpload = () => {
+    if (uploading) return false;
+    if (!pickedFile) { errBox.textContent = 'Выберите видео до 1 минуты'; return false; }
+    errBox.textContent = '';
+    uploading = true;
+    progWrap.style.display = '';
+    progText.textContent = 'Загрузка на сервер: 0%';
 
-      const fd = new FormData();
-      fd.append('file', pickedFile);
-      fd.append('title', titleIn.value.trim());
-      fd.append('opis', opisIn.value.trim());
+    const fd = new FormData();
+    fd.append('file', pickedFile);
+    fd.append('title', titleIn.value.trim());
+    fd.append('opis', opisIn.value.trim());
 
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/shorts', true);
-      xhr.setRequestHeader('X-DCMS', '1');
-      xhr.upload.onprogress = e => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          progFill.style.width = pct + '%';
-          progText.textContent = pct < 100 ? `Загрузка на сервер: ${pct}%` : 'Файл загружен, запускаю сжатие…';
-        }
-      };
-      xhr.onload = () => {
-        uploading = false;
-        submitBtn.disabled = false;
-        let res = {};
-        try { res = JSON.parse(xhr.responseText || '{}'); } catch {}
-        if (xhr.status >= 200 && xhr.status < 300) {
-          if (previewURL) URL.revokeObjectURL(previewURL);
-          close();
-          ui.ok('Видео загружено и отправлено в обработку (ffmpeg)');
-          onDone && onDone(res.id);
-        } else {
-          progWrap.style.display = 'none';
-          errBox.textContent = res.error || 'Ошибка загрузки';
-        }
-      };
-      xhr.onerror = () => {
-        uploading = false;
-        submitBtn.disabled = false;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/shorts', true);
+    xhr.setRequestHeader('X-DCMS', '1');
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        progFill.style.width = pct + '%';
+        progText.textContent = pct < 100 ? `Загрузка на сервер: ${pct}%` : 'Файл загружен, запускаю сжатие…';
+      }
+    };
+    xhr.onload = () => {
+      uploading = false;
+      let res = {};
+      try { res = JSON.parse(xhr.responseText || '{}'); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (previewURL) URL.revokeObjectURL(previewURL);
+        modal && modal.close();
+        ui.ok('Видео загружено и отправлено в обработку (ffmpeg)');
+        onDone && onDone(res.id);
+      } else {
         progWrap.style.display = 'none';
-        errBox.textContent = 'Ошибка сети при загрузке';
-      };
-      xhr.send(fd);
-    },
-  });
+        errBox.textContent = res.error || 'Ошибка загрузки';
+      }
+    };
+    xhr.onerror = () => {
+      uploading = false;
+      progWrap.style.display = 'none';
+      errBox.textContent = 'Ошибка сети при загрузке';
+    };
+    xhr.send(fd);
+    return false;
+  };
 
   const body = h('div.stack', fileInput, drop, previewBox,
     h('div.field', h('label', 'Название'), titleIn),
     h('div.field', h('label', 'Описание'), opisIn),
     progWrap, errBox);
 
-  const close = ui.modal({
+  modal = ui.modal({
     title: 'Загрузить короткое видео',
     body,
-    actions: [{ label: 'Отмена' }, submitBtn],
+    onClose: () => { if (previewURL) URL.revokeObjectURL(previewURL); },
+    actions: [
+      { label: 'Отмена' },
+      { label: 'Загрузить клип', kind: 'primary', onclick: doUpload },
+    ],
   });
 }
 
@@ -336,16 +336,21 @@ function buildShortCard(s, { onDeleted, onUpdated }) {
       onclick: () => {
         const ti = h('input.input', { value: s.title, maxlength: 100 });
         const op = h('textarea.input', { rows: 3, maxlength: 500 }, s.opis || '');
-        const close = ui.modal({
+        const modal = ui.modal({
           title: 'Редактировать клип',
           body: h('div.stack', h('div.field', h('label', 'Название'), ti), h('div.field', h('label', 'Описание'), op)),
-          actions: [{ label: 'Отмена' }, ui.btn('Сохранить', {
-            ic: 'check', kind: 'primary',
-            onclick: async () => {
-              const upd = await api.put('/api/shorts/' + s.id, { title: ti.value, opis: op.value });
-              close(); ui.ok('Сохранено'); onUpdated && onUpdated(upd);
+          actions: [
+            { label: 'Отмена' },
+            {
+              label: 'Сохранить', kind: 'primary',
+              onclick: () => {
+                api.put('/api/shorts/' + s.id, { title: ti.value, opis: op.value }).then(upd => {
+                  modal.close(); ui.ok('Сохранено'); onUpdated && onUpdated(upd);
+                });
+                return false;
+              },
             },
-          })],
+          ],
         });
       },
     }, {
