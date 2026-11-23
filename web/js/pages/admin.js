@@ -40,7 +40,7 @@ router.add('/admin', async () => {
   for (const l of links) { if (!groups.has(l.group)) groups.set(l.group, []); groups.get(l.group).push(l); }
   const order = ['Аналитика', 'Модерация', 'Система'];
   const names = [...order.filter(g => groups.has(g)), ...[...groups.keys()].filter(g => !order.includes(g))];
-  return [ui.pageHead('Панель управления'), ...names.map(g => ui.section(g, h('div.admin-grid', groups.get(g).map(l =>
+  return [ui.pageHead('Панель управления'), ...names.map(g => h('div.admin-sec', h('h3.admin-h', g), h('div.admin-grid', groups.get(g).map(l =>
     h('a.card.pad.admin-tile', { href: l.href }, h('span.admin-ic', icon(l.icon || 'settings', 22)), h('div', h('b', l.title), h('div.small.muted', l.desc || ''))))))),
     links.length ? null : ui.card(ui.empty('Нет доступных разделов', 'lock'))];
 }, { auth: true, access: 'adm_panel_show' });

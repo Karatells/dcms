@@ -11,8 +11,11 @@ function applyTheme() {
   const t = (state.user && state.user.theme) || localStorage.getItem('theme') || state.config.theme_default || 'auto';
   document.documentElement.dataset.theme = t;
   const acc = (state.user && state.user.accent) || localStorage.getItem('accent') || state.config.accent_default;
-  if (acc) { document.documentElement.style.setProperty('--accent', acc); const m = document.querySelector('meta[name=theme-color]'); m && (m.content = acc); }
+  if (acc) document.documentElement.style.setProperty('--accent', acc);
+  const dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#0b0d1a' : (acc || '#6366f1');
 }
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { applyTheme(); });
 export function setTheme(t) { localStorage.setItem('theme', t); if (state.user) state.user.theme = t; applyTheme(); if (state.user) api.post('/api/settings/theme', { theme: t, accent: (state.user.accent || '') }, { silent: true }).catch(() => {}); }
 bus.on('user', applyTheme);
 
