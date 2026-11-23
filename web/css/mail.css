@@ -1,0 +1,71 @@
+/* Мессенджер (личная переписка) и интерактивный BB-тулбар */
+body.msg-page .footer { display: none; }
+@media (max-width: 700px) {
+  body.msg-page .tabbar { display: none !important; }
+  body.msg-page .shell { padding: 0 !important; gap: 0 !important; }
+  body.msg-page main#view { gap: 0 !important; }
+}
+
+.msg-shell { display: flex; flex-direction: column; height: calc(100dvh - var(--top) - 36px); min-height: 460px; background: var(--bg-card); border: 1px solid var(--border-s); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
+@media (max-width: 700px) {
+  .msg-shell { height: calc(100dvh - var(--top)); min-height: 0; border-radius: 0; border: 0; box-shadow: none; }
+}
+
+.msg-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border-s); background: var(--bg-card); z-index: 3; }
+.msg-head-info { flex: 1; min-width: 0; }
+.msg-head-info .user-link { font-size: .98rem; }
+.msg-status { font-size: .78rem; color: var(--muted); }
+.msg-status.on { color: var(--ok); font-weight: 600; }
+
+.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 14px 14px 10px; background: var(--bg-sunken); display: flex; flex-direction: column; gap: 6px; }
+.msg-day { align-self: center; margin: 8px 0 4px; padding: 3px 11px; border-radius: 999px; background: color-mix(in srgb, var(--bg-card) 86%, transparent); border: 1px solid var(--border-s); color: var(--muted); font-size: .74rem; font-weight: 600; }
+.msg-older { align-self: center; margin-bottom: 8px; }
+
+.msg-shell .bubble-row { display: flex; align-items: flex-end; gap: 6px; }
+.msg-shell .bubble { position: relative; max-width: min(82%, 520px); padding: 8px 12px 6px; border-radius: 16px 16px 16px 4px; background: var(--bg-card); border: 1px solid var(--border-s); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); font-size: .94rem; line-height: 1.42; overflow-wrap: anywhere; }
+.msg-shell .bubble.mine { background: var(--accent); color: var(--on-accent); border-color: transparent; border-radius: 16px 16px 4px 16px; }
+.msg-shell .bubble.mine a { color: #fff; text-decoration: underline; }
+.msg-shell .bubble.mine .bb-quote { background: rgba(255, 255, 255, .16); border-left-color: rgba(255, 255, 255, .75); }
+.msg-shell .bubble.mine .bb-code { background: rgba(0, 0, 0, .24); border-color: rgba(255, 255, 255, .15); color: #fff; }
+.msg-shell .bubble-meta { display: flex; gap: 6px; align-items: center; justify-content: flex-end; font-size: .7rem; opacity: .76; margin-top: 3px; }
+.msg-shell .bubble-act { display: inline-flex; gap: 5px; margin-left: 4px; }
+
+/* Нижняя компактная панель ввода */
+.msg-foot { flex: none; background: var(--bg-card); border-top: 1px solid var(--border-s); padding-bottom: env(safe-area-inset-bottom); }
+
+.msg-drawer { border-bottom: 1px solid var(--border-s); background: var(--bg-sunken); padding: 8px 10px; animation: msgPop .16s ease; }
+@keyframes msgPop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.msg-bb-ribbon { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.msg-bb-btn { height: 32px; min-width: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border-s); background: var(--bg-card); color: var(--text); font: inherit; font-size: .82rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; transition: background .12s, border-color .12s, transform .1s; }
+.msg-bb-btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+.msg-bb-btn:active { transform: scale(.95); }
+.msg-bb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 3px; }
+.msg-color-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--bg-card); box-shadow: 0 0 0 1px var(--border); cursor: pointer; padding: 0; transition: transform .12s; }
+.msg-color-dot:hover { transform: scale(1.16); }
+
+.msg-smiles-drawer { display: flex; flex-wrap: wrap; gap: 4px; max-height: 160px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.msg-smiles-drawer .smile-btn { padding: 5px; border-radius: 8px; }
+.msg-smiles-drawer .smile-btn img { height: 24px; display: block; }
+
+.msg-preview-box { padding: 8px 12px; border-bottom: 1px solid var(--border-s); background: var(--accent-soft); font-size: .88rem; max-height: 110px; overflow-y: auto; }
+.msg-preview-lbl { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); font-weight: 700; margin-bottom: 4px; }
+
+.msg-compose { display: flex; align-items: flex-end; gap: 6px; padding: 8px 10px; }
+.msg-tool { width: 38px; height: 38px; border-radius: 50%; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; flex: none; transition: background .12s, color .12s; }
+.msg-tool:hover { background: var(--bg-hover); color: var(--text); }
+.msg-tool.active { background: var(--accent-soft); color: var(--accent); }
+.msg-input-wrap { flex: 1; min-width: 0; position: relative; display: flex; align-items: flex-end; }
+.msg-input { width: 100%; min-height: 38px; max-height: 120px; padding: 8px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--text); font: inherit; font-size: .95rem; line-height: 1.35; resize: none; outline: none; transition: border-color .14s, background .14s; }
+.msg-input:focus { border-color: var(--accent); background: var(--bg-card); }
+.msg-send { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; cursor: pointer; flex: none; transition: transform .12s, opacity .12s; box-shadow: 0 4px 12px -4px var(--accent); }
+.msg-send:hover { filter: brightness(1.06); }
+.msg-send:active { transform: scale(.94); }
+.msg-send:disabled { opacity: .45; pointer-events: none; box-shadow: none; }
+.msg-char { position: absolute; right: 12px; bottom: 4px; font-size: .68rem; color: var(--muted); pointer-events: none; }
+.msg-char.warn { color: var(--danger); font-weight: 700; }
+
+/* Улучшения общего BB-редактора */
+.bb-colors { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; }
+.bb-smiles-inline { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; max-height: 150px; overflow-y: auto; border-bottom: 1px solid var(--border-s); background: var(--bg-sunken); }
+.bb-smiles-inline img { height: 22px; display: block; }

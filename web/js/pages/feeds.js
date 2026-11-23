@@ -153,28 +153,224 @@ router.add('/mail/new', async ctx => {
     ui.avatar(x.user, 44), h('div.main', h('div.title', x.user.nick, h('span.badge.danger', { style: { marginLeft: '8px' } }, '+' + x.count)), h('div.small.muted.clip', x.text)), ui.time(x.time)))) : ui.empty('Нет новых сообщений', 'mail'))];
 }, { auth: true });
 
+let _smilesCache = null;
+async function getSmiles() {
+  if (_smilesCache) return _smilesCache;
+  try {
+    const list = await api.get('/api/smiles/all', null, { silent: true });
+    _smilesCache = list.items || list || [];
+  } catch { _smilesCache = []; }
+  return _smilesCache;
+}
+
+function dayLabel(ts) {
+  const d = new Date(ts * 1000), now = new Date();
+  const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (same(d, now)) return 'Сегодня';
+  const y = new Date(now); y.setDate(y.getDate() - 1);
+  if (same(d, y)) return 'Вчера';
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+}
+
 router.add('/mail/:id', async ctx => {
-  const reload = () => router.render();
-  const d = await api.get('/api/mail/' + ctx.params.id, { page: ctx.page });
+  const uid = +ctx.params.id;
+  const d = await api.get('/api/mail/' + uid, { page: 1 });
   refreshCounters();
   ctx.title('Диалог: ' + d.user.nick);
-  const ed = ui.bbEditor({ rows: 3, placeholder: 'Сообщение…', maxlength: 1024 });
-  const send = async () => { await api.post('/api/mail/' + d.user.id, { msg: ed.value }); ed.value = ''; reload(); };
-  const bubbles = d.items.map(m => h('div.bubble-row' + (m.mine ? '.mine' : ''), h('div.bubble' + (m.mine ? '.mine' : ''),
-    ui.html(m.msg, 'text'), h('div.bubble-meta', ui.time(m.time), m.mine ? icon(m.read ? 'check-all' : 'check', 14) : null,
-      h('span.bubble-act',
-        !m.mine ? h('button.link', { title: 'Пожаловаться', onclick: async () => { const t = await ui.prompt('Причина жалобы', '', { multiline: true, title: 'Жалоба' }); if (t) { await api.post(`/api/mail/msg/${m.id}/spam`, { msg: t, types: 0 }); ui.ok('Жалоба отправлена'); } } }, icon('flag', 13)) : null,
-        h('button.link', { title: 'Удалить у себя', onclick: async () => { await api.del('/api/mail/msg/' + m.id); reload(); } }, icon('trash', 13)))))));
-  const onMsg = bus.on('sse:message', m => { if (m.from && m.from.id === d.user.id) reload(); });
-  ctx.onLeave(() => onMsg && onMsg());
-  return [ui.breadcrumbs([{ href: '/mail', title: 'Почта' }, { title: d.user.nick }]),
-    h('div.card.pad.row', ui.avatar(d.user, 44), h('div.grow', ui.userLink(d.user, { badges: true }), h('div.small.muted', d.user.online ? 'онлайн' : '')),
-      !d.contact ? ui.btn('В контакты', { ic: 'plus', small: true, onclick: async () => { await api.post('/api/konts/' + d.user.id); reload(); } }) : null,
-      ui.dropdown(ui.btn('', { ic: 'more' }), [
-        { label: 'Профиль', icon: 'user', href: '/id' + d.user.id },
-        { label: 'В избранные', icon: 'star', onclick: async () => { await api.post('/api/konts/move', { ids: [d.user.id], type: 'favorite' }); ui.ok('Готово'); } },
-        { label: 'В игнор', icon: 'ban', onclick: async () => { await api.post('/api/konts/move', { ids: [d.user.id], type: 'ignor' }); ui.ok('Контакт в игнор-листе'); } },
-        { label: 'Очистить переписку', icon: 'trash', danger: true, onclick: async () => { if (await ui.confirm('Удалить переписку у себя?', { danger: true })) { await api.del('/api/mail/' + d.user.id); reload(); } } }])),
-    d.can_write ? h('div.card.pad.stack', ed.el, h('div.row', ui.btn('Отправить', { ic: 'send', kind: 'primary', onclick: send }))) : h('div.card.pad.muted', 'Вы не можете писать этому пользователю.'),
-    h('div.chat-box', bubbles.length ? bubbles : ui.empty('Сообщений пока нет', 'mail')), ui.pager(d)];
+  document.body.classList.add('msg-page');
+
+  let curPage = 1;
+  const totalPages = d.pages || 1;
+  // Храним сообщения в хронологическом порядке (старые сверху, новые снизу)
+  let items = [...(d.items || [])].reverse();
+
+  const scrollEl = h('div.msg-scroll');
+  const reload = () => router.render();
+
+  const renderMessages = (keepBottom = true) => {
+    const prevH = scrollEl.scrollHeight;
+    const prevTop = scrollEl.scrollTop;
+    const nodes = [];
+    if (curPage < totalPages) {
+      nodes.push(ui.btn('Загрузить предыдущие сообщения', {
+        small: true, cls: 'msg-older',
+        onclick: async () => {
+          const next = await api.get('/api/mail/' + uid, { page: curPage + 1 });
+          curPage++;
+          items = [...(next.items || []).reverse(), ...items];
+          renderMessages(false);
+        },
+      }));
+    }
+    if (!items.length) {
+      nodes.push(ui.empty('Сообщений пока нет — напишите первым!', 'mail'));
+    } else {
+      let lastDay = '';
+      items.forEach(m => {
+        const dl = dayLabel(m.time);
+        if (dl !== lastDay) { lastDay = dl; nodes.push(h('div.msg-day', dl)); }
+        nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : ''),
+          h('div.bubble' + (m.mine ? '.mine' : ''),
+            ui.html(m.msg, 'text'),
+            h('div.bubble-meta',
+              h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
+              m.mine ? icon(m.read ? 'check-all' : 'check', 14) : null,
+              h('span.bubble-act',
+                !m.mine ? h('button.link', { title: 'Пожаловаться', onclick: async () => { const t = await ui.prompt('Причина жалобы', '', { multiline: true, title: 'Жалоба' }); if (t) { await api.post(`/api/mail/msg/${m.id}/spam`, { msg: t, types: 0 }); ui.ok('Жалоба отправлена'); } } }, icon('flag', 13)) : null,
+                h('button.link', { title: 'Удалить у себя', onclick: async () => { await api.del('/api/mail/msg/' + m.id); items = items.filter(x => x.id !== m.id); renderMessages(false); } }, icon('trash', 13)))))));
+      });
+    }
+    scrollEl.replaceChildren(...nodes);
+    if (keepBottom) {
+      requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
+    } else {
+      requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight - prevH + prevTop; });
+    }
+  };
+
+  // Шапка диалога
+  const head = h('div.msg-head',
+    h('a.icon-btn', { href: '/mail', title: 'Назад к почте', 'aria-label': 'Назад' }, icon('arrow-left', 20)),
+    ui.avatar(d.user, 38),
+    h('div.msg-head-info',
+      ui.userLink(d.user, { badges: true }),
+      h('div.msg-status' + (d.user.online ? '.on' : ''), d.user.online ? 'в сети' : 'не в сети')),
+    !d.contact ? ui.btn('', { ic: 'user-plus', small: true, title: 'В контакты', onclick: async () => { await api.post('/api/konts/' + d.user.id); ui.ok('Добавлено в контакты'); reload(); } }) : null,
+    ui.dropdown(h('button.icon-btn', { title: 'Меню' }, icon('more', 20)), [
+      { label: 'Профиль', icon: 'user', href: '/id' + d.user.id },
+      { label: 'В избранные', icon: 'star', onclick: async () => { await api.post('/api/konts/move', { ids: [d.user.id], type: 'favorite' }); ui.ok('Готово'); } },
+      { label: 'В игнор', icon: 'ban', onclick: async () => { await api.post('/api/konts/move', { ids: [d.user.id], type: 'ignor' }); ui.ok('Контакт в игнор-листе'); } },
+      { sep: true },
+      { label: 'Очистить переписку', icon: 'trash', danger: true, onclick: async () => { if (await ui.confirm('Удалить переписку у себя?', { danger: true })) { await api.del('/api/mail/' + d.user.id); reload(); } } },
+    ]));
+
+  // Нижняя компактная панель ввода с интерактивным BB-тулбаром и смайлами
+  const foot = h('div.msg-foot');
+  if (d.can_write) {
+    const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Сообщение…', maxlength: 1024 });
+    const charEl = h('span.msg-char');
+    const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', 'aria-label': 'Отправить', disabled: true }, icon('send', 18));
+    const drawerHost = h('div');
+    let activeDrawer = ''; // '' | 'bb' | 'smiles'
+
+    const syncTa = () => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(120, Math.max(38, ta.scrollHeight)) + 'px';
+      const n = ta.value.trim().length;
+      sendBtn.disabled = n < 2;
+      if (ta.value.length > 850) {
+        charEl.textContent = `${ta.value.length}/1024`;
+        charEl.classList.toggle('warn', ta.value.length > 980);
+      } else {
+        charEl.textContent = '';
+      }
+    };
+
+    const wrap = (a, b = '') => {
+      const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+      ta.value = v.slice(0, s) + a + v.slice(s, e) + b + v.slice(e);
+      ta.focus();
+      ta.selectionStart = s + a.length;
+      ta.selectionEnd = e + a.length;
+      syncTa();
+    };
+
+    const bbBtn = h('button.msg-tool', { type: 'button', title: 'Форматирование (BBCode)', 'aria-label': 'Форматирование' }, h('b', { style: { fontSize: '.9rem' } }, 'Aa'));
+    const smBtn = h('button.msg-tool', { type: 'button', title: 'Смайлы', 'aria-label': 'Смайлы' }, icon('smile', 20));
+
+    const toggleDrawer = async which => {
+      activeDrawer = activeDrawer === which ? '' : which;
+      bbBtn.classList.toggle('active', activeDrawer === 'bb');
+      smBtn.classList.toggle('active', activeDrawer === 'smiles');
+      if (!activeDrawer) { drawerHost.replaceChildren(); return; }
+
+      if (activeDrawer === 'bb') {
+        const bb = state.config.bb || {};
+        const ribbon = h('div.msg-bb-ribbon');
+        const addBtn = (lbl, title, fn, key) => {
+          if (key && bb[key] === false) return;
+          ribbon.append(h('button.msg-bb-btn', { type: 'button', title, onclick: fn }, lbl));
+        };
+        addBtn(h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b');
+        addBtn(h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i');
+        addBtn(h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u');
+        addBtn(icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]'));
+        addBtn(icon('hash', 14), 'Код', () => wrap('[code]', '[/code]'), 'code');
+        addBtn(icon('link', 14), 'Вставить ссылку', async () => {
+          const u = await ui.prompt('Адрес ссылки (https://...)', 'https://', { title: 'Вставить ссылку' });
+          if (u && u.trim()) {
+            const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+            wrap(`[url=${u.trim()}]`, sel ? '[/url]' : `${u.trim()}[/url]`);
+          }
+        }, 'url');
+        addBtn(icon('image', 14), 'Вставить картинку', async () => {
+          const u = await ui.prompt('Ссылка на картинку (https://...)', 'https://', { title: 'Вставить картинку' });
+          if (u && u.trim()) wrap(`[img]${u.trim()}[/img]`);
+        }, 'img');
+        ribbon.append(h('span.msg-bb-sep'));
+        [['red', '#e11d48', 'Красный'], ['yellow', '#eab308', 'Жёлтый'], ['green', '#16a34a', 'Зелёный'], ['blue', '#2563eb', 'Синий']].forEach(([tag, col, title]) => {
+          if (bb[tag] === false) return;
+          ribbon.append(h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${tag}]`, `[/${tag}]`) }));
+        });
+        drawerHost.replaceChildren(h('div.msg-drawer', ribbon));
+      } else if (activeDrawer === 'smiles') {
+        const box = h('div.msg-smiles-drawer', ui.loading());
+        drawerHost.replaceChildren(h('div.msg-drawer', box));
+        const list = await getSmiles();
+        if (!list.length) {
+          box.replaceChildren(h('span.small.muted', 'Смайлов нет'));
+        } else {
+          box.replaceChildren(...list.map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => wrap(' ' + s.code + ' ') }, h('img', { src: s.url, alt: s.code }))));
+        }
+      }
+    };
+
+    bbBtn.onclick = () => toggleDrawer('bb');
+    smBtn.onclick = () => toggleDrawer('smiles');
+
+    const doSend = async () => {
+      const msg = ta.value.trim();
+      if (msg.length < 2 || sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      try {
+        await api.post('/api/mail/' + d.user.id, { msg });
+        ta.value = '';
+        syncTa();
+        const fresh = await api.get('/api/mail/' + uid, { page: 1 }, { silent: true });
+        curPage = 1;
+        items = [...(fresh.items || [])].reverse();
+        renderMessages(true);
+      } finally { syncTa(); }
+    };
+
+    sendBtn.onclick = doSend;
+    ta.oninput = syncTa;
+    ta.onkeydown = e => {
+      if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) {
+        e.preventDefault();
+        doSend();
+      }
+    };
+
+    foot.append(drawerHost, h('div.msg-compose', smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
+  } else {
+    foot.append(h('div.pad.small.muted.center', 'Вы не можете писать этому пользователю.'));
+  }
+
+  const onMsg = bus.on('sse:message', async m => {
+    if (m.from && m.from.id === d.user.id) {
+      const fresh = await api.get('/api/mail/' + uid, { page: 1 }, { silent: true });
+      curPage = 1;
+      items = [...(fresh.items || [])].reverse();
+      renderMessages(true);
+      refreshCounters();
+    }
+  });
+  ctx.onLeave(() => {
+    document.body.classList.remove('msg-page');
+    onMsg && onMsg();
+  });
+
+  renderMessages(true);
+  return h('div.msg-shell', head, scrollEl, foot);
 }, { auth: true });

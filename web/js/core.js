@@ -460,19 +460,59 @@ export const ui = {
     return form;
   },
 
-  /** BB-редактор с тулбаром и смайлами. Возвращает {el, value, set(v), insert(text)}. */
-  bbEditor({ value = '', rows = 5, placeholder = '', name, maxlength } = {}) {
+  /** BB-редактор с интерактивным тулбаром, цветами и встроенной панелью смайлов. Возвращает {el, value, set(v), insert(text)}. */
+  bbEditor({ value = '', rows = 4, placeholder = '', name, maxlength } = {}) {
     const ta = h('textarea.input.bb', { rows, placeholder, name, maxlength }, value);
     const wrap = (a, b = '') => { const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value; ta.value = v.slice(0, s) + a + v.slice(s, e) + (b || '') + v.slice(e); ta.focus(); ta.selectionStart = s + a.length; ta.selectionEnd = e + a.length; };
     const bb = state.config.bb || {};
-    const tools = [['bold', '[b]', '[/b]', 'b'], ['italic', '[i]', '[/i]', 'i'], ['underline', '[u]', '[/u]', 'u'], ['quote', '[quote]', '[/quote]', 'code'], ['link', '[url=https://]', '[/url]', 'url'], ['image', '[img]', '[/img]', 'img'], ['hash', '[code]', '[/code]', 'code']];
-    const bar = h('div.bb-bar', tools.filter(t => bb[t[3]] !== false).map(([ic, a, b]) => h('button.btn.ghost.icon-only.sm', { type: 'button', title: a, onclick: () => wrap(a, b) }, icon(ic, 15))),
-      h('button.btn.ghost.icon-only.sm', { type: 'button', title: 'Смайлы', onclick: async () => {
-        const body = h('div.smiles-grid', ui.loading());
-        const m = ui.modal({ title: 'Смайлы', body });
-        try { const list = await api.get('/api/smiles/all', null, { silent: true }); body.replaceChildren(...(list.items || list).map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => { wrap(' ' + s.code + ' '); m.close(); } }, h('img', { src: s.url, alt: s.code })))); if (!(list.items || list).length) body.replaceChildren(ui.empty('Смайлов нет')); } catch { body.replaceChildren(ui.empty('Смайлы недоступны')); }
-      } }, icon('smile', 15)));
-    return { el: h('div.bb-editor', bar, ta), ta, get value() { return ta.value; }, set value(v) { ta.value = v; }, insert: t => wrap(t) };
+    const smilesBox = h('div.bb-smiles-inline', { style: { display: 'none' } });
+    let smilesLoaded = false;
+
+    const tools = [
+      ['bold', 'Жирный', () => wrap('[b]', '[/b]'), 'b'],
+      ['italic', 'Курсив', () => wrap('[i]', '[/i]'), 'i'],
+      ['underline', 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u'],
+      ['quote', 'Цитата', () => wrap('[quote]', '[/quote]'), 'code'],
+      ['link', 'Вставить ссылку', async () => {
+        const u = await ui.prompt('Адрес ссылки (https://...)', 'https://', { title: 'Вставить ссылку' });
+        if (u && u.trim()) {
+          const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+          wrap(`[url=${u.trim()}]`, sel ? '[/url]' : `${u.trim()}[/url]`);
+        }
+      }, 'url'],
+      ['image', 'Вставить картинку', async () => {
+        const u = await ui.prompt('Ссылка на картинку (https://...)', 'https://', { title: 'Вставить картинку' });
+        if (u && u.trim()) wrap(`[img]${u.trim()}[/img]`);
+      }, 'img'],
+      ['hash', 'Код', () => wrap('[code]', '[/code]'), 'code'],
+    ];
+
+    const colors = [['red', '#e11d48', 'Красный'], ['yellow', '#eab308', 'Жёлтый'], ['green', '#16a34a', 'Зелёный'], ['blue', '#2563eb', 'Синий']]
+      .filter(([k]) => bb[k] !== false)
+      .map(([k, col, title]) => h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${k}]`, `[/${k}]`) }));
+
+    const smileBtn = h('button.btn.ghost.icon-only.sm', {
+      type: 'button', title: 'Смайлы',
+      onclick: async () => {
+        const open = smilesBox.style.display === 'none';
+        smilesBox.style.display = open ? 'flex' : 'none';
+        if (open && !smilesLoaded) {
+          smilesBox.replaceChildren(ui.loading());
+          try {
+            const list = await api.get('/api/smiles/all', null, { silent: true });
+            const arr = list.items || list || [];
+            smilesLoaded = true;
+            smilesBox.replaceChildren(...(arr.length ? arr.map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => wrap(' ' + s.code + ' ') }, h('img', { src: s.url, alt: s.code }))) : [h('span.small.muted', 'Смайлов нет')]));
+          } catch { smilesBox.replaceChildren(h('span.small.muted', 'Смайлы недоступны')); }
+        }
+      },
+    }, icon('smile', 15));
+
+    const bar = h('div.bb-bar',
+      ...tools.filter(t => bb[t[3]] !== false).map(([ic, title, fn]) => h('button.btn.ghost.icon-only.sm', { type: 'button', title, onclick: fn }, icon(ic, 15))),
+      colors.length ? h('span.bb-colors', ...colors) : null,
+      smileBtn);
+    return { el: h('div.bb-editor', bar, smilesBox, ta), ta, get value() { return ta.value; }, set value(v) { ta.value = v; }, insert: t => wrap(t) };
   },
 
   dropdown(trigger, items) {
