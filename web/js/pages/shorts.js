@@ -118,58 +118,128 @@ function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
   });
 }
 
-// ───────── комментарии к клипу
-async function openCommentsModal(s, onCountChange) {
+// ───────── комментарии к клипу (выезжающая снизу панель как в TikTok / YouTube Shorts)
+function openCommentsModal(s, onCountChange) {
+  const titleCnt = h('span.badge', fmt.num(s.komms));
   const listWrap = h('div.posts');
-  const foot = h('div.stack-s');
+  const bodyEl = h('div.sheet-body', listWrap);
+  const replyBar = h('div.sheet-reply', { style: { display: 'none' } });
+  const footEl = h('div.sheet-foot');
   let replyTo = 0;
+  let curPage = 1;
+  let totalPages = 1;
+  let allItems = [];
 
-  async function load(page = 1) {
-    listWrap.replaceChildren(ui.loading());
-    const d = await api.get(`/api/shorts/${s.id}/komms`, { page });
-    onCountChange && onCountChange(d.total);
-    if (!d.items.length) {
-      listWrap.replaceChildren(ui.empty('Комментариев пока нет', 'message-circle'));
+  const setReply = (uid, nick) => {
+    replyTo = uid || 0;
+    if (replyTo) {
+      replyBar.style.display = '';
+      replyBar.replaceChildren(
+        h('span', `Ответ для ${nick}`),
+        h('button', { type: 'button', title: 'Отменить ответ', onclick: () => setReply(0, '') }, icon('x', 14))
+      );
+    } else {
+      replyBar.style.display = 'none';
+      replyBar.replaceChildren();
+    }
+  };
+
+  function closeSheet() {
+    back.classList.remove('open');
+    document.removeEventListener('keydown', onEsc);
+    setTimeout(() => back.remove(), 260);
+  }
+  const onEsc = e => { if (e.key === 'Escape') closeSheet(); };
+
+  const renderList = () => {
+    if (!allItems.length) {
+      listWrap.replaceChildren(ui.empty('Комментариев пока нет — будьте первым!', 'message-circle'));
       return;
     }
-    listWrap.replaceChildren(...d.items.map(k => ui.post({
+    const nodes = allItems.map(k => ui.post({
       user: k.user, time: k.time,
       body: h('div.text', { html: k.msg }),
       actions: [
-        k.can_reply ? ui.btn('', { ic: 'corner-up-left', small: true, title: 'Ответить', onclick: () => { replyTo = k.user.id; input.value = `[b]${k.user.nick}[/b], `; input.focus(); } }) : null,
-        k.can_delete ? ui.btn('', { ic: 'trash', small: true, title: 'Удалить', onclick: async () => { if (await ui.confirm('Удалить комментарий?', { danger: true })) { await api.del('/api/shorts/komm/' + k.id); load(page); } } }) : null,
+        k.can_reply ? ui.btn('', { ic: 'corner-up-left', small: true, title: 'Ответить', onclick: () => { setReply(k.user.id, k.user.nick); input.value = `[b]${k.user.nick}[/b], `; input.focus(); } }) : null,
+        k.can_delete ? ui.btn('', { ic: 'trash', small: true, title: 'Удалить', onclick: async () => { if (await ui.confirm('Удалить комментарий?', { danger: true })) { await api.del('/api/shorts/komm/' + k.id); load(1, false); } } }) : null,
       ].filter(Boolean),
-    })));
+    }));
+    if (curPage < totalPages) {
+      nodes.push(ui.btn('Показать ещё', { cls: 'sheet-more', onclick: () => load(curPage + 1, true) }));
+    }
+    listWrap.replaceChildren(...nodes);
+  };
+
+  async function load(page = 1, append = false) {
+    if (!append) listWrap.replaceChildren(ui.loading());
+    const d = await api.get(`/api/shorts/${s.id}/komms`, { page });
+    curPage = d.page || page;
+    totalPages = d.pages || 1;
+    titleCnt.textContent = fmt.num(d.total);
+    onCountChange && onCountChange(d.total);
+    allItems = append ? allItems.concat(d.items || []) : (d.items || []);
+    renderList();
   }
 
-  const input = h('textarea.input', { rows: 2, placeholder: 'Напишите комментарий…', maxlength: 1024 });
+  const input = h('textarea.input', { rows: 1, placeholder: 'Добавьте комментарий…', maxlength: 1024 });
   if (me()) {
-    const sendBtn = ui.btn('Отправить', {
-      ic: 'send', kind: 'primary', small: true,
-      onclick: async () => {
-        const msg = input.value.trim();
-        if (!msg) return;
-        sendBtn.disabled = true;
-        try {
-          const r = await api.post(`/api/shorts/${s.id}/komms`, { msg, reply_to: replyTo });
-          input.value = ''; replyTo = 0;
-          onCountChange && onCountChange(r.komms);
-          await load(1);
-        } finally { sendBtn.disabled = false; }
-      },
-    });
-    foot.append(input, h('div.row', h('span.grow'), sendBtn));
+    const sendBtn = h('button.sheet-send', { type: 'button', title: 'Отправить', 'aria-label': 'Отправить' }, icon('send', 18));
+    const doSend = async () => {
+      const msg = input.value.trim();
+      if (!msg || sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      try {
+        const r = await api.post(`/api/shorts/${s.id}/komms`, { msg, reply_to: replyTo });
+        input.value = '';
+        input.style.height = '';
+        setReply(0, '');
+        titleCnt.textContent = fmt.num(r.komms);
+        onCountChange && onCountChange(r.komms);
+        await load(1, false);
+        bodyEl.scrollTop = 0;
+      } finally { sendBtn.disabled = false; }
+    };
+    sendBtn.onclick = doSend;
+    input.oninput = () => { input.style.height = 'auto'; input.style.height = Math.min(110, input.scrollHeight) + 'px'; };
+    input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } };
+    footEl.append(replyBar, h('div.sheet-compose', input, sendBtn));
   } else {
-    foot.append(h('div.small.muted', link('/login', 'Войдите'), ', чтобы оставлять комментарии.'));
+    footEl.append(h('div.small.muted.center', link('/login', 'Войдите'), ', чтобы оставлять комментарии.'));
   }
 
-  ui.modal({
-    title: `Комментарии · ${s.title}`,
-    wide: true,
-    body: h('div.stack', foot, listWrap),
-    actions: [{ label: 'Закрыть' }],
+  const topEl = h('div.sheet-top',
+    h('div.sheet-handle'),
+    h('div.sheet-head',
+      h('h3', 'Комментарии ', titleCnt),
+      h('button.icon-btn', { type: 'button', onclick: closeSheet, 'aria-label': 'Закрыть' }, icon('x', 20))));
+
+  const sheet = h('div.sheet', { role: 'dialog', 'aria-label': 'Комментарии' }, topEl, bodyEl, footEl);
+  const back = h('div.sheet-back', { onclick: e => { if (e.target === back) closeSheet(); } }, sheet);
+
+  // Свайп вниз за шапку панели для закрытия
+  let sy = 0, dy = 0, dragging = false;
+  topEl.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    sy = e.touches[0].clientY; dy = 0; dragging = true;
+    sheet.style.transition = 'none';
+  }, { passive: true });
+  topEl.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    dy = Math.max(0, e.touches[0].clientY - sy);
+    sheet.style.transform = `translateY(${dy}px)`;
+  }, { passive: true });
+  topEl.addEventListener('touchend', () => {
+    if (!dragging) return;
+    dragging = false;
+    sheet.style.transition = '';
+    sheet.style.transform = '';
+    if (dy > 90) closeSheet();
   });
-  load(1);
+
+  document.body.append(back);
+  document.addEventListener('keydown', onEsc);
+  requestAnimationFrame(() => back.classList.add('open'));
+  load(1, false);
 }
 
 // ───────── поделиться (ЛС / Стена / Ссылка)
@@ -488,7 +558,7 @@ async function renderShortsFeed(ctx, startID = 0) {
   // Клавиатура: стрелки вверх/вниз, пробел, M, Esc
   const onKey = e => {
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-    if (document.querySelector('.modal-back')) return;
+    if (document.querySelector('.modal-back, .sheet-back')) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       const curIdx = slides.findIndex(c => !c.video.paused);
       const next = Math.max(0, Math.min(slides.length - 1, (curIdx < 0 ? 0 : curIdx) + (e.key === 'ArrowDown' ? 1 : -1)));

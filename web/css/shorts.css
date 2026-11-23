@@ -79,6 +79,28 @@ body.shorts-fs .topbar, body.shorts-fs .tabbar, body.shorts-fs .footer { display
 .share-users { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
 .share-user { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--bg-sunken); }
 
+/* Bottom-sheet комментариев (TikTok / YouTube Shorts стиль) */
+.sheet-back { position: fixed; inset: 0; z-index: 110; background: rgba(4, 6, 14, .58); backdrop-filter: blur(2px); display: flex; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity .22s ease; }
+.sheet-back.open { opacity: 1; }
+.sheet { width: min(520px, 100%); height: min(74dvh, 640px); max-height: 88dvh; background: var(--bg-card); color: var(--text); border-radius: 20px 20px 0 0; border: 1px solid var(--border-s); border-bottom: 0; box-shadow: 0 -16px 50px rgba(0, 0, 0, .55); display: flex; flex-direction: column; overflow: hidden; transform: translateY(100%); transition: transform .26s cubic-bezier(.22, 1, .36, 1); }
+.sheet-back.open .sheet { transform: translateY(0); }
+.sheet-top { flex: none; padding: 8px 14px 10px; border-bottom: 1px solid var(--border-s); touch-action: none; }
+.sheet-handle { width: 40px; height: 4px; border-radius: 99px; background: var(--border); margin: 0 auto 8px; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sheet-head h3 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 6px; }
+.sheet-body { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 0; }
+.sheet-body .posts { padding: 0; }
+.sheet-body .post { padding: 11px 14px; }
+.sheet-more { display: block; width: calc(100% - 28px); margin: 8px 14px 12px; }
+.sheet-foot { flex: none; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border-s); background: var(--bg-card); display: flex; flex-direction: column; gap: 6px; }
+.sheet-reply { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: .8rem; font-weight: 600; }
+.sheet-reply button { background: none; border: 0; color: inherit; cursor: pointer; display: grid; place-items: center; padding: 2px; }
+.sheet-compose { display: flex; align-items: flex-end; gap: 8px; }
+.sheet-compose textarea.input { min-height: 40px; max-height: 110px; resize: none; padding: 9px 14px; border-radius: 20px; line-height: 1.35; }
+.sheet-send { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; cursor: pointer; flex: none; transition: transform .12s, opacity .12s; }
+.sheet-send:hover { filter: brightness(1.06); }
+.sheet-send:disabled { opacity: .5; pointer-events: none; }
+
 @media (max-width: 700px) {
   .short-slide { padding: 0; }
   .short-card { width: 100%; height: 100%; max-width: none; aspect-ratio: auto; border-radius: 0; border: 0; box-shadow: none; }
