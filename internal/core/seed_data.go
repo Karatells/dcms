@@ -377,6 +377,7 @@ var seedMenu = []struct {
 	{7, "link", "Фото", "/foto/", "foto/count.php", 10, "camera-image"},
 	{10, "link", "Блоги", "/plugins/notes/", "plugins/notes/count.php", 8, "book-open"},
 	{12, "link", "Знакомства", "/user/love/", "/user/love/count.php", 3, "account-heart"},
+	{15, "link", "Клипы", "/shorts/", "shorts/count.php", 4, "video"},
 	{13, "link", "Информация", "/plugins/rules/", "", 12, "information"},
 	{14, "link", "Пользователи", "/user/users/", "/user/users/count.php", 11, "account-multiple"},
 }

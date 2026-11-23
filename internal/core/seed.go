@@ -33,6 +33,18 @@ func (a *App) seed() {
 		for _, m := range seedMenu {
 			a.T.Menu.Insert(&model.Menu{Base: baseID(m.ID), Type: m.Type, Name: m.Name, Url: m.URL, Counter: m.Counter, Pos: m.Pos, Icon: m.Icon})
 		}
+	} else {
+		// Миграция меню для уже существующих БД: добавляем «Клипы», если пункта ещё нет
+		hasShorts := false
+		for _, m := range a.T.Menu.All() {
+			if m.Url == "/shorts/" || m.Url == "/shorts" {
+				hasShorts = true
+				break
+			}
+		}
+		if !hasShorts {
+			a.T.Menu.Insert(&model.Menu{Type: "link", Name: "Клипы", Url: "/shorts/", Counter: "shorts/count.php", Pos: 4, Icon: "video"})
+		}
 	}
 	if a.T.SettingsMenu.Len() == 0 {
 		for _, m := range seedUserSettings {

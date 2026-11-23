@@ -187,6 +187,7 @@ cmd_install() {
   [ -d "$APP_DIR/.git" ] && die "Уже установлено. Для обновления: dcms-update"
   info "Устанавливаю зависимости…"
   pkg_install git curl ca-certificates tar
+  command -v ffmpeg >/dev/null || pkg_install ffmpeg || echo "Предупреждение: не удалось установить ffmpeg (нужен для сжатия коротких видео)" >&2
   ensure_go
   ensure_mariadb
   id "$USER_NAME" >/dev/null 2>&1 || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin "$USER_NAME"
@@ -262,6 +263,7 @@ cmd_update() {
   [ -f /etc/dcms/install.conf ] && . /etc/dcms/install.conf
   mkdir -p /var/cache/dcms-gopath
   ensure_go
+  command -v ffmpeg >/dev/null || pkg_install ffmpeg || true
   # При обновлении со старой версии без MySQL — автоматически настраиваем MariaDB и DCMS_DSN
   if [ -f "$ENV_FILE" ] && ! grep -q '^DCMS_DSN=' "$ENV_FILE"; then
     info "Обнаружено обновление на MySQL/MariaDB — настраиваю БД…"

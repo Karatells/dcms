@@ -23,6 +23,7 @@ import (
 	"dcms/internal/mods/forum"
 	"dcms/internal/mods/foto"
 	"dcms/internal/mods/profile"
+	"dcms/internal/mods/shorts"
 )
 
 //go:embed all:web
@@ -55,7 +56,7 @@ func main() {
 	// порядок важен только для зависимостей между таблицами; все модули независимы по маршрутам
 	for _, reg := range []func(*core.App){
 		account.Register, profile.Register, feeds.Register, extras.Register, forum.Register,
-		chatnews.Register, foto.Register, files.Register, content.Register, admin.Register,
+		chatnews.Register, foto.Register, files.Register, content.Register, shorts.Register, admin.Register,
 	} {
 		reg(a)
 	}

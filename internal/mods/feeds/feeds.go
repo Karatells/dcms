@@ -270,6 +270,7 @@ func registerDiscussions(a *core.App) {
 var notifDescribe = map[string]string{
 	"files_komm": "obmen", "obmen_komm": "obmen", "news_komm": "news", "status_komm": "status",
 	"foto_komm": "foto", "notes_komm": "notes", "them_komm": "them", "stena_komm2": "stena",
+	"shorts_komm": "shorts", "shorts_like": "shorts",
 }
 
 func notifLink(a *core.App, me int64, n model.Notification) (string, map[string]any) {

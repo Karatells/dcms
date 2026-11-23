@@ -2,7 +2,7 @@ import { h, $, api, bus, can, events, icon, link, refreshCounters, refreshMe, ro
 import pages from './pages/manifest.js';
 
 // mdi-имена иконок меню старого движка → наши иконки
-const MDI = { 'rss-box': 'rss', chat: 'message-circle', pencil: 'pencil', 'folder-open-outline': 'folder', forum: 'forum', 'camera-image': 'camera', 'book-open': 'book', 'account-heart': 'heart', information: 'info', 'account-multiple': 'users' };
+const MDI = { 'rss-box': 'rss', chat: 'message-circle', pencil: 'pencil', 'folder-open-outline': 'folder', forum: 'forum', 'camera-image': 'camera', 'book-open': 'book', 'account-heart': 'heart', information: 'info', 'account-multiple': 'users', video: 'video' };
 const TILE_COLORS = ['#6366f1', '#0ea5e9', '#f43f5e', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'];
 export const menuIcon = n => (MDI[n] || (n && n.replace(/-outline$/, '')) || 'grid');
 
@@ -137,7 +137,7 @@ bus.on('counters', () => { drawTop(); drawSide(); drawTabbar(); });
 bus.on('route', () => { markActive(); });
 bus.on('sse:counters', () => refreshCounters());
 bus.on('sse:notify', d => { refreshCounters(); ui.toast('🔔 ' + (d.from ? d.from.nick + ': ' : '') + (notifyTitle[d.type] || 'новое уведомление'), 'info'); });
-const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл' };
+const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип' };
 setInterval(() => { if (state.user && document.visibilityState === 'visible') refreshCounters(); }, 60000);
 
 // ── старт
