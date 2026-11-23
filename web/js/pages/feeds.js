@@ -120,8 +120,15 @@ router.add('/user/notification/settings', async ctx => {
 
 // ───────── почта
 const KONT_TABS = [['common', 'Контакты', 'users'], ['favorite', 'Избранные', 'star'], ['ignor', 'Игнор', 'ban'], ['deleted', 'Удалённые', 'trash']];
-const mailTabs = active => ui.tabs([{ key: 'new', label: h('span', 'Новые ', cnt('mail') ? h('span.badge.danger', cnt('mail')) : null), icon: 'mail', href: '/mail/new' },
-  ...KONT_TABS.map(([k, l, i]) => ({ key: k, label: l, icon: i, href: '/mail?type=' + k }))], active);
+const mailTabs = active => ui.tabs(
+  KONT_TABS.map(([k, l, i]) => ({
+    key: k,
+    label: k === 'common' && cnt('mail') ? h('span', l, ' ', h('span.badge.danger', cnt('mail'))) : l,
+    icon: i,
+    href: '/mail?type=' + k,
+  })),
+  active
+);
 
 router.add('/mail', async ctx => {
   ctx.title('Почта');
@@ -146,12 +153,7 @@ router.add('/mail', async ctx => {
     type === 'deleted' ? h('div.muted.small', 'Удалённые контакты очищаются через 30 дней вместе с перепиской.') : null, ui.pager(d)];
 }, { auth: true });
 
-router.add('/mail/new', async ctx => {
-  ctx.title('Новые сообщения');
-  const d = await api.get('/api/mail/new');
-  return [ui.pageHead('Новые сообщения'), mailTabs('new'), ui.card(d.items.length ? h('div.list', d.items.map(x => h('a.list-item', { href: '/mail/' + x.user.id },
-    ui.avatar(x.user, 44), h('div.main', h('div.title', x.user.nick, h('span.badge.danger', { style: { marginLeft: '8px' } }, '+' + x.count)), h('div.small.muted.clip', x.text)), ui.time(x.time)))) : ui.empty('Нет новых сообщений', 'mail'))];
-}, { auth: true });
+router.add('/mail/new', async () => { router.go('/mail'); }, { auth: true });
 
 let _smilesCache = null;
 async function getSmiles() {

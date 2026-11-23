@@ -135,7 +135,14 @@ func send(a *core.App, from, to *model.User, msg string) (Mail, error) {
 		konts.Insert(&Kont{IDUser: from.ID, IDKont: to.ID, Time: now, Type: "common"})
 	}
 	if k, ok := kontOf(to.ID, from.ID); ok {
-		konts.Update(k.ID, func(x *Kont) { x.Time = now })
+		konts.Update(k.ID, func(x *Kont) {
+			x.Time = now
+			if x.Type == "deleted" {
+				x.Type = "common"
+			}
+		})
+	} else {
+		konts.Insert(&Kont{IDUser: to.ID, IDKont: from.ID, Time: now, Type: "common"})
 	}
 	// если собеседник «скрыл» переписку — возвращаем её
 	for _, x := range mails.By("dialog", pairKey(from.ID, to.ID)) {
