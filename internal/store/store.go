@@ -360,6 +360,7 @@ func NewTable[T any, PT interface {
 	}
 	db.tables[name] = t
 	db.tmu.Unlock()
+	_ = t.ensureSchema()
 	return t
 }
 
