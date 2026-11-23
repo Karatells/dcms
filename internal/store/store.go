@@ -337,6 +337,8 @@ type Table[T any, PT interface {
 
 	// предсобранные фрагменты SQL
 	selectCols string // `id`, `col1`, `col2`, ...
+	smu        sync.Mutex
+	ready      bool
 }
 
 // NewTable регистрирует таблицу в БД.
@@ -360,8 +362,17 @@ func NewTable[T any, PT interface {
 	}
 	db.tables[name] = t
 	db.tmu.Unlock()
-	_ = t.ensureSchema()
 	return t
+}
+
+func (t *Table[T, PT]) ensureReady() {
+	t.smu.Lock()
+	if !t.ready {
+		if err := t.ensureSchema(); err == nil {
+			t.ready = true
+		}
+	}
+	t.smu.Unlock()
 }
 
 func (t *Table[T, PT]) tname() string { return t.name }
@@ -379,6 +390,9 @@ func (t *Table[T, PT]) Index(name string, fn func(*T) string) *Table[T, PT] {
 	}
 	t.idxList = append(t.idxList, ix)
 	t.idxMap[name] = ix
+	t.smu.Lock()
+	t.ready = false
+	t.smu.Unlock()
 	return t
 }
 
@@ -693,6 +707,7 @@ func placeholders(n int) string {
 
 // Insert добавляет запись, назначая id (если v.ID == 0). Возвращает id.
 func (t *Table[T, PT]) Insert(v *T) int64 {
+	t.ensureReady()
 	p := PT(v)
 	id := p.GetID()
 	wcols := t.allWriteCols()
@@ -963,6 +978,7 @@ func (t *Table[T, PT]) UpdateWhere(pred func(*T) bool, fn func(*T)) int {
 
 // Len — число записей.
 func (t *Table[T, PT]) Len() int {
+	t.ensureReady()
 	var n int
 	q := fmt.Sprintf("SELECT COUNT(*) FROM %s", t.qname)
 	if err := t.db.sql.QueryRow(q).Scan(&n); err != nil {
