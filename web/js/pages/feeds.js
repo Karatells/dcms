@@ -174,6 +174,121 @@ function dayLabel(ts) {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
+// ───────── выбор личного вложения (Фото / Файлы / Клипы)
+function openAttachPicker(onPick) {
+  const myId = state.user.id;
+  let tab = 'foto';
+  const bodyWrap = h('div.stack');
+  const content = h('div');
+
+  const tabsEl = h('div.tabs');
+  const drawTabs = () => {
+    tabsEl.replaceChildren(...[['foto', 'Фото', 'camera'], ['files', 'Файлы', 'folder'], ['shorts', 'Клипы', 'video']].map(([k, l, ic]) =>
+      h('button.tab' + (tab === k ? '.active' : ''), { type: 'button', onclick: () => { tab = k; drawTabs(); loadTab(); } }, icon(ic, 15), l)));
+  };
+
+  let modal;
+  const pick = att => { modal && modal.close(); onPick(att); };
+
+  async function loadFoto(albumId = 0) {
+    content.replaceChildren(ui.loading());
+    if (!albumId) {
+      const d = await api.get(`/api/foto/user/${myId}`);
+      const albums = d.items || [];
+      if (!albums.length) { content.replaceChildren(ui.empty('У вас пока нет фотоальбомов', 'camera')); return; }
+      content.replaceChildren(h('div.list', ...albums.map(al => h('button.list-item', {
+        type: 'button', style: { width: '100%', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer' },
+        onclick: () => loadFoto(al.id),
+      }, icon('camera', 20), h('div.main', h('div.title', al.name)), h('span.badge', al.count || 0)))));
+    } else {
+      const d = await api.get(`/api/foto/album/${albumId}`);
+      const photos = d.items || [];
+      const back = ui.btn('← К альбомам', { small: true, onclick: () => loadFoto(0) });
+      if (!photos.length) { content.replaceChildren(back, ui.empty('В альбоме нет фотографий', 'camera')); return; }
+      content.replaceChildren(back, h('div.att-grid', { style: { marginTop: '8px' } }, ...photos.map(p =>
+        h('button.att-thumb', {
+          type: 'button', title: p.name || 'Фото',
+          onclick: () => pick({ type: 'foto', id: p.id, title: p.name || 'Фотография', image: p.thumb || `/api/foto/img/${p.id}.${p.ras || 'jpg'}?s=200` }),
+        }, h('img', { src: p.thumb || `/api/foto/img/${p.id}.${p.ras || 'jpg'}?s=200`, alt: p.name || '' }), h('span', p.name || 'Фото')))));
+    }
+  }
+
+  async function loadFiles(dirId = 0) {
+    content.replaceChildren(ui.loading());
+    const d = await api.get(`/api/pfiles/${myId}/${dirId}`);
+    const head = d.path && d.path.length > 1
+      ? ui.btn('← Назад', { small: true, onclick: () => loadFiles(d.path[d.path.length - 2].id) })
+      : null;
+    const rows = (d.items || []).map(x => x.kind === 'dir'
+      ? h('button.list-item', {
+        type: 'button', style: { width: '100%', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer' },
+        onclick: () => loadFiles(x.id),
+      }, icon('folder', 20), h('div.main', h('div.title', x.name)), h('span.badge', x.files))
+      : h('button.list-item', {
+        type: 'button', style: { width: '100%', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer' },
+        onclick: () => pick({ type: 'files', id: x.id, title: `${x.name}.${x.ras}`, image: x.screen ? x.screen_url : '' }),
+      }, icon('file', 20), h('div.main', h('div.title', `${x.name}.${x.ras}`), h('div.small.muted', x.size_str))));
+    content.replaceChildren(head, rows.length ? h('div.list', { style: { maxHeight: '48vh', overflowY: 'auto' } }, ...rows) : ui.empty('Папка пуста', 'folder'));
+  }
+
+  async function loadShorts() {
+    content.replaceChildren(ui.loading());
+    const d = await api.get('/api/shorts', { user: myId, page: 1 });
+    const list = d.items || [];
+    if (!list.length) { content.replaceChildren(ui.empty('У вас пока нет клипов', 'video')); return; }
+    content.replaceChildren(h('div.att-grid', ...list.map(s =>
+      h('button.att-thumb.clip', {
+        type: 'button', title: s.title,
+        onclick: () => pick({ type: 'shorts', id: s.id, title: s.title, image: s.poster_url }),
+      }, h('img', { src: s.poster_url, alt: s.title }), h('span', s.title)))));
+  }
+
+  const loadTab = () => {
+    if (tab === 'foto') loadFoto(0);
+    else if (tab === 'files') loadFiles(0);
+    else loadShorts();
+  };
+
+  drawTabs();
+  bodyWrap.append(tabsEl, content);
+  modal = ui.modal({ title: 'Прикрепить из личного', body: bodyWrap, wide: true, actions: [{ label: 'Закрыть' }] });
+  loadTab();
+}
+
+// ───────── рендер вложения внутри пузыря
+function renderBubbleAttach(att) {
+  if (!att) return null;
+  if (att.type === 'foto' && att.image) {
+    return h('a.bubble-att', { href: att.link || '#' }, h('img.bubble-att-img', { src: att.image, alt: att.title || 'Фото', loading: 'lazy' }));
+  }
+  if (att.type === 'shorts') {
+    return h('a.bubble-att.bubble-att-clip', { href: att.link || ('/shorts/' + att.id) },
+      att.image ? h('img', { src: att.image, alt: att.title || 'Клип', loading: 'lazy' }) : null,
+      h('span.play-badge', icon('play', 32)),
+      h('span.clip-cap', att.title || 'Клип'));
+  }
+  return h('a.bubble-att.bubble-att-file', { href: att.link || ('/obmen/file/' + att.id) },
+    icon('file', 22),
+    h('div.main', h('div.title', att.title || 'Файл'), att.text ? h('div.small.muted.clip', att.text) : null));
+}
+
+// ───────── контекстное меню сообщения
+function openMsgMenu(m, { onReply, onPin, onDelete, onSpam }) {
+  const close = () => back.remove();
+  const item = (ic, label, fn, danger = false) => h('button.msg-ctx-item' + (danger ? '.danger' : ''), {
+    type: 'button',
+    onclick: () => { close(); fn(); },
+  }, icon(ic, 18), label);
+  const menu = h('div.msg-ctx',
+    item('corner-up-left', 'Ответить', onReply),
+    item('pin', m.pinned ? 'Открепить' : 'Закрепить', onPin),
+    m.raw ? item('copy', 'Копировать текст', () => navigator.clipboard?.writeText(m.raw).then(() => ui.ok('Скопировано'))) : null,
+    !m.mine ? item('flag', 'Пожаловаться', onSpam) : null,
+    item('trash', 'Удалить у себя', onDelete, true));
+  const back = h('div.msg-ctx-back', { onclick: e => { if (e.target === back) close(); } }, menu);
+  document.body.append(back);
+}
+
 router.add('/mail/:id', async ctx => {
   const uid = +ctx.params.id;
   const d = await api.get('/api/mail/' + uid, { page: 1 });
@@ -183,11 +298,55 @@ router.add('/mail/:id', async ctx => {
 
   let curPage = 1;
   const totalPages = d.pages || 1;
-  // Храним сообщения в хронологическом порядке (старые сверху, новые снизу)
   let items = [...(d.items || [])].reverse();
+  let pinnedMsg = d.pinned || null;
+  let replyTo = null; // { id, nick, text }
+  let attach = null;  // { type, id, title, image }
 
   const scrollEl = h('div.msg-scroll');
+  const pinnedHost = h('div');
+  const chipHost = h('div');
   const reload = () => router.render();
+
+  const jumpToMsg = id => {
+    const el = scrollEl.querySelector(`.bubble[data-mid="${id}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1200);
+  };
+
+  const renderPinned = () => {
+    if (!pinnedMsg) { pinnedHost.replaceChildren(); return; }
+    pinnedHost.replaceChildren(h('div.msg-pinned', { onclick: () => jumpToMsg(pinnedMsg.id) },
+      icon('pin', 16),
+      h('div.msg-pinned-body',
+        h('div.msg-pinned-title', `Закреплено · ${pinnedMsg.nick}`),
+        h('div.msg-pinned-text', pinnedMsg.text || 'Сообщение')),
+      h('button.icon-btn', {
+        type: 'button', title: 'Открепить',
+        onclick: async e => { e.stopPropagation(); await api.post(`/api/mail/msg/${pinnedMsg.id}/pin`); pinnedMsg = null; items.forEach(x => { x.pinned = false; }); renderPinned(); },
+      }, icon('x', 16))));
+  };
+
+  let syncTa = () => {};
+  const renderChips = () => {
+    const nodes = [];
+    if (replyTo) {
+      nodes.push(h('div.msg-bar-chip',
+        icon('corner-up-left', 16),
+        h('div.chip-main', h('div.chip-title', `Ответ · ${replyTo.nick}`), h('div.chip-text', replyTo.text)),
+        h('button.icon-btn', { type: 'button', onclick: () => { replyTo = null; renderChips(); } }, icon('x', 16))));
+    }
+    if (attach) {
+      const lbl = { foto: 'Фотография', files: 'Личный файл', shorts: 'Клип' }[attach.type] || 'Вложение';
+      nodes.push(h('div.msg-bar-chip',
+        attach.image ? h('img', { src: attach.image, alt: '' }) : icon('paperclip', 16),
+        h('div.chip-main', h('div.chip-title', lbl), h('div.chip-text', attach.title)),
+        h('button.icon-btn', { type: 'button', onclick: () => { attach = null; renderChips(); syncTa(); } }, icon('x', 16))));
+    }
+    chipHost.replaceChildren(...nodes);
+  };
 
   const renderMessages = (keepBottom = true) => {
     const prevH = scrollEl.scrollHeight;
@@ -211,15 +370,44 @@ router.add('/mail/:id', async ctx => {
       items.forEach(m => {
         const dl = dayLabel(m.time);
         if (dl !== lastDay) { lastDay = dl; nodes.push(h('div.msg-day', dl)); }
-        nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : ''),
-          h('div.bubble' + (m.mine ? '.mine' : ''),
-            ui.html(m.msg, 'text'),
-            h('div.bubble-meta',
-              h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
-              m.mine ? icon(m.read ? 'check-all' : 'check', 14) : null,
-              h('span.bubble-act',
-                !m.mine ? h('button.link', { title: 'Пожаловаться', onclick: async () => { const t = await ui.prompt('Причина жалобы', '', { multiline: true, title: 'Жалоба' }); if (t) { await api.post(`/api/mail/msg/${m.id}/spam`, { msg: t, types: 0 }); ui.ok('Жалоба отправлена'); } } }, icon('flag', 13)) : null,
-                h('button.link', { title: 'Удалить у себя', onclick: async () => { await api.del('/api/mail/msg/' + m.id); items = items.filter(x => x.id !== m.id); renderMessages(false); } }, icon('trash', 13)))))));
+        const openMenu = e => {
+          if (e.target.closest('a, .bubble-reply')) return;
+          e.preventDefault();
+          openMsgMenu(m, {
+            onReply: () => { replyTo = { id: m.id, nick: m.mine ? state.user.nick : d.user.nick, text: (m.raw || '').slice(0, 80) || (m.attach ? m.attach.title : 'Сообщение') }; renderChips(); },
+            onPin: async () => {
+              const r = await api.post(`/api/mail/msg/${m.id}/pin`);
+              items.forEach(x => { x.pinned = false; });
+              m.pinned = !!r.pinned;
+              pinnedMsg = m.pinned ? { id: m.id, nick: m.mine ? state.user.nick : d.user.nick, text: (m.raw || '').slice(0, 80) || (m.attach ? m.attach.title : 'Сообщение') } : null;
+              renderPinned();
+              renderMessages(false);
+            },
+            onSpam: async () => {
+              const t = await ui.prompt('Причина жалобы', '', { multiline: true, title: 'Жалоба' });
+              if (t) { await api.post(`/api/mail/msg/${m.id}/spam`, { msg: t, types: 0 }); ui.ok('Жалоба отправлена'); }
+            },
+            onDelete: async () => {
+              await api.del('/api/mail/msg/' + m.id);
+              items = items.filter(x => x.id !== m.id);
+              if (pinnedMsg && pinnedMsg.id === m.id) { pinnedMsg = null; renderPinned(); }
+              renderMessages(false);
+            },
+          });
+        };
+        const bubble = h('div.bubble' + (m.mine ? '.mine' : ''), {
+          dataset: { mid: String(m.id) },
+          onclick: openMenu,
+          oncontextmenu: openMenu,
+        },
+          m.reply ? h('div.bubble-reply', { onclick: e => { e.stopPropagation(); jumpToMsg(m.reply.id); } }, h('b', m.reply.nick), h('span', m.reply.text)) : null,
+          renderBubbleAttach(m.attach),
+          m.msg ? ui.html(m.msg, 'text') : null,
+          h('div.bubble-meta',
+            m.pinned ? icon('pin', 11) : null,
+            h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
+            m.mine ? icon(m.read ? 'check-all' : 'check', 14) : null));
+        nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : ''), bubble));
       });
     }
     scrollEl.replaceChildren(...nodes);
@@ -246,20 +434,20 @@ router.add('/mail/:id', async ctx => {
       { label: 'Очистить переписку', icon: 'trash', danger: true, onclick: async () => { if (await ui.confirm('Удалить переписку у себя?', { danger: true })) { await api.del('/api/mail/' + d.user.id); reload(); } } },
     ]));
 
-  // Нижняя компактная панель ввода с интерактивным BB-тулбаром и смайлами
+  // Нижняя компактная панель ввода с прикреплением, BB-тулбаром и смайлами
   const foot = h('div.msg-foot');
   if (d.can_write) {
     const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Сообщение…', maxlength: 1024 });
     const charEl = h('span.msg-char');
     const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', 'aria-label': 'Отправить', disabled: true }, icon('send', 18));
     const drawerHost = h('div');
-    let activeDrawer = ''; // '' | 'bb' | 'smiles'
+    let activeDrawer = '';
 
-    const syncTa = () => {
+    syncTa = () => {
       ta.style.height = 'auto';
       ta.style.height = Math.min(120, Math.max(38, ta.scrollHeight)) + 'px';
       const n = ta.value.trim().length;
-      sendBtn.disabled = n < 2;
+      sendBtn.disabled = n < 1 && !attach;
       if (ta.value.length > 850) {
         charEl.textContent = `${ta.value.length}/1024`;
         charEl.classList.toggle('warn', ta.value.length > 980);
@@ -277,6 +465,10 @@ router.add('/mail/:id', async ctx => {
       syncTa();
     };
 
+    const attBtn = h('button.msg-tool', {
+      type: 'button', title: 'Прикрепить фото, файл или клип', 'aria-label': 'Прикрепить',
+      onclick: () => openAttachPicker(a => { attach = a; renderChips(); syncTa(); }),
+    }, icon('paperclip', 20));
     const bbBtn = h('button.msg-tool', { type: 'button', title: 'Форматирование (BBCode)', 'aria-label': 'Форматирование' }, h('b', { style: { fontSize: '.9rem' } }, 'Aa'));
     const smBtn = h('button.msg-tool', { type: 'button', title: 'Смайлы', 'aria-label': 'Смайлы' }, icon('smile', 20));
 
@@ -332,15 +524,25 @@ router.add('/mail/:id', async ctx => {
 
     const doSend = async () => {
       const msg = ta.value.trim();
-      if (msg.length < 2 || sendBtn.disabled) return;
+      if ((msg.length < 1 && !attach) || sendBtn.disabled) return;
       sendBtn.disabled = true;
       try {
-        await api.post('/api/mail/' + d.user.id, { msg });
+        await api.post('/api/mail/' + d.user.id, {
+          msg,
+          reply_id: replyTo ? replyTo.id : 0,
+          att_type: attach ? attach.type : '',
+          att_id: attach ? attach.id : 0,
+        });
         ta.value = '';
+        replyTo = null;
+        attach = null;
+        renderChips();
         syncTa();
         const fresh = await api.get('/api/mail/' + uid, { page: 1 }, { silent: true });
         curPage = 1;
         items = [...(fresh.items || [])].reverse();
+        pinnedMsg = fresh.pinned || null;
+        renderPinned();
         renderMessages(true);
       } finally { syncTa(); }
     };
@@ -354,7 +556,7 @@ router.add('/mail/:id', async ctx => {
       }
     };
 
-    foot.append(drawerHost, h('div.msg-compose', smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
+    foot.append(chipHost, drawerHost, h('div.msg-compose', attBtn, smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
   } else {
     foot.append(h('div.pad.small.muted.center', 'Вы не можете писать этому пользователю.'));
   }
@@ -364,6 +566,8 @@ router.add('/mail/:id', async ctx => {
       const fresh = await api.get('/api/mail/' + uid, { page: 1 }, { silent: true });
       curPage = 1;
       items = [...(fresh.items || [])].reverse();
+      pinnedMsg = fresh.pinned || null;
+      renderPinned();
       renderMessages(true);
       refreshCounters();
     }
@@ -373,6 +577,7 @@ router.add('/mail/:id', async ctx => {
     onMsg && onMsg();
   });
 
+  renderPinned();
   renderMessages(true);
-  return h('div.msg-shell', head, scrollEl, foot);
+  return h('div.msg-shell', head, pinnedHost, scrollEl, foot);
 }, { auth: true });

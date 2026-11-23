@@ -14,12 +14,16 @@ import (
 // Mail — личное сообщение (таблица mail). Unlink — id пользователя, скрывшего переписку у себя.
 type Mail struct {
 	store.Base
-	IDUser int64  `json:"id_user"`
-	IDKont int64  `json:"id_kont"`
-	Time   int64  `json:"time"`
-	Msg    string `json:"msg"`
-	Read   bool   `json:"read"`
-	Unlink int64  `json:"unlink"`
+	IDUser  int64  `json:"id_user"`
+	IDKont  int64  `json:"id_kont"`
+	Time    int64  `json:"time"`
+	Msg     string `json:"msg"`
+	Read    bool   `json:"read"`
+	Unlink  int64  `json:"unlink"`
+	ReplyID int64  `json:"reply_id"`
+	AttType string `json:"att_type"` // foto | files | shorts
+	AttID   int64  `json:"att_id"`
+	Pinned  bool   `json:"pinned"`
 }
 
 // Kont — контакт пользователя (users_konts): type common|favorite|ignor|deleted.
@@ -107,10 +111,30 @@ func canWriteTo(a *core.App, from *model.User, to *model.User) error {
 	return nil
 }
 
-func send(a *core.App, from, to *model.User, msg string) (Mail, error) {
+type sendOpts struct {
+	ReplyID int64
+	AttType string
+	AttID   int64
+}
+
+func send(a *core.App, from, to *model.User, msg string, opts ...sendOpts) (Mail, error) {
+	var o sendOpts
+	if len(opts) > 0 {
+		o = opts[0]
+	}
 	msg = strings.TrimSpace(msg)
-	if n := utf8.RuneCountInString(msg); n < 2 {
-		return Mail{}, core.ErrBad("Сообщение слишком короткое")
+	hasAtt := o.AttType != "" && o.AttID > 0
+	if hasAtt {
+		if o.AttType != "foto" && o.AttType != "files" && o.AttType != "shorts" {
+			return Mail{}, core.ErrBad("Неподдерживаемый тип вложения")
+		}
+		desc, ok := a.Describe(o.AttType, o.AttID)
+		if !ok || desc.Owner != from.ID {
+			return Mail{}, core.ErrForbidden("Можно прикреплять только свои файлы, фото и клипы")
+		}
+	}
+	if n := utf8.RuneCountInString(msg); n < 1 && !hasAtt {
+		return Mail{}, core.ErrBad("Введите сообщение или прикрепите вложение")
 	} else if n > 1024 {
 		return Mail{}, core.ErrBad("Сообщение слишком длинное (максимум 1024 символа)")
 	}
@@ -120,8 +144,18 @@ func send(a *core.App, from, to *model.User, msg string) (Mail, error) {
 	if _, ok := a.ActiveBan(from.ID, "all"); ok {
 		return Mail{}, core.ErrForbidden("Вы заблокированы")
 	}
+	if o.ReplyID > 0 {
+		rm, ok := mails.Get(o.ReplyID)
+		if !ok || pairKey(rm.IDUser, rm.IDKont) != pairKey(from.ID, to.ID) {
+			o.ReplyID = 0
+		}
+	}
 	now := core.Now()
-	m := Mail{IDUser: from.ID, IDKont: to.ID, Time: now, Msg: a.Text.Clean(msg)}
+	cleanMsg := ""
+	if msg != "" {
+		cleanMsg = a.Text.Clean(msg)
+	}
+	m := Mail{IDUser: from.ID, IDKont: to.ID, Time: now, Msg: cleanMsg, ReplyID: o.ReplyID, AttType: o.AttType, AttID: o.AttID}
 	mails.Insert(&m)
 	// отправитель получает контакт, у получателя обновляется время существующего
 	if k, ok := kontOf(from.ID, to.ID); ok {
@@ -150,13 +184,57 @@ func send(a *core.App, from, to *model.User, msg string) (Mail, error) {
 			mails.Update(x.ID, func(y *Mail) { y.Unlink = 0 })
 		}
 	}
-	a.Hub.ToUser(to.ID, "message", map[string]any{"from": a.Ref(from.ID), "id": m.ID, "text": a.Text.Plain(m.Msg, 120)})
+	preview := a.Text.Plain(m.Msg, 120)
+	if preview == "" && hasAtt {
+		preview = map[string]string{"foto": "📷 Фотография", "files": "📎 Файл", "shorts": "🎬 Клип"}[o.AttType]
+	}
+	a.Hub.ToUser(to.ID, "message", map[string]any{"from": a.Ref(from.ID), "id": m.ID, "text": preview})
 	a.Hub.ToUser(to.ID, "counters", map[string]any{"mail": true})
 	return m, nil
 }
 
+func msgPreview(a *core.App, m Mail) string {
+	if s := a.Text.Plain(m.Msg, 90); s != "" {
+		return s
+	}
+	if m.AttType != "" {
+		return map[string]string{"foto": "📷 Фотография", "files": "📎 Файл", "shorts": "🎬 Клип"}[m.AttType]
+	}
+	return ""
+}
+
 func msgView(a *core.App, m Mail, me int64) map[string]any {
-	return map[string]any{"id": m.ID, "mine": m.IDUser == me, "time": m.Time, "msg": a.Text.Render(m.Msg), "read": m.Read}
+	out := map[string]any{
+		"id":     m.ID,
+		"mine":   m.IDUser == me,
+		"time":   m.Time,
+		"msg":    a.Text.Render(m.Msg),
+		"raw":    m.Msg,
+		"read":   m.Read,
+		"pinned": m.Pinned,
+	}
+	if m.ReplyID > 0 {
+		if rm, ok := mails.Get(m.ReplyID); ok && rm.Unlink != me {
+			out["reply"] = map[string]any{
+				"id":   rm.ID,
+				"nick": a.Ref(rm.IDUser).Nick,
+				"text": msgPreview(a, rm),
+			}
+		}
+	}
+	if m.AttType != "" && m.AttID > 0 {
+		if d, ok := a.Describe(m.AttType, m.AttID); ok {
+			out["attach"] = map[string]any{
+				"type":  m.AttType,
+				"id":    m.AttID,
+				"title": d.Title,
+				"text":  d.Text,
+				"link":  d.Link,
+				"image": d.Image,
+			}
+		}
+	}
+	return out
 }
 
 func registerMail(a *core.App) {
@@ -197,9 +275,13 @@ func registerMail(a *core.App) {
 			return core.ErrNotFound("Пользователь не найден")
 		}
 		key := pairKey(me.ID, other.ID)
+		var pinned map[string]any
 		for _, m := range mails.By("dialog", key) {
 			if m.IDUser == other.ID && m.IDKont == me.ID && !m.Read {
 				mails.Update(m.ID, func(x *Mail) { x.Read = true })
+			}
+			if m.Pinned && m.Unlink != me.ID {
+				pinned = map[string]any{"id": m.ID, "nick": a.Ref(m.IDUser).Nick, "text": msgPreview(a, m)}
 			}
 		}
 		p := c.Page()
@@ -210,7 +292,7 @@ func registerMail(a *core.App) {
 		}
 		k, has := kontOf(me.ID, other.ID)
 		out := map[string]any{"items": items, "total": total, "page": p.Page, "per": p.Per, "pages": max(1, (total+p.Per-1)/p.Per),
-			"user": a.Ref(other.ID), "contact": has, "contact_type": k.Type, "can_write": canWriteTo(a, me, &other) == nil}
+			"user": a.Ref(other.ID), "contact": has, "contact_type": k.Type, "can_write": canWriteTo(a, me, &other) == nil, "pinned": pinned}
 		a.Hub.ToUser(me.ID, "counters", map[string]any{"mail": true})
 		return c.JSON(out)
 	}, core.Auth)
@@ -225,16 +307,42 @@ func registerMail(a *core.App) {
 			return core.ErrNotFound("Пользователь не найден")
 		}
 		var in struct {
-			Msg string `json:"msg"`
+			Msg     string `json:"msg"`
+			ReplyID int64  `json:"reply_id"`
+			AttType string `json:"att_type"`
+			AttID   int64  `json:"att_id"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
 		}
-		m, err := send(a, me, &other, in.Msg)
+		m, err := send(a, me, &other, in.Msg, sendOpts{ReplyID: in.ReplyID, AttType: in.AttType, AttID: in.AttID})
 		if err != nil {
 			return err
 		}
 		return c.JSON(msgView(a, m, me.ID))
+	}, core.Auth)
+
+	// закрепить / открепить сообщение в диалоге
+	a.POST("/api/mail/msg/{id}/pin", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		m, ok := mails.Get(c.PathInt("id"))
+		if !ok || (m.IDUser != me.ID && m.IDKont != me.ID) {
+			return core.ErrNotFound()
+		}
+		want := !m.Pinned
+		key := pairKey(m.IDUser, m.IDKont)
+		if want {
+			for _, x := range mails.By("dialog", key) {
+				if x.Pinned && x.ID != m.ID {
+					mails.Update(x.ID, func(y *Mail) { y.Pinned = false })
+				}
+			}
+		}
+		mails.Update(m.ID, func(x *Mail) { x.Pinned = want })
+		return c.OK("pinned", want)
 	}, core.Auth)
 
 	// отправка по нику (mails.php)
