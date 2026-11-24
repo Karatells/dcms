@@ -85,7 +85,28 @@ func (a *App) Ref(id int64) model.UserRef {
 
 func (a *App) isOnline(id int64) bool {
 	u, ok := a.T.Users.Get(id)
-	return ok && u.DateLast > Now()-600
+	if !ok || u.DateLast <= Now()-600 {
+		return false
+	}
+	if s, ok := a.T.UserSet.OneBy("user", i64(id)); ok && s.HideOnline {
+		return false
+	}
+	return true
+}
+
+// CanAccessPrivacy проверяет расширенную настройку приватности (0=все, 1=только друзья, 2=только я).
+func (a *App) CanAccessPrivacy(viewer *model.User, targetID, mode int64) bool {
+	if viewer != nil && (viewer.ID == targetID || viewer.Level >= 7) {
+		return true
+	}
+	switch mode {
+	case 2:
+		return false
+	case 1:
+		return viewer != nil && a.IsFriend(viewer.ID, targetID)
+	default:
+		return true
+	}
 }
 
 func (a *App) refOf(u *model.User) model.UserRef {
@@ -99,7 +120,7 @@ func (a *App) refOf(u *model.User) model.UserRef {
 		}
 		vipNick = u.VIPNickStyle
 	}
-	return model.UserRef{ID: u.ID, Nick: u.Nick, Pol: u.Pol, Online: u.DateLast > Now()-600, Mobile: u.Browser == "wap",
+	return model.UserRef{ID: u.ID, Nick: u.Nick, Pol: u.Pol, Online: a.isOnline(u.ID), Mobile: u.Browser == "wap",
 		Avatar: AvatarURL(u, 50), Group: g.Name, Level: g.Level, Medal: Medal(u.Rating), Banned: a.IsBanned(u.ID), Verified: u.Verified, Accent: u.Accent,
 		VIP: isVIP, VIPBadge: vipBadge, VIPNickStyle: vipNick}
 }

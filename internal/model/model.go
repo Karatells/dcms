@@ -306,6 +306,10 @@ type UserSet struct {
 	PrivatMail        int64 `json:"privat_mail"`
 	Ocenka            int64 `json:"ocenka"`
 	BlockGroupInvites bool  `json:"block_group_invites"`
+	PrivatWall        int64 `json:"privat_wall"`    // 0=все, 1=друзья, 2=только я
+	PrivatFriends     int64 `json:"privat_friends"` // 0=все, 1=друзья, 2=только я
+	PrivatStories     int64 `json:"privat_stories"` // 0=все, 1=друзья, 2=только я
+	HideOnline        bool  `json:"hide_online"`
 }
 
 // Spamus — таблица `spamus` старого движка.

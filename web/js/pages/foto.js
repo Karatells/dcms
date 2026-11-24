@@ -97,8 +97,29 @@ router.add('/foto/:uid/:g/:f', async ctx => {
     : h('div.card.pad.stack', h('div', icon('alert', 16), ' Фото содержит изображения эротического характера. Если вам 18+ — можете продолжить.'), ui.btn('Продолжить просмотр', { kind: 'primary', onclick: async () => { await api.post('/api/foto/abuld'); reload(); } }))];
 
   const out = [...head];
-  out.push(h('div.card.pad.photo-view', h('a', { href: d.src_orig + '?dl=1', title: 'Скачать оригинал' }, h('img', { src: d.src, alt: d.name })),
-    d.plus5 ? h('div.badge.ok', '5+ ×' + d.plus5) : null));
+  const photoWrap = h('div.card.pad.photo-view', { style: { position: 'relative' } },
+    h('a', { href: d.src_orig + '?dl=1', title: 'Скачать оригинал (двойной тап — оценить)' }, h('img', { src: d.src, alt: d.name })),
+    d.plus5 ? h('div.badge.ok', '5+ ×' + d.plus5) : null);
+  let lastFotoTap = 0;
+  photoWrap.addEventListener('click', async e => {
+    const now = Date.now();
+    if (now - lastFotoTap < 300) {
+      e.preventDefault();
+      lastFotoTap = 0;
+      const rect = photoWrap.getBoundingClientRect();
+      const heart = h('div.dtap-heart', { style: { left: (e.clientX - rect.left) + 'px', top: (e.clientY - rect.top) + 'px' } }, icon('heart', 72));
+      photoWrap.append(heart);
+      setTimeout(() => heart.remove(), 750);
+      if (me() && d.can_rate && !d.my_rating) {
+        await api.post(`/api/foto/photo/${f}/rating`, { rating: me().vip ? 6 : 5 });
+        ui.ok(me().vip ? 'Оценка 5+ принята!' : 'Оценка 5 принята!');
+        reload();
+      }
+      return;
+    }
+    lastFotoTap = now;
+  });
+  out.push(photoWrap);
   // оценка
   if (d.can_rate !== undefined && me()) {
     const rate = async n => { await api.post(`/api/foto/photo/${f}/rating`, { rating: n }); ui.ok('Ваша оценка принята'); reload(); };

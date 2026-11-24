@@ -533,3 +533,8 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 .short-prev-bar{display:flex;align-items:center;gap:8px;margin-top:4px}
 .short-prev-seek{flex:1;accent-color:var(--accent);height:4px;cursor:pointer}
 .short-prev-time{font-size:.7rem;font-variant-numeric:tabular-nums;opacity:.85;white-space:nowrap}
+
+/* ── Двойной тап — анимация сердца ── */
+.dtap-heart{position:absolute;transform:translate(-50%,-50%) scale(.4);color:#ff2d55;pointer-events:none;z-index:20;filter:drop-shadow(0 6px 18px rgba(255,45,85,.6));animation:dtapPop .72s cubic-bezier(.22,1,.36,1) forwards}
+.dtap-heart svg{fill:currentColor}
+@keyframes dtapPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.35) rotate(-12deg)}25%{opacity:1;transform:translate(-50%,-50%) scale(1.18) rotate(6deg)}55%{opacity:1;transform:translate(-50%,-55%) scale(1) rotate(0deg)}100%{opacity:0;transform:translate(-50%,-95%) scale(1.25)}}

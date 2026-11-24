@@ -14,7 +14,9 @@ func registerSettings(a *core.App) {
 		return c.JSON(map[string]any{
 			"add_konts": u.AddKonts, "set_time_chat": u.SetTimeChat, "set_news_to_mail": u.SetNewsToMail, "set_timesdvig": u.SetTimesdvig,
 			"show_url": u.ShowURL, "abuld": u.Abuld, "set_files": u.SetFiles, "set_p_str": u.SetPStr, "theme": u.Theme, "accent": u.Accent,
-			"privat_str": us.PrivatStr, "privat_mail": us.PrivatMail, "ocenka": us.Ocenka, "block_group_invites": us.BlockGroupInvites, "email": u.Email, "has_email": u.Email != "",
+			"privat_str": us.PrivatStr, "privat_mail": us.PrivatMail, "ocenka": us.Ocenka, "block_group_invites": us.BlockGroupInvites,
+			"privat_wall": us.PrivatWall, "privat_friends": us.PrivatFriends, "privat_stories": us.PrivatStories, "hide_online": us.HideOnline,
+			"email": u.Email, "has_email": u.Email != "",
 		})
 	}, core.Auth)
 
@@ -91,6 +93,10 @@ func registerSettings(a *core.App) {
 			PrivatMail        int64  `json:"privat_mail"`
 			Ocenka            *int64 `json:"ocenka"`
 			BlockGroupInvites *bool  `json:"block_group_invites"`
+			PrivatWall        *int64 `json:"privat_wall"`
+			PrivatFriends     *int64 `json:"privat_friends"`
+			PrivatStories     *int64 `json:"privat_stories"`
+			HideOnline        *bool  `json:"hide_online"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -107,7 +113,20 @@ func registerSettings(a *core.App) {
 			if in.BlockGroupInvites != nil {
 				x.BlockGroupInvites = *in.BlockGroupInvites
 			}
+			if in.PrivatWall != nil && *in.PrivatWall >= 0 && *in.PrivatWall <= 2 {
+				x.PrivatWall = *in.PrivatWall
+			}
+			if in.PrivatFriends != nil && *in.PrivatFriends >= 0 && *in.PrivatFriends <= 2 {
+				x.PrivatFriends = *in.PrivatFriends
+			}
+			if in.PrivatStories != nil && *in.PrivatStories >= 0 && *in.PrivatStories <= 2 {
+				x.PrivatStories = *in.PrivatStories
+			}
+			if in.HideOnline != nil {
+				x.HideOnline = *in.HideOnline
+			}
 		})
+		a.DropUserCache(u.ID)
 		return c.OK("message", "Изменения успешно приняты")
 	}, core.Auth)
 
@@ -142,19 +161,35 @@ func registerSettings(a *core.App) {
 			ID      int64  `json:"id"`
 			IP      string `json:"ip"`
 			UA      string `json:"ua"`
+			Mobile  bool   `json:"mobile"`
 			Created int64  `json:"created"`
 			Last    int64  `json:"last"`
 			Current bool   `json:"current"`
 		}
 		var out []s
 		for _, x := range a.T.Sessions.By("user", itoa(u.ID)) {
-			out = append(out, s{x.ID, x.IP, core.Trunc(x.UA, 120), x.Created, x.Last, c.Sess != nil && c.Sess.ID == x.ID})
+			uaLow := strings.ToLower(x.UA)
+			mob := strings.Contains(uaLow, "mobile") || strings.Contains(uaLow, "android") || strings.Contains(uaLow, "iphone") || strings.Contains(uaLow, "ipad")
+			out = append(out, s{x.ID, x.IP, core.Trunc(x.UA, 120), mob, x.Created, x.Last, c.Sess != nil && c.Sess.ID == x.ID})
 		}
 		log := a.T.UserLog.By("user", itoa(u.ID))
 		if len(log) > 20 {
 			log = log[len(log)-20:]
 		}
 		return c.JSON(map[string]any{"sessions": out, "log": log})
+	}, core.Auth)
+	a.DELETE("/api/settings/sessions/{id}", func(c *core.Ctx) error {
+		u, _ := c.Need()
+		sid := c.PathInt("id")
+		sess, ok := a.T.Sessions.Get(sid)
+		if !ok || sess.UserID != u.ID {
+			return core.ErrNotFound("Сессия не найдена")
+		}
+		if c.Sess != nil && c.Sess.ID == sid {
+			return core.ErrBad("Нельзя завершить текущую сессию здесь — используйте «Выйти»")
+		}
+		a.T.Sessions.Delete(sid)
+		return c.OK()
 	}, core.Auth)
 	a.POST("/api/settings/sessions/close-others", func(c *core.Ctx) error {
 		u, _ := c.Need()

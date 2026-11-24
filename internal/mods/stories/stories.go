@@ -109,6 +109,9 @@ func Register(a *core.App) {
 		}
 		var groups []groupItem
 		for uid, list := range byUser {
+			if !a.CanAccessPrivacy(me, uid, a.UserSettings(uid).PrivatStories) {
+				continue
+			}
 			sort.Slice(list, func(x, y int) bool { return list[x].Time < list[y].Time })
 			var items []map[string]any
 			hasUnseen := false

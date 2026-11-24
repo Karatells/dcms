@@ -153,12 +153,26 @@ router.add('/user/settings/privacy', async ctx => {
   ctx.title('Приватность');
   const s = await api.get('/api/settings');
   const opts = [{ value: 1, label: 'Все' }, { value: 2, label: 'Только друзья' }, { value: 0, label: 'Только я' }];
+  const extOpts = [{ value: 0, label: 'Все' }, { value: 1, label: 'Только друзья' }, { value: 2, label: 'Только я' }];
   const form = ui.form([
     { name: 'privat_str', label: 'Кто видит мою страницу', type: 'select', value: s.privat_str, options: opts },
     { name: 'privat_mail', label: 'Кто может писать мне личные сообщения', type: 'select', value: s.privat_mail, options: opts },
+    { name: 'privat_wall', label: 'Кто может писать на моей стене', type: 'select', value: s.privat_wall || 0, options: extOpts },
+    { name: 'privat_friends', label: 'Кто видит список моих друзей', type: 'select', value: s.privat_friends || 0, options: extOpts },
+    { name: 'privat_stories', label: 'Кто видит мои истории (Сторис)', type: 'select', value: s.privat_stories || 0, options: extOpts },
     { name: 'ocenka', label: 'Кто может оценивать мой профиль', type: 'select', value: s.ocenka, options: opts },
+    { name: 'hide_online', label: 'Скрыть статус «онлайн» от других пользователей', type: 'checkbox', value: !!s.hide_online },
     { name: 'block_group_invites', label: 'Запретить приглашения в сообщества', type: 'checkbox', value: !!s.block_group_invites },
-  ], { onSubmit: async v => { await api.put('/api/settings/privacy', { privat_str: +v.privat_str, privat_mail: +v.privat_mail, ocenka: +v.ocenka, block_group_invites: !!v.block_group_invites }); ui.ok('Изменения успешно приняты'); } });
+  ], {
+    onSubmit: async v => {
+      await api.put('/api/settings/privacy', {
+        privat_str: +v.privat_str, privat_mail: +v.privat_mail, ocenka: +v.ocenka,
+        privat_wall: +v.privat_wall, privat_friends: +v.privat_friends, privat_stories: +v.privat_stories,
+        hide_online: !!v.hide_online, block_group_invites: !!v.block_group_invites,
+      });
+      ui.ok('Изменения успешно приняты');
+    },
+  });
   return [ui.pageHead('Настройки'), setTabs('privacy'), ui.card(h('div.pad', form))];
 }, { auth: true });
 
@@ -202,7 +216,19 @@ router.add('/user/settings/password', async ctx => {
   return [ui.pageHead('Настройки'), setTabs('password'),
     ui.section('Двухфакторная аутентификация (2FA)', tfaBox),
     ui.card(h('div.pad', form)),
-    ui.section('Активные сессии', h('div.list', sess.sessions.map(s => h('div.list-item', icon(s.current ? 'check' : 'monitor', 18), h('div.main', h('div.title', s.ip, s.current ? ui.badge(' эта', 'ok') : null), h('div.meta', s.ua)), ui.time(s.last)))),
+    ui.section('Активные сессии', h('div.list', (sess.sessions || []).map(s => h('div.list-item',
+      icon(s.mobile ? 'smartphone' : 'monitor', 18),
+      h('div.main',
+        h('div.title', s.ip, s.current ? ui.badge(' текущее устройство', 'ok') : null),
+        h('div.meta', s.ua || 'Неизвестное устройство', ' · ', ui.time(s.last))),
+      !s.current ? ui.btn('Завершить', {
+        ic: 'x', small: true, kind: 'danger',
+        onclick: async () => {
+          await api.del('/api/settings/sessions/' + s.id);
+          ui.ok('Сессия завершена');
+          router.render();
+        },
+      }) : null))),
       h('div.pad', h('button.btn.sm', { onclick: async () => { await api.post('/api/settings/sessions/close-others'); ui.ok('Другие сессии закрыты'); router.render(); } }, 'Закрыть все остальные сессии'))),
     ui.section('Последние входы', h('div.list', sess.log.slice().reverse().map(l => h('div.list-item', h('div.main', h('div.meta', l.ua || '—')), ui.time(l.time)))))];
 }, { auth: true });

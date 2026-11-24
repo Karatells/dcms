@@ -445,19 +445,38 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
   video.ontimeupdate = () => {
     if (video.duration) progFill.style.width = ((video.currentTime / video.duration) * 100) + '%';
   };
+  let lastTap = 0;
+  let tapTimer = null;
+  const spawnHeart = (clientX, clientY) => {
+    const rect = card.getBoundingClientRect();
+    const heart = h('div.dtap-heart', { style: { left: (clientX - rect.left) + 'px', top: (clientY - rect.top) + 'px' } }, icon('heart', 72));
+    card.append(heart);
+    setTimeout(() => heart.remove(), 750);
+  };
   card.onclick = e => {
     if (e.target.closest('button, a, .short-prog, .short-desc, .dropdown-menu')) return;
-    if (!globalMuted && video.muted && !video.paused) {
-      video.muted = false;
-      syncMuteUI(false);
+    const now = Date.now();
+    if (now - lastTap < 280) {
+      clearTimeout(tapTimer);
+      lastTap = 0;
+      spawnHeart(e.clientX, e.clientY);
+      if (!s.liked) likeBtn.click();
       return;
     }
-    if (video.paused) {
-      video.muted = globalMuted;
-      video.play().catch(() => { video.muted = true; syncMuteUI(true); video.play().catch(() => {}); });
-    } else {
-      video.pause();
-    }
+    lastTap = now;
+    tapTimer = setTimeout(() => {
+      if (!globalMuted && video.muted && !video.paused) {
+        video.muted = false;
+        syncMuteUI(false);
+        return;
+      }
+      if (video.paused) {
+        video.muted = globalMuted;
+        video.play().catch(() => { video.muted = true; syncMuteUI(true); video.play().catch(() => {}); });
+      } else {
+        video.pause();
+      }
+    }, 230);
   };
 
   prog.onclick = e => {

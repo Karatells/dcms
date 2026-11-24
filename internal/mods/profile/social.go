@@ -75,8 +75,8 @@ func registerSocial(a *core.App) {
 		if err != nil {
 			return err
 		}
-		if access(a, me, &u) != vOK {
-			return core.ErrForbidden("Стена недоступна")
+		if access(a, me, &u) != vOK || !a.CanAccessPrivacy(me, u.ID, a.UserSettings(u.ID).PrivatWall) {
+			return core.ErrForbidden("Пользователь ограничил возможность писать на стене")
 		}
 		var in struct {
 			Msg     string `json:"msg"`

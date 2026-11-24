@@ -183,7 +183,7 @@ func registerLists(a *core.App) {
 			return err
 		}
 		me := c.User()
-		if st := access(a, me, &u); st != vOK {
+		if st := access(a, me, &u); st != vOK || !a.CanAccessPrivacy(me, u.ID, a.UserSettings(u.ID).PrivatFriends) {
 			return core.ErrForbidden("Список друзей недоступен")
 		}
 		now := core.Now()
