@@ -754,5 +754,59 @@ func Register(a *core.App) {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 
+	// ── Админ-управление всеми OAuth-приложениями
+	a.GET("/api/admin/oauth-apps", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if me.Level < 3 && !a.Can(me.ID, "adm_set_sys") {
+			return core.ErrForbidden()
+		}
+		all := appsT.All()
+		sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+		now := core.Now()
+		items := make([]map[string]any, 0, len(all))
+		for _, app := range all {
+			var activeToks int
+			for _, t := range tokensT.By("app", store.I(app.ID)) {
+				if !t.Revoked && t.RefreshExpiresAt > now {
+					activeToks++
+				}
+			}
+			items = append(items, map[string]any{
+				"id":            app.ID,
+				"name":          app.Name,
+				"description":   app.Description,
+				"website":       app.Website,
+				"client_id":     app.ClientID,
+				"redirect_uris": strings.Split(strings.TrimSpace(app.RedirectURIs), "\n"),
+				"owner":         a.Ref(app.OwnerID),
+				"created_at":    app.CreatedAt,
+				"active_tokens": activeToks,
+			})
+		}
+		return c.JSON(map[string]any{"items": items})
+	}, core.Auth)
+
+	a.DELETE("/api/admin/oauth-apps/{id}", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if me.Level < 3 && !a.Can(me.ID, "adm_set_sys") {
+			return core.ErrForbidden()
+		}
+		app, ok := appsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound("Приложение не найдено")
+		}
+		codesT.DeleteBy("app", store.I(app.ID))
+		tokensT.DeleteBy("app", store.I(app.ID))
+		appsT.Delete(app.ID)
+		a.AdminLog(me.ID, "OAuth", "Удаление приложения", "Удалено OAuth-приложение '"+app.Name+"' (#"+store.I(app.ID)+")")
+		return c.OK()
+	}, core.Auth)
+
 	registerV1(a)
 }

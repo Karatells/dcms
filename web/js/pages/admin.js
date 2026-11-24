@@ -14,37 +14,228 @@ bus.on('route', () => {
 
 // ───────── пункты панели управления
 const BUILTIN = [
+  { group: 'Пользователи и доступ', title: 'Управление аккаунтами', href: '/admin/users', access: 'adm_panel_show', icon: 'users', desc: 'Живой поиск по никам, верификация, редактирование, 2FA и баны' },
+  { group: 'Пользователи и доступ', title: 'Администрация', href: '/admin/staff', access: 'adm_show_adm', icon: 'shield', desc: 'Список сотрудников и модераторов' },
+  { group: 'Пользователи и доступ', title: 'Группы и привилегии', href: '/admin/groups', access: 'adm_accesses', icon: 'key', desc: 'Права каждой группы пользователей' },
+  { group: 'Пользователи и доступ', title: 'Настройки пользователей', href: '/admin/settings/user', access: 'adm_set_user', icon: 'settings', desc: 'Регистрация, гости, статусы' },
+  { group: 'Пользователи и доступ', title: 'Массовое удаление', href: '/admin/mass-delete', access: 'user_mass_delete', icon: 'trash', desc: 'Удалить давно не заходивших пользователей' },
+
+  { group: 'Модерация', title: 'Жалобы', href: '/admin/spam', access: 'adm_panel_show', icon: 'flag', desc: 'Жалобы пользователей на нарушения' },
+  { group: 'Модерация', title: 'Истории (24 часа)', href: '/admin/stories', access: 'adm_panel_show', icon: 'zap', desc: 'Просмотр и удаление активных историй' },
+  { group: 'Модерация', title: 'Список банов', href: '/admin/banlist', access: 'adm_banlist', icon: 'gavel', desc: 'Все действующие блокировки' },
+  { group: 'Модерация', title: 'Бан по IP', href: '/admin/ban-ip', access: 'adm_ban_ip', icon: 'globe', desc: 'Блокировка диапазонов адресов' },
+
+  { group: 'API и разработчики', title: 'OAuth-приложения', href: '/admin/oauth', access: 'adm_set_sys', icon: 'key', desc: 'Все зарегистрированные приложения, токены и удаление' },
+
   { group: 'Аналитика', title: 'Общая информация', href: '/admin/info', access: 'adm_info', icon: 'info', desc: 'Состояние сервера, объём данных, нагрузка' },
   { group: 'Аналитика', title: 'Статистика', href: '/admin/stats', access: 'adm_statistic', icon: 'chart', desc: 'Посещаемость, регистрации, аудитория' },
   { group: 'Аналитика', title: 'Рефералы', href: '/admin/refs', access: 'adm_ref', icon: 'link', desc: 'Переходы с других сайтов' },
   { group: 'Аналитика', title: 'Журнал действий', href: '/admin/log', access: 'adm_log_read', icon: 'list', desc: 'Что делала администрация' },
-  { group: 'Аналитика', title: 'Администрация', href: '/admin/staff', access: 'adm_show_adm', icon: 'shield', desc: 'Список сотрудников' },
-  { group: 'Модерация', title: 'Жалобы', href: '/admin/spam', access: 'adm_panel_show', icon: 'flag', desc: 'Жалобы пользователей на нарушения' },
-  { group: 'Модерация', title: 'Список банов', href: '/admin/banlist', access: 'adm_banlist', icon: 'gavel', desc: 'Все действующие блокировки' },
-  { group: 'Модерация', title: 'Бан по IP', href: '/admin/ban-ip', access: 'adm_ban_ip', icon: 'globe', desc: 'Блокировка диапазонов адресов' },
-  { group: 'Модерация', title: 'Массовое удаление', href: '/admin/mass-delete', access: 'user_mass_delete', icon: 'trash', desc: 'Удалить давно не заходивших пользователей' },
+
   { group: 'Система', title: 'Системные настройки', href: '/admin/settings/sys', access: 'adm_set_sys', icon: 'settings', desc: 'Название, оформление, защита, почта' },
   { group: 'Система', title: 'Лимиты загрузок', href: '/admin/settings/uploads', access: 'adm_set_sys', icon: 'upload', desc: 'Макс. размеры фото, файлов, клипов, форума' },
-  { group: 'Система', title: 'Пользователи: настройки', href: '/admin/settings/user', access: 'adm_set_user', icon: 'users', desc: 'Регистрация, гости, статусы' },
-  { group: 'Система', title: 'BBCode', href: '/admin/settings/bbcode', access: 'adm_set_sys', icon: 'edit', desc: 'Какие теги разрешены' },
+  { group: 'Система', title: 'BBCode и форматирование', href: '/admin/settings/bbcode', access: 'adm_set_sys', icon: 'edit', desc: 'Включение и отключение всех тегов BBCode' },
   { group: 'Система', title: 'Главное меню', href: '/admin/menu', access: 'adm_menu', icon: 'menu', desc: 'Разделы и ссылки на главной' },
   { group: 'Система', title: 'Меню настроек', href: '/admin/settings-menu', access: 'user_settings', icon: 'menu', desc: 'Пункты в настройках пользователя' },
-  { group: 'Система', title: 'Группы и привилегии', href: '/admin/groups', access: 'adm_accesses', icon: 'key', desc: 'Права каждой группы пользователей' },
-  { group: 'Система', title: 'Операторы связи', href: '/admin/opsos', access: 'adm_ip_edit', icon: 'globe', desc: 'Диапазоны IP операторов' },
-  { group: 'Система', title: 'Резервная копия', href: '/admin/backup', access: 'adm_mysql', icon: 'database', desc: 'Скачать снимок базы данных' },
+  { group: 'Система', title: 'Резервная копия', href: '/admin/backup', access: 'adm_mysql', icon: 'database', desc: 'Скачать SQL-дамп базы данных' },
 ];
 state.adminLinks.push(...BUILTIN);
 
-router.add('/admin', async () => {
+router.add('/admin', async ctx => {
+  ctx.title('Панель управления');
+  const ov = await api.get('/api/admin/overview', null, { silent: true }).catch(() => null);
   const links = state.adminLinks.filter(l => !l.access || can(l.access));
   const groups = new Map();
   for (const l of links) { if (!groups.has(l.group)) groups.set(l.group, []); groups.get(l.group).push(l); }
-  const order = ['Аналитика', 'Модерация', 'Система'];
+  const order = ['Пользователи и доступ', 'Модерация', 'API и разработчики', 'Аналитика', 'Система'];
   const names = [...order.filter(g => groups.has(g)), ...[...groups.keys()].filter(g => !order.includes(g))];
-  return [ui.pageHead('Панель управления'), ...names.map(g => h('div.admin-sec', h('h3.admin-h', g), h('div.admin-grid', groups.get(g).map(l =>
+
+  const kpi = ov ? h('div.stat-grid',
+    h('a.card.pad.stat', { href: '/admin/users' }, h('div.small.muted', 'Пользователей'), h('div.stat-num', fmt.num(ov.users))),
+    h('a.card.pad.stat', { href: '/admin/users?filter=online' }, h('div.small.muted', 'Онлайн'), h('div.stat-num', { style: { color: 'var(--ok)' } }, fmt.num(ov.online))),
+    h('a.card.pad.stat', { href: '/admin/users?filter=verified' }, h('div.small.muted', 'Верифицировано'), h('div.stat-num', fmt.num(ov.verified))),
+    h('a.card.pad.stat', { href: '/admin/users?filter=2fa' }, h('div.small.muted', 'С защитой 2FA'), h('div.stat-num', fmt.num(ov.totp))),
+    h('a.card.pad.stat', { href: '/admin/banlist' }, h('div.small.muted', 'Активных банов'), h('div.stat-num', fmt.num(ov.bans))),
+    h('a.card.pad.stat', { href: '/admin/spam' }, h('div.small.muted', 'Жалоб'), h('div.stat-num', { style: ov.spam > 0 ? { color: 'var(--danger)' } : null }, fmt.num(ov.spam)))) : null;
+
+  return [ui.pageHead('Панель управления'), kpi, ...names.map(g => h('div.admin-sec', h('h3.admin-h', g), h('div.admin-grid', groups.get(g).map(l =>
     h('a.card.pad.admin-tile', { href: l.href }, h('span.admin-ic', icon(l.icon || 'settings', 22)), h('div', h('b', l.title), h('div.small.muted', l.desc || ''))))))),
     links.length ? null : ui.card(ui.empty('Нет доступных разделов', 'lock'))];
 }, { auth: true, access: 'adm_panel_show' });
+
+// ───────── управление аккаунтами (живой поиск без перезагрузки)
+router.add('/admin/users', async ctx => {
+  ctx.title('Управление аккаунтами');
+  let filter = ctx.query.filter || '';
+  let query = ctx.query.q || '';
+  let page = ctx.page || 1;
+  let timer = null;
+  let reqSeq = 0;
+
+  const searchIn = h('input.input', {
+    value: query,
+    placeholder: 'Начните вводить ник, ID, имя, e-mail или IP…',
+    autocomplete: 'off',
+  });
+  const countEl = h('div.small.muted', 'Загрузка…');
+  const listEl = h('div.card');
+  const pagerEl = h('div');
+
+  const FILTERS = [
+    ['', 'Все'],
+    ['online', 'Онлайн'],
+    ['verified', 'Верифицированные'],
+    ['2fa', 'С 2FA'],
+    ['banned', 'Забаненные'],
+    ['staff', 'Персонал'],
+  ];
+  const tabsWrap = h('div.tabs');
+  const drawTabs = () => {
+    tabsWrap.replaceChildren(...FILTERS.map(([k, lbl]) => h('button.tab' + (filter === k ? '.active' : ''), {
+      type: 'button',
+      onclick: () => { filter = k; page = 1; drawTabs(); load(); },
+    }, lbl)));
+  };
+
+  const canVerify = state.user && (state.user.level >= 3 || can('user_prof_edit') || can('adm_set_user'));
+
+  const load = async () => {
+    const seq = ++reqSeq;
+    const d = await api.get('/api/admin/users', { q: query, filter, page }, { silent: true }).catch(() => null);
+    if (seq !== reqSeq || !d) return;
+    countEl.textContent = `Найдено аккаунтов: ${fmt.num(d.total)}`;
+    if (!d.items.length) {
+      listEl.replaceChildren(ui.empty('Аккаунты не найдены', 'users'));
+      pagerEl.replaceChildren();
+      return;
+    }
+    listEl.replaceChildren(h('div.list', ...d.items.map(it => {
+      const u = it.user;
+      return h('div.list-item',
+        ui.avatar(u, 42),
+        h('div.main',
+          h('div.title',
+            ui.userLink(u),
+            ' ',
+            h('span.small.muted', '#' + u.id),
+            it.totp_enabled ? h('span.badge.ok', { style: { marginLeft: '6px' } }, '2FA') : null,
+            it.banned ? h('span.badge.danger', { style: { marginLeft: '6px' } }, 'БАН') : null),
+          h('div.small.muted',
+            (u.group || 'Пользователь'),
+            it.email ? ' · ' + it.email : '',
+            it.ip ? ' · IP: ' + it.ip : ''),
+          h('div.small.muted', 'Рег: ', fmt.date(it.date_reg), ' · Визит: ', fmt.ago(it.date_last), ' · Баллы: ', fmt.num(it.balls))),
+        h('div.row',
+          canVerify ? ui.btn('', {
+            ic: 'check', small: true, kind: it.verified ? 'primary' : '',
+            title: it.verified ? 'Снять верификацию' : 'Верифицировать аккаунт',
+            onclick: async () => {
+              const r = await api.post(`/api/admin/user/${u.id}/verify`);
+              ui.ok(r.verified ? `${u.nick}: галочка выдана` : `${u.nick}: галочка снята`);
+              load();
+            },
+          }) : null,
+          it.totp_enabled && it.can_edit ? ui.btn('2FA', {
+            ic: 'shield', small: true, kind: 'danger', title: 'Сбросить 2FA пользователя',
+            onclick: async () => {
+              if (await ui.confirm(`Сбросить двухфакторную аутентификацию у «${u.nick}»?`, { danger: true })) {
+                await api.post(`/api/admin/user/${u.id}/reset-2fa`);
+                ui.ok('2FA сброшена');
+                load();
+              }
+            },
+          }) : null,
+          it.can_edit ? ui.btn('Ред.', { ic: 'edit', small: true, href: '/admin/user/' + u.id }) : null,
+          (can('user_ban_set') || can('user_ban_set_h')) && u.id !== state.user.id ? ui.btn('', { ic: 'gavel', small: true, title: 'Бан', href: '/admin/ban/' + u.id }) : null));
+    })));
+    pagerEl.replaceChildren(ui.pager(d, { onPage: p => { page = p; load(); } }));
+  };
+
+  searchIn.oninput = () => {
+    query = searchIn.value.trim();
+    page = 1;
+    clearTimeout(timer);
+    timer = setTimeout(load, 180);
+  };
+
+  drawTabs();
+  await load();
+  return [
+    crumbs({ title: 'Управление аккаунтами' }),
+    ui.pageHead('Управление аккаунтами'),
+    tabsWrap,
+    h('div.card.pad.stack-s',
+      h('div.row.nowrap', icon('search', 18), searchIn),
+      countEl),
+    listEl,
+    pagerEl,
+  ];
+}, { auth: true, access: 'adm_panel_show' });
+
+// ───────── модерация историй (24 часа)
+router.add('/admin/stories', async ctx => {
+  ctx.title('Истории (24 часа)');
+  const reload = () => router.render();
+  const d = await api.get('/api/stories');
+  const flat = [];
+  for (const g of (d.groups || [])) {
+    for (const s of (g.stories || [])) flat.push({ ...s, user: g.user });
+  }
+  flat.sort((a, b) => b.time - a.time);
+
+  return [
+    crumbs({ title: 'Истории (24 часа)' }),
+    ui.pageHead(`Активные истории (${flat.length})`),
+    flat.length ? ui.card(h('div.list', ...flat.map(s => h('div.list-item',
+      s.media
+        ? h('img', { src: s.media, alt: '', style: { width: '48px', height: '64px', objectFit: 'cover', borderRadius: '8px', flex: 'none' } })
+        : h('div', { style: { width: '48px', height: '64px', borderRadius: '8px', flex: 'none', background: s.bg || 'var(--accent)', display: 'grid', placeItems: 'center', color: '#fff', fontSize: '11px', padding: '4px', textAlign: 'center', overflow: 'hidden' } }, (s.caption || '').slice(0, 24)),
+      h('div.main',
+        h('div.title', ui.userLink(s.user)),
+        s.caption ? h('div.small', s.caption) : h('div.small.muted', 'Без подписи (фото)'),
+        h('div.small.muted', 'Опубликовано: ', fmt.ago(s.time), ' · Просмотров: ', fmt.num(s.views || 0))),
+      ui.btn('', {
+        ic: 'trash', small: true, kind: 'danger', title: 'Удалить историю',
+        onclick: async () => {
+          if (await ui.confirm('Удалить эту историю?', { danger: true })) {
+            await api.del('/api/stories/' + s.id);
+            ui.ok('История удалена');
+            reload();
+          }
+        },
+      }))))) : ui.card(ui.empty('Активных историй сейчас нет', 'zap')),
+  ];
+}, { auth: true, access: 'adm_panel_show' });
+
+// ───────── управление OAuth-приложениями
+router.add('/admin/oauth', async ctx => {
+  ctx.title('OAuth-приложения');
+  const reload = () => router.render();
+  const d = await api.get('/api/admin/oauth-apps');
+  const items = d.items || [];
+  return [
+    crumbs({ title: 'OAuth-приложения' }),
+    ui.pageHead(`OAuth-приложения (${items.length})`),
+    items.length ? ui.card(h('div.list', ...items.map(app => h('div.list-item',
+      h('div.forum-ico', icon('key', 20)),
+      h('div.main',
+        h('div.title', app.name, ' ', h('span.badge', `токенов: ${app.active_tokens}`)),
+        app.description ? h('div.small', app.description) : null,
+        h('div.small.muted', 'Владелец: ', ui.userLink(app.owner), ' · ', fmt.datetime(app.created_at)),
+        h('div.small.muted', 'Client ID: ', h('code', app.client_id)),
+        app.redirect_uris && app.redirect_uris.length ? h('div.small.muted.clip', 'Redirect: ', app.redirect_uris.join(', ')) : null),
+      ui.btn('', {
+        ic: 'trash', small: true, kind: 'danger', title: 'Удалить приложение и отозвать токены',
+        onclick: async () => {
+          if (await ui.confirm(`Удалить OAuth-приложение «${app.name}» и отозвать все его токены?`, { danger: true })) {
+            await api.del('/api/admin/oauth-apps/' + app.id);
+            ui.ok('Приложение удалено');
+            reload();
+          }
+        },
+      }))))) : ui.card(ui.empty('OAuth-приложений пока нет', 'key')),
+  ];
+}, { auth: true, access: 'adm_set_sys' });
 
 // ───────── информация
 router.add('/admin/info', async ctx => {
@@ -133,8 +324,9 @@ router.add('/admin/user/:id', async ctx => {
       for (const k of ['day', 'month', 'year', 'set_time_chat', 'set_p_str']) b[k] = v[k] ?? 0;
       await api.put('/api/admin/user/' + u.id, b); ui.ok('Изменения сохранены'); } });
   const info = h('div.card.pad.small.muted', 'Регистрация: ', fmt.datetime(u.date_reg), ' · Последний визит: ', fmt.datetime(u.date_last), u.ip ? ' · IP: ' + u.ip : '', u.ua ? h('div', 'UA: ' + u.ua) : null);
-  const out = [crumbs({ href: '/id' + u.id, title: u.nick }, { title: 'Редактирование' }), ui.pageHead('Редактирование: ' + u.nick,
-    ui.btn('Бан', { ic: 'gavel', href: '/admin/ban/' + u.id }), u.can_delete ? ui.btn('Удалить', { ic: 'trash', kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить пользователя «' + u.nick + '» со всеми данными?', { danger: true })) { await api.del('/api/admin/user/' + u.id); ui.ok('Удалён'); router.go('/users'); } } }) : null), info, ui.card(h('div.pad', form))];
+  const out = [crumbs({ href: '/admin/users', title: 'Аккаунты' }, { href: '/id' + u.id, title: u.nick }, { title: 'Редактирование' }), ui.pageHead('Редактирование: ' + u.nick,
+    u.totp_enabled ? ui.btn('Сбросить 2FA', { ic: 'shield', kind: 'danger', onclick: async () => { if (await ui.confirm('Сбросить двухфакторную аутентификацию для «' + u.nick + '»?', { danger: true })) { await api.post('/api/admin/user/' + u.id + '/reset-2fa'); ui.ok('2FA сброшена'); router.render(); } } }) : null,
+    ui.btn('Бан', { ic: 'gavel', href: '/admin/ban/' + u.id }), u.can_delete ? ui.btn('Удалить', { ic: 'trash', kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить пользователя «' + u.nick + '» со всеми данными?', { danger: true })) { await api.del('/api/admin/user/' + u.id); ui.ok('Удалён'); router.go('/admin/users'); } } }) : null), info, ui.card(h('div.pad', form))];
   if (can('user_collisions')) {
     const box = h('div.card.pad', h('b', 'Совпадения по IP'), h('div.small.muted', 'Загрузка…'));
     api.get('/api/admin/collisions/' + u.id).then(r => box.replaceChildren(h('b', 'Совпадения по IP'), r.items.length ? h('div.list', r.items.map(x => h('div.list-item', h('div.main', ui.userLink(x.user)), h('span.badge', x.count)))) : h('div.small.muted', 'Совпадений нет'))).catch(() => box.remove());

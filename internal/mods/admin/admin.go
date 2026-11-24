@@ -34,6 +34,142 @@ func canTouch(me *model.User, u model.User) bool {
 // ---------- пользователи ----------
 
 func registerUsers(a *core.App) {
+	// ── Сводка для дашборда админ-панели
+	a.GET("/api/admin/overview", func(c *core.Ctx) error {
+		if err := c.NeedAccess("adm_panel_show"); err != nil {
+			return err
+		}
+		now := core.Now()
+		all := a.T.Users.All()
+		var online, verified, totp int
+		for _, u := range all {
+			if u.DateLast > now-600 {
+				online++
+			}
+			if u.Verified {
+				verified++
+			}
+			if u.TOTPEnabled {
+				totp++
+			}
+		}
+		bans := a.T.Bans.Count(func(b *model.Ban) bool { return b.Navsegda == 1 || b.Time > now })
+		return c.JSON(map[string]any{
+			"users":    len(all),
+			"online":   online,
+			"verified": verified,
+			"totp":     totp,
+			"bans":     bans,
+			"spam":     a.T.Spam.Len(),
+		})
+	}, core.Auth)
+
+	// ── Список всех аккаунтов с живым поиском и фильтрами
+	a.GET("/api/admin/users", func(c *core.Ctx) error {
+		if err := c.NeedAccess("adm_panel_show"); err != nil {
+			return err
+		}
+		me := c.User()
+		q := strings.ToLower(strings.TrimSpace(c.Q("q")))
+		filter := strings.TrimSpace(c.Q("filter"))
+		p := c.Page(25)
+		now := core.Now()
+		showIP := c.Can("user_show_ip")
+		canEdit := c.Can("user_prof_edit")
+		canDel := c.Can("user_delete")
+
+		all := a.T.Users.All()
+		var filt []model.User
+		for _, u := range all {
+			switch filter {
+			case "online":
+				if u.DateLast <= now-600 {
+					continue
+				}
+			case "verified":
+				if !u.Verified {
+					continue
+				}
+			case "2fa":
+				if !u.TOTPEnabled {
+					continue
+				}
+			case "banned":
+				if !a.IsBanned(u.ID) {
+					continue
+				}
+			case "staff":
+				if u.Level < 1 {
+					continue
+				}
+			}
+			if q != "" {
+				idStr := store.I(u.ID)
+				match := strings.Contains(strings.ToLower(u.Nick), q) ||
+					idStr == q ||
+					strings.Contains(strings.ToLower(u.AnkName), q) ||
+					strings.Contains(strings.ToLower(u.Email), q) ||
+					(showIP && strings.Contains(strings.ToLower(u.IP), q))
+				if !match {
+					continue
+				}
+			}
+			filt = append(filt, u)
+		}
+		sort.Slice(filt, func(i, j int) bool { return filt[i].ID > filt[j].ID })
+		total := len(filt)
+		end := p.Offset + p.Per
+		if end > total {
+			end = total
+		}
+		var sl []model.User
+		if p.Offset < total {
+			sl = filt[p.Offset:end]
+		}
+		items := make([]map[string]any, 0, len(sl))
+		for _, u := range sl {
+			items = append(items, map[string]any{
+				"user":         a.Ref(u.ID),
+				"email":        u.Email,
+				"ip":           ifShow(showIP, u.IP),
+				"date_reg":     u.DateReg,
+				"date_last":    u.DateLast,
+				"balls":        u.Balls,
+				"money":        u.Money,
+				"verified":     u.Verified,
+				"totp_enabled": u.TOTPEnabled,
+				"banned":       a.IsBanned(u.ID),
+				"can_edit":     canEdit && (u.ID == me.ID || u.Level < me.Level || me.Level >= 10),
+				"can_delete":   canDel && canTouch(me, u),
+			})
+		}
+		return c.List(items, total, p)
+	}, core.Auth)
+
+	// ── Сброс 2FA пользователя администратором
+	a.POST("/api/admin/user/{id}/reset-2fa", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if me.Level < 3 && !c.Can("user_prof_edit") {
+			return core.ErrForbidden()
+		}
+		u, ok := a.T.Users.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound("Пользователь не найден")
+		}
+		if u.ID != me.ID && u.Level >= me.Level && me.Level < 10 {
+			return core.ErrForbidden("Недостаточно прав")
+		}
+		a.T.Users.Update(u.ID, func(x *model.User) {
+			x.TOTPEnabled = false
+			x.TOTPSecret = ""
+		})
+		a.AdminLog(me.ID, "Пользователи", "Сброс 2FA", "Сброшена двухфакторная аутентификация для '"+u.Nick+"'")
+		return c.OK()
+	}, core.Auth)
+
 	a.GET("/api/admin/user/{id}", func(c *core.Ctx) error {
 		if err := c.NeedAccess("user_prof_edit"); err != nil {
 			return err
@@ -50,7 +186,7 @@ func registerUsers(a *core.App) {
 		return c.JSON(map[string]any{
 			"id": u.ID, "nick": u.Nick, "name": u.AnkName, "city": u.AnkCity, "about": u.AnkOSebe, "skype": u.AnkSkype,
 			"phone": u.AnkNTel, "email": u.Email, "day": u.AnkDR, "month": u.AnkMR, "year": u.AnkGR, "pol": u.Pol,
-			"group": u.GroupAccess, "balls": u.Balls, "money": u.Money, "set_files": u.SetFiles, "set_time_chat": u.SetTimeChat, "set_p_str": u.SetPStr, "verified": u.Verified,
+			"group": u.GroupAccess, "balls": u.Balls, "money": u.Money, "set_files": u.SetFiles, "set_time_chat": u.SetTimeChat, "set_p_str": u.SetPStr, "verified": u.Verified, "totp_enabled": u.TOTPEnabled,
 			"groups": groups, "can_nick": c.Can("user_change_nick"), "can_group": c.Can("user_change_group"),
 			"can_balls": me.Level >= 3 || me.ID == u.ID, "can_delete": c.Can("user_delete") && canTouch(me, u),
 			"ip": ifShow(c.Can("user_show_ip"), u.IP), "ua": ifShow(c.Can("user_show_ua"), u.UA),
