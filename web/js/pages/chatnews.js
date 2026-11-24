@@ -141,8 +141,8 @@ router.add('/news', async ctx => {
   ctx.title('Новости');
   const d = await api.get('/api/news', { page: ctx.page });
   return [ui.pageHead('Новости', d.can_add ? ui.btn('Добавить', { ic: 'plus', kind: 'primary', href: '/news/add' }) : null),
-    d.items.length ? d.items.map(n => h('div.card.pad.stack', h('div.row', h('a.title', { href: '/news/' + n.id }, h('b', n.title)), n.main ? h('span.badge.ok', 'на главной') : null, h('span.grow'), h('span.small.muted', fmt.datetime(n.time))),
-      h('div', { html: n.msg }), h('div.small.muted.row', ui.userLink(n.author), h('span.grow'), link('/news/' + n.id, 'Комментарии: ' + n.komm)))) : ui.card(ui.empty('Новостей пока нет', 'rss')), ui.pager(d)];
+    ...(d.items.length ? d.items.map(n => h('div.card.pad.stack', h('div.row', h('a.title', { href: '/news/' + n.id }, h('b', n.title)), n.main ? h('span.badge.ok', 'на главной') : null, h('span.grow'), h('span.small.muted', fmt.datetime(n.time))),
+      h('div', { html: n.msg }), h('div.small.muted.row', ui.userLink(n.author), h('span.grow'), link('/news/' + n.id, 'Комментарии: ' + n.komm)))) : [ui.card(ui.empty('Новостей пока нет', 'rss'))]), ui.pager(d)];
 });
 router.add('/news/add', async ctx => {
   ctx.title('Новая новость');
