@@ -83,9 +83,16 @@ type User struct {
 	MeteoCountry  int64  `json:"meteo_country"`
 	AvatarID      int64  `json:"avatar_id"` // id фото-аватара в галерее (0 — нет)
 	AvatarExt     string `json:"avatar_ext"`
-	Verified      bool   `json:"verified"`     // синяя галочка верификации
-	TOTPSecret    string `json:"totp_secret"`  // секрет 2FA (Base32)
-	TOTPEnabled   bool   `json:"totp_enabled"` // включена ли 2FA
+	Verified      bool   `json:"verified"`       // синяя галочка верификации
+	TOTPSecret    string `json:"totp_secret"`    // секрет 2FA (Base32)
+	TOTPEnabled   bool   `json:"totp_enabled"`   // включена ли 2FA
+	VIPUntil      int64  `json:"vip_until"`      // VIP-подписка активна до (unix)
+	VIPBadge      string `json:"vip_badge"`      // иконка возле ника (эмодзи)
+	VIPNickStyle  string `json:"vip_nick_style"` // стиль градиента ника
+	VIPCover      string `json:"vip_cover"`      // стиль обложки профиля
+	VIPStealth    bool   `json:"vip_stealth"`    // невидимка в гостях
+	VIPTop        bool   `json:"vip_top"`        // показывать анкету в Топе / Знакомствах
+	VIPTopMsg     string `json:"vip_top_msg"`    // подпись анкеты в Топе / Знакомствах
 }
 
 // Session — сессия входа.
@@ -117,10 +124,13 @@ type UserRef struct {
 	Group   string `json:"group"`
 	Level   int64  `json:"level"`
 	Medal   int    `json:"medal"` // 0..7 по рейтингу
-	Banned   bool   `json:"banned,omitempty"`
-	Deleted  bool   `json:"deleted,omitempty"`
-	Verified bool   `json:"verified,omitempty"`
-	Accent   string `json:"accent,omitempty"`
+	Banned       bool   `json:"banned,omitempty"`
+	Deleted      bool   `json:"deleted,omitempty"`
+	Verified     bool   `json:"verified,omitempty"`
+	Accent       string `json:"accent,omitempty"`
+	VIP          bool   `json:"vip,omitempty"`
+	VIPBadge     string `json:"vip_badge,omitempty"`
+	VIPNickStyle string `json:"vip_nick_style,omitempty"`
 }
 
 // UserGroup — таблица `user_group` старого движка.

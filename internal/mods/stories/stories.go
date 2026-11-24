@@ -179,8 +179,12 @@ func Register(a *core.App) {
 			return core.ErrForbidden("Вы заблокированы: " + b.Prich)
 		}
 		cleanupExpired(a)
-		if len(storiesT.By("user", i(me.ID))) >= 10 {
-			return core.ErrBad("Максимум 10 активных историй за 24 часа")
+		maxStories := 10
+		if me.VIPUntil > core.Now() {
+			maxStories = 25
+		}
+		if len(storiesT.By("user", i(me.ID))) >= maxStories {
+			return core.ErrBad("Максимум " + i(int64(maxStories)) + " активных историй за 24 часа")
 		}
 
 		if err := c.R.ParseMultipartForm(12 << 20); err != nil {

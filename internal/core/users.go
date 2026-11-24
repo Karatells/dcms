@@ -90,8 +90,18 @@ func (a *App) isOnline(id int64) bool {
 
 func (a *App) refOf(u *model.User) model.UserRef {
 	g, _ := a.T.Groups.Get(u.GroupAccess)
+	isVIP := u.VIPUntil > Now()
+	vipBadge, vipNick := "", ""
+	if isVIP {
+		vipBadge = u.VIPBadge
+		if vipBadge == "" {
+			vipBadge = "👑"
+		}
+		vipNick = u.VIPNickStyle
+	}
 	return model.UserRef{ID: u.ID, Nick: u.Nick, Pol: u.Pol, Online: u.DateLast > Now()-600, Mobile: u.Browser == "wap",
-		Avatar: AvatarURL(u, 50), Group: g.Name, Level: g.Level, Medal: Medal(u.Rating), Banned: a.IsBanned(u.ID), Verified: u.Verified, Accent: u.Accent}
+		Avatar: AvatarURL(u, 50), Group: g.Name, Level: g.Level, Medal: Medal(u.Rating), Banned: a.IsBanned(u.ID), Verified: u.Verified, Accent: u.Accent,
+		VIP: isVIP, VIPBadge: vipBadge, VIPNickStyle: vipNick}
 }
 
 // Refs — карточки списка id (порядок сохраняется).

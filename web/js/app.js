@@ -155,7 +155,7 @@ async function drawSide() {
       mk('/id' + u.id, 'user', 'Моя страница'), mk('/user/tape', 'rss', 'Лента', 'tape'), mk('/user/discussions', 'message-circle', 'Обсуждения', 'discussions'),
       mk('/user/notification', 'bell', 'Уведомления', 'notification'), mk('/mail', 'mail', 'Почта', 'mail'), mk('/user/frends', 'users', 'Друзья', 'friends_new'),
       mk('/user/myguest', 'eye', 'Гости', 'myguest'), mk('/user/bookmark', 'bookmark', 'Закладки'), mk('/user/gift', 'gift', 'Подарки'),
-      mk('/user/money', 'coins', 'Монеты'), mk('/user/settings', 'settings', 'Настройки')));
+      mk('/vip', 'crown', 'VIP-подписка'), mk('/user/money', 'coins', 'Монеты'), mk('/user/settings', 'settings', 'Настройки')));
     if (can('adm_panel_show')) parts.push(h('nav.nav', mk('/admin', 'shield', 'Администрирование', 'admin')));
   }
   parts.push(h('nav.nav', h('div.nav-title', 'Инструменты'), link('/developers', icon('key', 19), 'Разработчикам (API)')));

@@ -36,8 +36,8 @@ func registerProfile(a *core.App) {
 			return c.JSON(out)
 		}
 
-		// гости
-		if viewer != nil && viewer.ID != u.ID {
+		// гости (VIP-невидимка не оставляет след)
+		if viewer != nil && viewer.ID != u.ID && !(viewer.VIPUntil > now && viewer.VIPStealth) {
 			if g, ok := myGuests.OneBy("pair", store.Key(u.ID, viewer.ID)); !ok {
 				myGuests.Insert(&MyGuest{IDAnk: u.ID, IDUser: viewer.ID, Time: now, Read: true})
 				a.AddBalls(u.ID, 1, 1)
@@ -45,6 +45,9 @@ func registerProfile(a *core.App) {
 				myGuests.Update(g.ID, func(x *MyGuest) { x.Time = now; x.Read = true })
 				a.AddRatingTmp(u.ID, 1)
 			}
+		}
+		if u.VIPUntil > now && u.VIPCover != "" {
+			out["vip_cover"] = u.VIPCover
 		}
 
 		info := map[string]any{
@@ -369,6 +372,9 @@ func computeAchievements(u *model.User, items []core.ProfileItem, friendsCnt, st
 	}
 	if u.Verified {
 		add("verified", "✅", "Верифицирован", "Подтверждённый аккаунт")
+	}
+	if u.VIPUntil > core.Now() {
+		add("vip", "👑", "VIP-клуб", "Обладатель активной VIP-подписки")
 	}
 	if u.Level >= 2 {
 		add("staff", "🛡️", "Страж порядка", "Представитель администрации или модерации сайта")

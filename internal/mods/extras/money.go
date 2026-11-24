@@ -12,11 +12,6 @@ import (
 
 const ballsPerCoin = 500
 
-func isLider(uid int64) (Lider, bool) {
-	l, ok := liders.OneBy("user", i(uid))
-	return l, ok && l.Time > core.Now()
-}
-
 func cardOf(uid int64) string {
 	if c, ok := cards.OneBy("user", i(uid)); ok {
 		return c.Number
@@ -76,16 +71,28 @@ func registerMoney(a *core.App) {
 		if err != nil {
 			return err
 		}
-		l, lid := isLider(me.ID)
+		now := core.Now()
+		isVIP := me.VIPUntil > now
+		rate := int64(ballsPerCoin)
+		if isVIP {
+			rate = 400
+		}
 		oc := a.UserSettings(me.ID).Ocenka
-		out := map[string]any{"balls": me.Balls, "money": me.Money, "currency": a.Cfg.Str("money_name"), "balls_per_coin": ballsPerCoin, "is_lider": lid, "is_plus5": oc > core.Now(), "plus5_until": oc, "card": cardOf(me.ID)}
-		if lid {
-			out["lider_until"], out["lider_stav"] = l.Time, l.Stav
+		out := map[string]any{
+			"balls":          me.Balls,
+			"money":          me.Money,
+			"currency":       a.Cfg.Str("money_name"),
+			"balls_per_coin": rate,
+			"is_vip":         isVIP,
+			"vip_until":      me.VIPUntil,
+			"is_plus5":       oc > now,
+			"plus5_until":    oc,
+			"card":           cardOf(me.ID),
 		}
 		return c.JSON(out)
 	}, core.Auth)
 
-	// баллы → валюта
+	// баллы → валюта (для VIP скидка 20%: 400 баллов вместо 500)
 	a.POST("/api/money/exchange", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
@@ -100,7 +107,11 @@ func registerMoney(a *core.App) {
 		if in.N < 1 || in.N > 20 {
 			return core.ErrBad("Перевод баллов возможен не более чем на 20 за одну операцию")
 		}
-		cost := in.N * ballsPerCoin
+		rate := int64(ballsPerCoin)
+		if me.VIPUntil > core.Now() {
+			rate = 400
+		}
+		cost := in.N * rate
 		ok := false
 		a.T.Users.Update(me.ID, func(u *model.User) {
 			if u.Balls >= cost {
@@ -115,41 +126,7 @@ func registerMoney(a *core.App) {
 		return c.OK()
 	}, core.Auth)
 
-	// лидер
-	a.POST("/api/money/lider", func(c *core.Ctx) error {
-		me, err := c.Need()
-		if err != nil {
-			return err
-		}
-		var in struct {
-			Stav int64  `json:"stav"`
-			Msg  string `json:"msg"`
-		}
-		if err := c.Bind(&in); err != nil {
-			return err
-		}
-		msg := a.Text.Clean(strings.TrimSpace(in.Msg))
-		if in.Stav < 1 || in.Stav > 7 {
-			return core.ErrBad("Ставка от 1 до 7")
-		}
-		if msg == "" {
-			return core.ErrBad("Поле сообщения не может быть пустым")
-		}
-		if len([]rune(msg)) > 215 {
-			return core.ErrBad("Подпись не длиннее 215 символов")
-		}
-		if !spend(a, me.ID, in.Stav) {
-			return core.ErrBad("У вас недостаточно средств")
-		}
-		now := core.Now()
-		l := Lider{IDUser: me.ID, Stav: in.Stav, Msg: msg, Time: now + in.Stav*86400, TimeP: now}
-		if ex, ok := liders.OneBy("user", i(me.ID)); ok {
-			liders.Update(ex.ID, func(x *Lider) { x.Stav, x.Msg, x.Time, x.TimeP = l.Stav, l.Msg, l.Time, l.TimeP })
-		} else {
-			liders.Insert(&l)
-		}
-		return c.OK()
-	}, core.Auth)
+	registerVIP(a)
 
 	// Оценка 5+
 	a.POST("/api/money/plus5", func(c *core.Ctx) error {

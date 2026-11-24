@@ -47,6 +47,7 @@ var (
 			{Key: "smtp_from", Label: "Адрес отправителя почты", Type: "text"},
 			{Key: "new_user_balls", Label: "Баллов новому пользователю", Type: "int", Min: 0, Max: 100000},
 			{Key: "new_user_money", Label: "Монет новому пользователю", Type: "int", Min: 0, Max: 100000},
+			{Key: "vip_price_month", Label: "Цена VIP-подписки за 1 месяц (монет)", Type: "int", Min: 1, Max: 100000},
 		}},
 		"user": {"Настройки пользователей", "adm_set_user", []field{
 			{Key: "reg_select", Label: "Регистрация", Type: "select", Opts: [][2]string{{"open", "Открыта"}, {"open_mail", "Открыта, с подтверждением по e-mail"}, {"close", "Закрыта"}}},

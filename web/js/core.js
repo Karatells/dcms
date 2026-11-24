@@ -412,8 +412,9 @@ export const ui = {
     if (!ref) return h('span', '—');
     const el = h(ref.id ? 'a.user-link' : 'span.user-link', ref.id ? { href: '/id' + ref.id } : null);
     if (o.avatar) el.append(ui.avatar(ref, o.avatar === true ? 24 : o.avatar));
-    el.append(h('span.nick', ref.nick));
+    el.append(h('span.nick' + (ref.vip && ref.vip_nick_style ? '.vip-nick-' + ref.vip_nick_style : ''), ref.nick));
     if (o.badges !== false && ref.id) {
+      if (ref.vip) el.append(h('span.ub.vip-ic', { title: 'VIP-подписка' }, ref.vip_badge || '👑'));
       if (ref.verified) el.append(h('span.ub.ver', { title: 'Подтверждённый аккаунт', style: ref.accent ? { background: ref.accent, boxShadow: '0 1px 3px ' + ref.accent + '66' } : null }, icon('check', 10)));
       if (ref.banned) el.append(h('span.ub.ban', { title: 'Забанен' }, icon('gavel', 13)));
       else if (ref.level >= 2) el.append(h('span.ub.adm', { title: ref.group }, icon('shield', 13)));

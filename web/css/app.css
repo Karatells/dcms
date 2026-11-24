@@ -433,3 +433,34 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 @keyframes modalBoxIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
 .list-item,.tab,.btn,.badge,.card{transition:background-color .15s ease,border-color .15s ease,color .15s ease,transform .15s ease,opacity .15s ease}
 @media (prefers-reduced-motion:reduce){#view.view-enter,#view.view-fade,.modal-back,.modal-box,.nav-progress.active{animation:none!important}}
+
+/* ── VIP-подписка: значки, градиентные ники, обложки профиля и тарифы ── */
+.ub.vip-ic{font-size:.92rem;line-height:1;vertical-align:middle}
+.profile-ava.vip-ava .avatar{border:3px solid #f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.25),0 6px 20px rgba(245,158,11,.35)}
+.vip-nick-gold{background:linear-gradient(90deg,#d97706,#f59e0b,#fbbf24,#d97706);-webkit-background-clip:text;background-clip:text;color:transparent!important;font-weight:800}
+.vip-nick-neon{background:linear-gradient(90deg,#a855f7,#ec4899,#06b6d4);-webkit-background-clip:text;background-clip:text;color:transparent!important;font-weight:800}
+.vip-nick-sunset{background:linear-gradient(90deg,#f43f5e,#f97316,#eab308);-webkit-background-clip:text;background-clip:text;color:transparent!important;font-weight:800}
+.vip-nick-ocean{background:linear-gradient(90deg,#0284c7,#06b6d4,#10b981);-webkit-background-clip:text;background-clip:text;color:transparent!important;font-weight:800}
+.vip-nick-emerald{background:linear-gradient(90deg,#059669,#10b981,#84cc16);-webkit-background-clip:text;background-clip:text;color:transparent!important;font-weight:800}
+.vip-nick-rainbow{background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981,#3b82f6,#8b5cf6,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent!important;font-weight:800}
+.vip-cov-aurora{background:linear-gradient(120deg,#0f172a,#312e81,#0ea5e9,#10b981)!important}
+.vip-cov-sunset{background:linear-gradient(120deg,#7c2d12,#e11d48,#f97316,#facc15)!important}
+.vip-cov-cyber{background:linear-gradient(120deg,#1e1b4b,#7e22ce,#ec4899,#06b6d4)!important}
+.vip-cov-emerald{background:linear-gradient(120deg,#064e3b,#059669,#10b981,#34d399)!important}
+.vip-cov-royal{background:linear-gradient(120deg,#1e1b4b,#b45309,#f59e0b,#fde68a)!important}
+.vip-cov-midnight{background:linear-gradient(120deg,#020617,#1e293b,#334155,#6366f1)!important}
+.vip-hero{padding:20px;background:linear-gradient(135deg,#1e1b4b,#7c3aed 48%,#f59e0b);color:#fff;border:0}
+.vip-hero .btn{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff}
+.vip-bal{text-align:right;background:rgba(0,0,0,.25);padding:8px 14px;border-radius:12px}
+.vip-plans{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px}
+.vip-plan{position:relative;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.vip-plan.best{border-color:#f59e0b;box-shadow:0 0 0 1px #f59e0b,var(--shadow)}
+.vip-disc{position:absolute;top:10px;right:10px;background:#f59e0b;color:#111;font-weight:800;font-size:.72rem;padding:2px 7px;border-radius:999px}
+.vip-plan-t{font-weight:700;font-size:1rem}
+.vip-plan-p{display:flex;align-items:baseline;gap:8px;font-size:1.25rem}
+.vip-old{font-size:.82rem;color:var(--muted);text-decoration:line-through}
+.vip-pick{width:40px;height:40px;border-radius:10px;border:1px solid var(--border);background:var(--bg-sunken);font-size:1.25rem;cursor:pointer;display:grid;place-items:center}
+.vip-pick.active,.vip-style-btn.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 30%,transparent)}
+.vip-style-btn{padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg-sunken);cursor:pointer;font:inherit;font-size:.88rem}
+.vip-cov-btn{padding:8px 14px;border-radius:10px;border:2px solid transparent;color:#fff;font:inherit;font-size:.8rem;font-weight:700;cursor:pointer;background:linear-gradient(120deg,var(--accent),color-mix(in srgb,var(--accent) 45%,#ec4899));text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.vip-cov-btn.active{border-color:#fff;box-shadow:0 0 0 2px var(--accent)}
