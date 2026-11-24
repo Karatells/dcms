@@ -39,14 +39,32 @@ export function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
   const progText = h('div.small.muted');
   const progWrap = h('div.stack-s', { style: { display: 'none' } }, h('div.upload-bar', progFill), progText);
 
-  const drop = h('div.upload-drop', { onclick: () => fileInput.click() },
+  const drop = h('div.upload-drop', {
+    onclick: () => fileInput.click(),
+    ondragover: e => { e.preventDefault(); drop.classList.add('drag'); },
+    ondragleave: () => drop.classList.remove('drag'),
+    ondrop: e => {
+      e.preventDefault();
+      drop.classList.remove('drag');
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleFile(f);
+    },
+  },
     icon('upload', 26),
-    h('b', 'Выберите видеофайл'),
-    h('span.small.muted', `До ${maxSec} секунд · до ${maxMB} МБ · видео будет автоматически сжато на сервере`));
+    h('b', 'Выберите или перетащите видео'),
+    h('span.small.muted', `До ${maxSec} секунд · до ${maxMB} МБ · вертикальный формат 9:16`));
 
-  fileInput.onchange = () => {
+  let liveTitleEl = null;
+  let liveOpisEl = null;
+  const syncLiveOverlay = () => {
+    if (liveTitleEl) liveTitleEl.textContent = titleIn.value.trim() || 'Название клипа';
+    if (liveOpisEl) liveOpisEl.textContent = opisIn.value.trim();
+  };
+  titleIn.oninput = syncLiveOverlay;
+  opisIn.oninput = syncLiveOverlay;
+
+  const handleFile = f => {
     errBox.textContent = '';
-    const f = fileInput.files && fileInput.files[0];
     if (!f) return;
     if (f.size > maxMB * 1024 * 1024) {
       errBox.textContent = `Файл слишком большой (максимум ${maxMB} МБ)`;
@@ -56,14 +74,79 @@ export function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
     if (!titleIn.value) titleIn.value = f.name.replace(/\.[^.]+$/, '').slice(0, 100);
     if (previewURL) URL.revokeObjectURL(previewURL);
     previewURL = URL.createObjectURL(f);
-    const v = h('video.upload-preview', { src: previewURL, controls: true, muted: true, playsinline: true });
+    drop.style.display = 'none';
+
+    const v = h('video.short-prev-vid', { src: previewURL, autoplay: true, loop: true, muted: true, playsinline: true, disablePictureInPicture: true });
+    v.setAttribute('playsinline', '');
+    v.setAttribute('webkit-playsinline', '');
+    v.oncontextmenu = e => e.preventDefault();
+
+    const playMark = h('div.short-prev-play', icon('play', 34));
+    const soundBtn = h('button.short-prev-btn', {
+      type: 'button', title: 'Включить/выключить звук',
+      onclick: e => {
+        e.stopPropagation();
+        v.muted = !v.muted;
+        soundBtn.replaceChildren(icon(v.muted ? 'volume-x' : 'volume-2', 16));
+      },
+    }, icon('volume-x', 16));
+    const changeBtn = h('button.short-prev-btn', {
+      type: 'button', title: 'Выбрать другое видео',
+      onclick: e => { e.stopPropagation(); fileInput.click(); },
+    }, icon('edit', 15), h('span', 'Заменить'));
+
+    const seek = h('input.short-prev-seek', { type: 'range', min: 0, max: 100, step: 0.1, value: 0 });
+    const timeEl = h('span.short-prev-time', '0:00 / 0:00');
+    const metaEl = h('div.small.muted.center', { style: { marginTop: '8px' } }, `${f.name} · ${fmt.size(f.size)}`);
+
+    liveTitleEl = h('div.short-prev-title');
+    liveOpisEl = h('div.short-prev-opis');
+    syncLiveOverlay();
+
+    const togglePlay = () => {
+      if (v.paused) { v.play().catch(() => {}); playMark.classList.remove('show'); }
+      else { v.pause(); playMark.classList.add('show'); }
+    };
+    v.onclick = togglePlay;
+    playMark.onclick = togglePlay;
+
     v.onloadedmetadata = () => {
-      if (v.duration && v.duration > maxSec + 1.5) {
-        errBox.textContent = `Видео длиннее ${maxSec} сек (${Math.round(v.duration)} сек). Загрузите ролик до 1 минуты.`;
+      const dur = v.duration || 0;
+      const wh = v.videoWidth && v.videoHeight ? `${v.videoWidth}×${v.videoHeight} · ` : '';
+      metaEl.textContent = `${wh}${fmtDur(Math.round(dur))} · ${fmt.size(f.size)}`;
+      timeEl.textContent = `0:00 / ${fmtDur(Math.round(dur))}`;
+      if (dur > maxSec + 1.5) {
+        errBox.textContent = `Видео длиннее ${maxSec} сек (${Math.round(dur)} сек). Загрузите ролик до ${maxSec} сек.`;
         pickedFile = null;
       }
+      v.play().catch(() => playMark.classList.add('show'));
     };
-    previewBox.replaceChildren(v, h('div.small.muted.center', { style: { marginTop: '6px' } }, `${f.name} · ${fmt.size(f.size)}`));
+    v.ontimeupdate = () => {
+      if (!v.duration) return;
+      seek.value = (v.currentTime / v.duration) * 100;
+      timeEl.textContent = `${fmtDur(Math.floor(v.currentTime))} / ${fmtDur(Math.round(v.duration))}`;
+    };
+    seek.oninput = e => {
+      e.stopPropagation();
+      if (v.duration) v.currentTime = (+seek.value / 100) * v.duration;
+    };
+
+    const card = h('div.short-prev-card',
+      v,
+      playMark,
+      h('div.short-prev-top', soundBtn, changeBtn),
+      h('div.short-prev-foot',
+        h('div.short-prev-user', ui.avatar(me(), 24), h('b', me().nick)),
+        liveTitleEl,
+        liveOpisEl,
+        h('div.short-prev-bar', seek, timeEl)));
+
+    previewBox.replaceChildren(card, metaEl);
+  };
+
+  fileInput.onchange = () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (f) handleFile(f);
   };
 
   let uploading = false;
