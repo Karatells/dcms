@@ -641,17 +641,21 @@ router.add('/mail/:id', async ctx => {
 }, { auth: true });
 
 // ───────── УНИВЕРСАЛЬНЫЙ ПОЛНОФУНКЦИОНАЛЬНЫЙ МЕССЕНДЖЕР ДЛЯ ПЕРЕПИСОК С СООБЩЕСТВАМИ
-function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrite, emptyText, disabledText, placeholder, isMine, senderLabel, showStaff, canDeleteMsg, onSend, onPin, onDelete, onSubscribe }) {
+function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initialKeyboard, botCommands, canWrite, emptyText, disabledText, placeholder, isMine, senderLabel, showStaff, canDeleteMsg, onSend, onPin, onDelete, onInlineClick, onKeyboardClick, onSubscribe }) {
   document.body.classList.add('msg-page');
   let items = [...(initialItems || [])];
   const seenIds = new Set(items.map(x => x.id));
   let pinnedMsg = initialPinned || null;
+  let replyKB = (initialKeyboard && initialKeyboard.length) ? initialKeyboard : null;
+  let kbVisible = !!replyKB;
+  const cmds = Array.isArray(botCommands) ? botCommands : [];
   let replyTo = null;
   let attach = null;
 
   const scrollEl = h('div.msg-scroll');
   const pinnedHost = h('div');
   const chipHost = h('div');
+  const kbHost = h('div');
 
   const jumpToMsg = mid => {
     const el = scrollEl.querySelector(`.bubble[data-mid="${mid}"]`);
@@ -750,12 +754,59 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrit
             mine ? icon(m.read ? 'check-all' : 'check', 14) : null));
         const isNew = !seenIds.has(m.id);
         if (isNew) seenIds.add(m.id);
-        nodes.push(h('div.bubble-row' + (mine ? '.mine' : '') + (isNew ? '.new-msg' : ''), bubble));
+        const inlineKB = (!mine && m.inline_keyboard && m.inline_keyboard.length)
+          ? h('div.msg-inline-kb', ...m.inline_keyboard.map(row =>
+            h('div.msg-inline-row', ...row.map(btn => {
+              const cls = 'msg-inline-btn' + (btn.color && btn.color !== 'default' ? '.' + btn.color : '');
+              if (btn.url) {
+                return h('a.' + cls, { href: btn.url, target: '_blank', rel: 'noopener nofollow', 'data-native': '' }, btn.text, icon('link', 12));
+              }
+              return h('button.' + cls, {
+                type: 'button',
+                onclick: async e => {
+                  e.stopPropagation();
+                  if (!onInlineClick) return;
+                  e.currentTarget.disabled = true;
+                  try { await onInlineClick(m, btn); }
+                  finally { e.currentTarget.disabled = false; }
+                },
+              }, btn.text);
+            }))))
+          : null;
+        nodes.push(h('div.bubble-row' + (mine ? '.mine' : '') + (isNew ? '.new-msg' : ''),
+          inlineKB ? h('div.msg-bubble-col', bubble, inlineKB) : bubble));
       });
     }
     scrollEl.replaceChildren(...nodes);
     if (keepBottom) requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
     else requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight - prevH + prevTop; });
+  };
+
+  let kbToggleBtn = null;
+  const renderReplyKB = () => {
+    if (kbToggleBtn) {
+      kbToggleBtn.style.display = replyKB && replyKB.length ? '' : 'none';
+      kbToggleBtn.classList.toggle('active', kbVisible);
+    }
+    if (!replyKB || !replyKB.length || !kbVisible) {
+      kbHost.replaceChildren();
+      return;
+    }
+    kbHost.replaceChildren(h('div.msg-reply-kb', ...replyKB.map(row =>
+      h('div.msg-reply-row', ...row.map(btn => {
+        const cls = 'msg-reply-btn' + (btn.color && btn.color !== 'default' ? '.' + btn.color : '');
+        return h('button.' + cls, {
+          type: 'button',
+          onclick: async e => {
+            if (!onKeyboardClick) return;
+            e.currentTarget.disabled = true;
+            try {
+              const r = await onKeyboardClick(btn);
+              if (r && r.keyboard_removed) { replyKB = null; kbVisible = false; renderReplyKB(); }
+            } finally { e.currentTarget.disabled = false; }
+          },
+        }, btn.text);
+      })))));
   };
 
   const foot = h('div.msg-foot');
@@ -788,6 +839,14 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrit
       syncTa();
     };
 
+    const cmdBtn = cmds.length ? h('button.msg-tool', {
+      type: 'button', title: 'Команды бота', 'aria-label': 'Команды бота',
+    }, h('b', { style: { fontSize: '1.05rem', fontFamily: 'ui-monospace,monospace' } }, '/')) : null;
+    kbToggleBtn = h('button.msg-tool', {
+      type: 'button', title: 'Клавиатура бота', 'aria-label': 'Клавиатура бота',
+      style: { display: replyKB && replyKB.length ? '' : 'none' },
+      onclick: () => { kbVisible = !kbVisible; renderReplyKB(); },
+    }, icon('grid', 19));
     const attBtn = h('button.msg-tool', {
       type: 'button', title: 'Прикрепить фото, файл или клип', 'aria-label': 'Прикрепить',
       onclick: () => openAttachPicker(a => { attach = a; renderChips(); syncTa(); }),
@@ -799,9 +858,23 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrit
       activeDrawer = activeDrawer === which ? '' : which;
       bbBtn.classList.toggle('active', activeDrawer === 'bb');
       smBtn.classList.toggle('active', activeDrawer === 'smiles');
+      cmdBtn && cmdBtn.classList.toggle('active', activeDrawer === 'cmds');
       if (!activeDrawer) { drawerHost.replaceChildren(); return; }
 
-      if (activeDrawer === 'bb') {
+      if (activeDrawer === 'cmds') {
+        drawerHost.replaceChildren(h('div.msg-drawer',
+          h('div.msg-cmd-drawer', ...cmds.map(c => h('button.msg-cmd-item', {
+            type: 'button',
+            onclick: async () => {
+              toggleDrawer('');
+              const res = await onSend({ msg: '/' + c.command, reply_id: 0, att_type: '', att_id: 0 });
+              if (res && !items.some(x => x.id === res.id)) {
+                items.push(res);
+                renderMessages(true);
+              }
+            },
+          }, h('span.msg-cmd-name', '/' + c.command), h('span.msg-cmd-desc', c.description || ''))))));
+      } else if (activeDrawer === 'bb') {
         const bb = state.config.bb || {};
         const ribbon = h('div.msg-bb-ribbon');
         const addBtn = (lbl, title, fn, key) => {
@@ -839,6 +912,7 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrit
       }
     };
 
+    cmdBtn && (cmdBtn.onclick = () => toggleDrawer('cmds'));
     bbBtn.onclick = () => toggleDrawer('bb');
     smBtn.onclick = () => toggleDrawer('smiles');
 
@@ -868,16 +942,23 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrit
     sendBtn.onclick = doSend;
     ta.oninput = syncTa;
     ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); doSend(); } };
-    foot.append(chipHost, drawerHost, h('div.msg-compose', attBtn, smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
+    foot.append(chipHost, drawerHost, h('div.msg-compose', cmdBtn, attBtn, smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), kbToggleBtn, sendBtn), kbHost);
   } else {
     foot.append(h('div.pad.small.muted.center', disabledText || 'Отправка сообщений отключена.'));
   }
 
   const unsub = onSubscribe ? onSubscribe(incoming => {
-    if (incoming && !items.some(x => x.id === incoming.id)) {
-      items.push(incoming);
-      renderMessages(true);
-      refreshCounters();
+    if (incoming) {
+      if (incoming.keyboard_update) {
+        replyKB = (incoming.keyboard && incoming.keyboard.length) ? incoming.keyboard : null;
+        kbVisible = !!replyKB;
+        renderReplyKB();
+      }
+      if (!items.some(x => x.id === incoming.id)) {
+        items.push(incoming);
+        renderMessages(true);
+        refreshCounters();
+      }
     }
   }) : null;
   ctx.onLeave(() => {
@@ -886,6 +967,7 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrit
   });
 
   renderPinned();
+  renderReplyKB();
   renderMessages(true);
   return h('div.msg-shell', head, pinnedHost, scrollEl, foot);
 }
@@ -913,6 +995,8 @@ router.add('/mail/group/:id', async ctx => {
     ctx, head,
     initialItems: d.items,
     initialPinned: d.pinned,
+    initialKeyboard: d.keyboard,
+    botCommands: d.bot_commands,
     canWrite: d.can_write,
     emptyText: 'Напишите первое сообщение сообществу — администрация сможет ответить вам прямо в этом диалоге.',
     disabledText: 'Отправка новых сообщений в это сообщество отключена.',
@@ -924,6 +1008,8 @@ router.add('/mail/group/:id', async ctx => {
     onSend: payload => api.post(`/api/groups/${id}/dm`, payload),
     onPin: m => api.post(`/api/group-dm/${m.id}/pin`),
     onDelete: m => api.del(`/api/group-dm/${m.id}`),
+    onInlineClick: (m, btn) => api.post(`/api/groups/${id}/dm/callback`, { message_id: m.id, callback_data: btn.callback_data || btn.text, text: btn.text }),
+    onKeyboardClick: btn => api.post(`/api/groups/${id}/dm/keyboard-click`, { callback_data: btn.callback_data || btn.text, text: btn.text }),
     onSubscribe: cb => bus.on('sse:group_dm', data => {
       if (data && data.group_id === id && data.user_id === state.user?.id) cb(data);
     }),

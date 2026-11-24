@@ -62,9 +62,34 @@ var botScopeSet = func() map[string]bool {
 	return m
 }()
 
+// BotButton — кнопка в сообщении (inline) или под полем ввода (keyboard).
+type BotButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data,omitempty"`
+	Color        string `json:"color,omitempty"` // default | primary | positive | negative
+	URL          string `json:"url,omitempty"`
+}
+
+// BotCommand — команда бота для быстрого меню «/».
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
+// GroupBotKeyboard — нижняя клавиатура бота для конкретного диалога (сообщество + пользователь).
+type GroupBotKeyboard struct {
+	store.Base
+	IDGroup   int64  `json:"id_group"`
+	IDUser    int64  `json:"id_user"`
+	Keyboard  string `json:"keyboard"` // JSON [][]BotButton
+	OneTime   bool   `json:"one_time"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
 var (
 	botTokensT  *store.Table[GroupToken, *GroupToken]
 	botUpdatesT *store.Table[GroupUpdate, *GroupUpdate]
+	botKBT      *store.Table[GroupBotKeyboard, *GroupBotKeyboard]
 
 	lpMu      sync.Mutex
 	lpWaiters = map[int64][]chan struct{}{}
@@ -238,12 +263,171 @@ func BotRejectRequest(g Group, uid int64) error {
 	return nil
 }
 
+// BotSetCommands устанавливает список команд бота для меню «/».
+func BotSetCommands(a *core.App, g Group, cmds []BotCommand) ([]BotCommand, error) {
+	if len(cmds) > 30 {
+		return nil, core.ErrBad("Максимум 30 команд")
+	}
+	clean := make([]BotCommand, 0, len(cmds))
+	for _, c := range cmds {
+		cmd := strings.TrimPrefix(strings.TrimSpace(c.Command), "/")
+		cmd = a.Text.Clean(cmd)
+		if cmd == "" || utf8.RuneCountInString(cmd) > 32 {
+			continue
+		}
+		desc := a.Text.Clean(strings.TrimSpace(c.Description))
+		if utf8.RuneCountInString(desc) > 120 {
+			desc = core.Trunc(desc, 120)
+		}
+		clean = append(clean, BotCommand{Command: cmd, Description: desc})
+	}
+	b, _ := json.Marshal(clean)
+	groupsT.Update(g.ID, func(x *Group) { x.BotCommands = string(b) })
+	return clean, nil
+}
+
+// BotGetCommands возвращает список команд бота сообщества.
+func BotGetCommands(g Group) []BotCommand {
+	if g.BotCommands == "" {
+		return nil
+	}
+	var out []BotCommand
+	_ = json.Unmarshal([]byte(g.BotCommands), &out)
+	return out
+}
+
+// sanitizeKeyboard очищает двумерный массив кнопок.
+func sanitizeKeyboard(a *core.App, rows [][]BotButton) [][]BotButton {
+	if len(rows) > 8 {
+		rows = rows[:8]
+	}
+	out := make([][]BotButton, 0, len(rows))
+	for _, r := range rows {
+		if len(r) > 6 {
+			r = r[:6]
+		}
+		cr := make([]BotButton, 0, len(r))
+		for _, btn := range r {
+			txt := a.Text.Clean(strings.TrimSpace(btn.Text))
+			if txt == "" {
+				continue
+			}
+			if utf8.RuneCountInString(txt) > 48 {
+				txt = core.Trunc(txt, 48)
+			}
+			col := strings.ToLower(strings.TrimSpace(btn.Color))
+			if col != "primary" && col != "positive" && col != "negative" {
+				col = "default"
+			}
+			u := strings.TrimSpace(btn.URL)
+			if u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+				u = ""
+			}
+			cb := strings.TrimSpace(btn.CallbackData)
+			if len(cb) > 128 {
+				cb = cb[:128]
+			}
+			cr = append(cr, BotButton{Text: txt, CallbackData: cb, Color: col, URL: u})
+		}
+		if len(cr) > 0 {
+			out = append(out, cr)
+		}
+	}
+	return out
+}
+
+// BotReplyWithKeyboard отправляет ответ от лица сообщества с поддержкой inline-кнопок и нижней клавиатуры.
+func BotReplyWithKeyboard(a *core.App, g Group, targetUID int64, msg string, inlineKB [][]BotButton, replyKB [][]BotButton, oneTime, removeKB bool) (map[string]any, error) {
+	if g.Blocked {
+		return nil, core.ErrNotFound("Сообщество недоступно")
+	}
+	if !hasUserInitiated(g.ID, targetUID) {
+		return nil, core.ErrForbidden("Сообщество не может писать первым — пользователь должен начать диалог сам")
+	}
+	txt := a.Text.Clean(strings.TrimSpace(msg))
+	if utf8.RuneCountInString(txt) < 1 || utf8.RuneCountInString(txt) > 2000 {
+		return nil, core.ErrBad("Сообщение: от 1 до 2000 символов")
+	}
+	cleanInline := sanitizeKeyboard(a, inlineKB)
+	var inlineJSON string
+	if len(cleanInline) > 0 {
+		b, _ := json.Marshal(cleanInline)
+		inlineJSON = string(b)
+	}
+	// Обновляем нижнюю клавиатуру диалога, если передана или запрошено удаление
+	var kbUpdate any
+	kbChanged := false
+	if removeKB {
+		kbChanged = true
+		kbUpdate = nil
+		if old, ok := botKBT.OneBy("pair", store.Key(g.ID, targetUID)); ok {
+			botKBT.Delete(old.ID)
+		}
+	} else if len(replyKB) > 0 {
+		cleanReply := sanitizeKeyboard(a, replyKB)
+		if len(cleanReply) > 0 {
+			kbChanged = true
+			kbUpdate = cleanReply
+			b, _ := json.Marshal(cleanReply)
+			if old, ok := botKBT.OneBy("pair", store.Key(g.ID, targetUID)); ok {
+				botKBT.Update(old.ID, func(x *GroupBotKeyboard) {
+					x.Keyboard = string(b)
+					x.OneTime = oneTime
+					x.UpdatedAt = core.Now()
+				})
+			} else {
+				botKBT.Insert(&GroupBotKeyboard{
+					IDGroup: g.ID, IDUser: targetUID, Keyboard: string(b), OneTime: oneTime, UpdatedAt: core.Now(),
+				})
+			}
+		}
+	}
+
+	now := core.Now()
+	id := dmT.Insert(&GroupMessage{
+		IDGroup: g.ID, IDUser: targetUID, IDStaff: g.IDCreator,
+		FromGroup: true, Msg: txt, Time: now, ReadByGrp: true, InlineKB: inlineJSON,
+	})
+	dto := map[string]any{
+		"id": id, "group_id": g.ID, "user_id": targetUID, "from_group": true,
+		"msg": a.Text.Render(txt), "raw": txt, "time": now,
+	}
+	if len(cleanInline) > 0 {
+		dto["inline_keyboard"] = cleanInline
+	}
+	if kbChanged {
+		dto["keyboard_update"] = true
+		dto["keyboard"] = kbUpdate
+	}
+	a.Hub.Publish("group_dm:"+i(g.ID), "group_dm", dto)
+	a.Hub.ToUser(targetUID, "group_dm", dto)
+	a.Hub.ToUser(targetUID, "counters", nil)
+	a.Notify(g.IDCreator, targetUID, "group_dm", g.ID, false)
+	return map[string]any{"id": id, "group_id": g.ID, "user_id": targetUID, "text": txt, "time": now}, nil
+}
+
+func getUserBotKeyboard(gid, uid int64) [][]BotButton {
+	if botKBT == nil || uid == 0 {
+		return nil
+	}
+	kb, ok := botKBT.OneBy("pair", store.Key(gid, uid))
+	if !ok || kb.Keyboard == "" {
+		return nil
+	}
+	var out [][]BotButton
+	_ = json.Unmarshal([]byte(kb.Keyboard), &out)
+	return out
+}
+
 func registerBot(a *core.App) {
 	botTokensT = store.NewTable[GroupToken](a.DB, "group_tokens").
 		Index("group", func(x *GroupToken) string { return i(x.IDGroup) }).
 		Index("token", func(x *GroupToken) string { return x.Token })
 	botUpdatesT = store.NewTable[GroupUpdate](a.DB, "group_updates").
 		Index("group", func(x *GroupUpdate) string { return i(x.IDGroup) })
+	botKBT = store.NewTable[GroupBotKeyboard](a.DB, "group_bot_keyboards").
+		Index("group", func(x *GroupBotKeyboard) string { return i(x.IDGroup) }).
+		Index("pair", func(x *GroupBotKeyboard) string { return store.Key(x.IDGroup, x.IDUser) })
 
 	// Список токенов сообщества (создатель/админ)
 	a.GET("/api/groups/{id}/tokens", func(c *core.Ctx) error {

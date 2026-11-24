@@ -123,3 +123,35 @@ body.msg-page .footer { display: none; }
 .bb-colors { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; }
 .bb-smiles-inline { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; max-height: 150px; overflow-y: auto; border-bottom: 1px solid var(--border-s); background: var(--bg-sunken); }
 .bb-smiles-inline img { height: 22px; display: block; }
+
+/* Inline-кнопки, прикреплённые к сообщению бота */
+.msg-bubble-col { display: flex; flex-direction: column; max-width: min(82%, 520px); gap: 5px; }
+.msg-bubble-col .bubble { max-width: 100%; }
+.msg-inline-kb { display: flex; flex-direction: column; gap: 5px; }
+.msg-inline-row { display: flex; gap: 5px; }
+.msg-inline-btn { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; transition: background .12s, transform .1s, border-color .12s; }
+.msg-inline-btn:hover { background: var(--bg-hover); border-color: var(--accent); text-decoration: none; }
+.msg-inline-btn:active { transform: scale(.97); }
+.msg-inline-btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.msg-inline-btn.primary:hover { filter: brightness(1.07); }
+.msg-inline-btn.positive { background: #16a34a; color: #fff; border-color: transparent; }
+.msg-inline-btn.positive:hover { filter: brightness(1.07); }
+.msg-inline-btn.negative { background: #dc2626; color: #fff; border-color: transparent; }
+.msg-inline-btn.negative:hover { filter: brightness(1.07); }
+
+/* Нижняя клавиатура бота под полем ввода */
+.msg-reply-kb { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; border-top: 1px solid var(--border-s); background: var(--bg-sunken); max-height: 210px; overflow-y: auto; animation: msgPop .16s ease; }
+.msg-reply-row { display: flex; gap: 6px; }
+.msg-reply-btn { flex: 1; min-width: 0; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--border-s); background: var(--bg-card); color: var(--text); font: inherit; font-size: .86rem; font-weight: 600; cursor: pointer; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,.05); transition: background .12s, transform .1s, border-color .12s; }
+.msg-reply-btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+.msg-reply-btn:active { transform: scale(.97); }
+.msg-reply-btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.msg-reply-btn.positive { background: #16a34a; color: #fff; border-color: transparent; }
+.msg-reply-btn.negative { background: #dc2626; color: #fff; border-color: transparent; }
+
+/* Меню команд бота «/» */
+.msg-cmd-drawer { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+.msg-cmd-item { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: var(--bg-card); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background .12s; }
+.msg-cmd-item:hover { background: var(--bg-hover); }
+.msg-cmd-name { font-family: ui-monospace, monospace; font-weight: 700; color: var(--accent); font-size: .86rem; flex: none; }
+.msg-cmd-desc { font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

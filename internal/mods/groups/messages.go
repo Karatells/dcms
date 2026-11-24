@@ -1,6 +1,7 @@
 package groups
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -26,6 +27,7 @@ type GroupMessage struct {
 	AttType   string `json:"att_type"` // foto | files | shorts
 	AttID     int64  `json:"att_id"`
 	Pinned    bool   `json:"pinned"`
+	InlineKB  string `json:"inline_kb"` // JSON [][]BotButton
 }
 
 var dmT *store.Table[GroupMessage, *GroupMessage]
@@ -146,6 +148,12 @@ func registerMessages(a *core.App) {
 					"link":  desc.Link,
 					"image": desc.Image,
 				}
+			}
+		}
+		if m.InlineKB != "" {
+			var kb [][]BotButton
+			if err := json.Unmarshal([]byte(m.InlineKB), &kb); err == nil && len(kb) > 0 {
+				out["inline_keyboard"] = kb
 			}
 		}
 		return out
@@ -287,10 +295,75 @@ func registerMessages(a *core.App) {
 			items = append(items, msgDTO(g, m, false))
 		}
 		return c.JSON(map[string]any{
-			"items":     items,
-			"pinned":    pinned,
-			"can_write": g.EnableMessages && !g.Blocked,
+			"items":        items,
+			"pinned":       pinned,
+			"can_write":    g.EnableMessages && !g.Blocked,
+			"keyboard":     getUserBotKeyboard(g.ID, me.ID),
+			"bot_commands": BotGetCommands(g),
 		})
+	}, core.Auth)
+
+	// ── Пользователь нажал inline-кнопку под конкретным сообщением бота
+	a.POST("/api/groups/{id}/dm/callback", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok || g.Blocked || !g.EnableMessages {
+			return core.ErrForbidden("Сообщения сообщества недоступны")
+		}
+		var in struct {
+			MessageID    int64  `json:"message_id"`
+			CallbackData string `json:"callback_data"`
+			Text         string `json:"text"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		m, ok := dmT.Get(in.MessageID)
+		if !ok || m.IDGroup != g.ID || m.IDUser != me.ID {
+			return core.ErrNotFound("Сообщение не найдено")
+		}
+		EmitUpdate(g.ID, "inline_button_click", "messages", map[string]any{
+			"message_id":    m.ID,
+			"from":          a.Ref(me.ID),
+			"callback_data": in.CallbackData,
+			"text":          in.Text,
+			"time":          core.Now(),
+		})
+		return c.OK()
+	}, core.Auth)
+
+	// ── Пользователь нажал кнопку в нижней клавиатуре под полем ввода
+	a.POST("/api/groups/{id}/dm/keyboard-click", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok || g.Blocked || !g.EnableMessages {
+			return core.ErrForbidden("Сообщения сообщества недоступны")
+		}
+		var in struct {
+			CallbackData string `json:"callback_data"`
+			Text         string `json:"text"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		removed := false
+		if kb, ok := botKBT.OneBy("pair", store.Key(g.ID, me.ID)); ok && kb.OneTime {
+			botKBT.Delete(kb.ID)
+			removed = true
+		}
+		EmitUpdate(g.ID, "keyboard_button_click", "messages", map[string]any{
+			"from":          a.Ref(me.ID),
+			"callback_data": in.CallbackData,
+			"text":          in.Text,
+			"time":          core.Now(),
+		})
+		return c.OK("keyboard_removed", removed)
 	}, core.Auth)
 
 	// ── Пользователь: написать сообщение сообществу (пользователь всегда начинает диалог первым)

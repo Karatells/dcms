@@ -106,6 +106,18 @@ func main() {
 	}
 	log.Printf("✓ Бот «%s» запущен для сообщества «%s» (#%d, участников: %d)", info.TokenName, info.Group.Name, info.Group.ID, info.Group.Members)
 	log.Printf("✓ Разрешения токена: %s", strings.Join(info.Scopes, ", "))
+
+	// Устанавливаем меню команд «/» для пользователей в диалоге с сообществом
+	_ = c.call("POST", "/api/v1/bot/setMyCommands", map[string]any{
+		"commands": []map[string]string{
+			{"command": "start", "description": "Открыть главное меню и кнопки бота"},
+			{"command": "ping", "description": "Проверить скорость ответа бота"},
+			{"command": "info", "description": "Информация о сообществе"},
+			{"command": "time", "description": "Текущее время сервера"},
+			{"command": "hide", "description": "Скрыть нижнюю клавиатуру"},
+		},
+	}, nil)
+	log.Printf("✓ Команды меню «/» зарегистрированы")
 	log.Printf("✓ Ожидаю события через Long Polling (getUpdates, timeout=%ds)…", *timeout)
 
 	// Пропускаем старые события при первом запуске, чтобы отвечать только на новые
@@ -151,14 +163,60 @@ func handleUpdate(c *botClient, info meResp, u updateItem, autoApprove bool) {
 			return
 		}
 		log.Printf("[ЛС] %s (#%d): %s", d.From.Nick, d.From.ID, d.Text)
-		reply := buildReply(info, d.From.Nick, d.Text)
-		if err := c.call("POST", "/api/v1/bot/sendMessage", map[string]any{
-			"user_id": d.From.ID,
-			"text":    reply,
-		}, nil); err != nil {
-			log.Printf("  ✗ Не удалось ответить: %v", err)
-		} else {
-			log.Printf("  → Ответ отправлен %s", d.From.Nick)
+		sendSmartReply(c, info, d.From.ID, d.From.Nick, d.Text)
+
+	case "inline_button_click":
+		var d struct {
+			MessageID    int64  `json:"message_id"`
+			CallbackData string `json:"callback_data"`
+			Text         string `json:"text"`
+			From         struct {
+				ID   int64  `json:"id"`
+				Nick string `json:"nick"`
+			} `json:"from"`
+		}
+		if err := json.Unmarshal(u.Data, &d); err != nil {
+			return
+		}
+		log.Printf("[Inline-кнопка] %s нажал «%s» (data=%s, msg=#%d)", d.From.Nick, d.Text, d.CallbackData, d.MessageID)
+		reply := fmt.Sprintf("Вы нажали [b]inline-кнопку[/b] «%s» (callback_data: [code]%s[/code])!", d.Text, d.CallbackData)
+		if d.CallbackData == "inline_time" {
+			reply = "⏰ Текущее время сервера: [b]" + time.Now().Format("02.01.2006 15:04:05") + "[/b]"
+		} else if d.CallbackData == "inline_info" {
+			reply = fmt.Sprintf("📊 Сообщество «[b]%s[/b]» (#%d) · участников: %d", info.Group.Name, info.Group.ID, info.Group.Members)
+		}
+		_ = c.call("POST", "/api/v1/bot/sendMessage", map[string]any{"user_id": d.From.ID, "text": reply}, nil)
+
+	case "keyboard_button_click":
+		var d struct {
+			CallbackData string `json:"callback_data"`
+			Text         string `json:"text"`
+			From         struct {
+				ID   int64  `json:"id"`
+				Nick string `json:"nick"`
+			} `json:"from"`
+		}
+		if err := json.Unmarshal(u.Data, &d); err != nil {
+			return
+		}
+		log.Printf("[Нижняя кнопка] %s нажал «%s» (data=%s)", d.From.Nick, d.Text, d.CallbackData)
+		switch d.CallbackData {
+		case "kb_hide":
+			_ = c.call("POST", "/api/v1/bot/sendMessage", map[string]any{
+				"user_id": d.From.ID, "text": "Нижняя клавиатура скрыта. Чтобы вернуть её, отправьте [b]/start[/b].", "remove_keyboard": true,
+			}, nil)
+		case "kb_ping":
+			_ = c.call("POST", "/api/v1/bot/sendMessage", map[string]any{
+				"user_id": d.From.ID, "text": "⚡ Pong! Нажатие нижней кнопки обработано мгновенно.",
+			}, nil)
+		case "kb_info":
+			_ = c.call("POST", "/api/v1/bot/sendMessage", map[string]any{
+				"user_id": d.From.ID, "text": fmt.Sprintf("📋 Сообщество «[b]%s[/b]» · участников: %d", info.Group.Name, info.Group.Members),
+			}, nil)
+		default:
+			_ = c.call("POST", "/api/v1/bot/sendMessage", map[string]any{
+				"user_id": d.From.ID, "text": fmt.Sprintf("Вы нажали кнопку меню «[b]%s[/b]»!", d.Text),
+			}, nil)
 		}
 
 	case "join_request":
@@ -225,18 +283,45 @@ func handleUpdate(c *botClient, info meResp, u updateItem, autoApprove bool) {
 	}
 }
 
-func buildReply(info meResp, nick, text string) string {
+func sendSmartReply(c *botClient, info meResp, uid int64, nick, text string) {
 	cmd := strings.ToLower(strings.TrimSpace(text))
+	payload := map[string]any{"user_id": uid}
 	switch cmd {
-	case "/start", "/help", "привет", "помощь":
-		return fmt.Sprintf("Привет, [b]%s[/b]! Я бот сообщества «[b]%s[/b]».\nДоступные команды:\n• [b]/ping[/b] — проверка связи\n• [b]/info[/b] — информация о сообществе\n• [b]/time[/b] — текущее время сервера", nick, info.Group.Name)
+	case "/start", "/help", "/menu", "привет", "помощь":
+		payload["text"] = fmt.Sprintf("Привет, [b]%s[/b]! Я бот сообщества «[b]%s[/b]».\nПопробуйте нажать inline-кнопки прямо под этим сообщением, нижнюю клавиатуру или меню команд «/»!", nick, info.Group.Name)
+		payload["inline_keyboard"] = [][]map[string]string{
+			{
+				{"text": "📊 Статистика", "callback_data": "inline_info", "color": "primary"},
+				{"text": "⏰ Время", "callback_data": "inline_time", "color": "positive"},
+			},
+			{
+				{"text": "👍 Класс!", "callback_data": "inline_like", "color": "default"},
+			},
+		}
+		payload["keyboard"] = [][]map[string]string{
+			{
+				{"text": "📋 О сообществе", "callback_data": "kb_info", "color": "primary"},
+				{"text": "⚡ Пинг", "callback_data": "kb_ping", "color": "positive"},
+			},
+			{
+				{"text": "❌ Скрыть клавиатуру", "callback_data": "kb_hide", "color": "negative"},
+			},
+		}
+	case "/hide":
+		payload["text"] = "Клавиатура скрыта. Введите [b]/start[/b], чтобы открыть её снова."
+		payload["remove_keyboard"] = true
 	case "/ping":
-		return "Pong! Бот сообщества работает в режиме Long Polling ⚡"
+		payload["text"] = "Pong! Бот сообщества работает в режиме Long Polling ⚡"
 	case "/info":
-		return fmt.Sprintf("Сообщество: [b]%s[/b] (#%d)\nУчастников: %d", info.Group.Name, info.Group.ID, info.Group.Members)
+		payload["text"] = fmt.Sprintf("Сообщество: [b]%s[/b] (#%d)\nУчастников: %d", info.Group.Name, info.Group.ID, info.Group.Members)
 	case "/time":
-		return "Текущее время сервера: [b]" + time.Now().Format("02.01.2006 15:04:05") + "[/b]"
+		payload["text"] = "Текущее время сервера: [b]" + time.Now().Format("02.01.2006 15:04:05") + "[/b]"
 	default:
-		return fmt.Sprintf("Получил ваше сообщение: «%s».\nНапишите [b]/help[/b], чтобы увидеть список команд.", text)
+		payload["text"] = fmt.Sprintf("Получил ваше сообщение: «%s».\nНапишите [b]/start[/b] или откройте меню команд «/».", text)
+	}
+	if err := c.call("POST", "/api/v1/bot/sendMessage", payload, nil); err != nil {
+		log.Printf("  ✗ Не удалось ответить: %v", err)
+	} else {
+		log.Printf("  → Ответ отправлен %s", nick)
 	}
 }

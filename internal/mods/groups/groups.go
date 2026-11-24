@@ -34,6 +34,7 @@ type Group struct {
 	Hidden         bool   `json:"hidden"`
 	Blocked        bool   `json:"blocked"`
 	BlockReason    string `json:"block_reason"`
+	BotCommands    string `json:"bot_commands"` // JSON []BotCommand
 }
 
 // GroupMember — участник сообщества и его роль / права модератора по разделам.
@@ -291,6 +292,9 @@ func deleteGroupAll(a *core.App, g Group) {
 	}
 	if botUpdatesT != nil {
 		botUpdatesT.DeleteBy("group", i(g.ID))
+	}
+	if botKBT != nil {
+		botKBT.DeleteBy("group", i(g.ID))
 	}
 	for _, p := range blogT.By("group", i(g.ID)) {
 		a.T.Likes.DeleteWhere(func(l *model.LikeObject) bool { return l.Type == "gpost" && l.IDObject == p.ID })

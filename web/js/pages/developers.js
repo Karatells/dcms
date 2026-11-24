@@ -517,7 +517,7 @@ function buildDocsSection(scopes) {
       h('h2', 'Боты сообществ (Bot API · Long Polling)'),
       h('p.small.muted', 'Вместо пользовательского OAuth-токена создатель или администратор сообщества может выпустить отдельный ', h('b', 'токен сообщества'), ' (', h('code', 'dcms_grp_...'), ') в разделе ', h('b', 'Сообщество → Настройки → Боты и API-токены'), '. Токен работает только со своим сообществом и выбранными разрешениями (', h('code', 'messages'), ', ', h('code', 'chat'), ', ', h('code', 'forum'), ', ', h('code', 'blog'), ', ', h('code', 'members'), ', ', h('code', 'files'), ').'),
       h('div.small.muted', h('b', 'Типы событий Long Poll (getUpdates): '), ' ',
-        h('code', 'message_new'), ', ', h('code', 'chat_message_new'), ', ', h('code', 'forum_topic_new'), ', ', h('code', 'forum_post_new'), ', ', h('code', 'blog_post_new'), ', ', h('code', 'join_request'), ', ', h('code', 'member_join'), ', ', h('code', 'member_leave'), '.'),
+        h('code', 'message_new'), ', ', h('code', 'inline_button_click'), ', ', h('code', 'keyboard_button_click'), ', ', h('code', 'chat_message_new'), ', ', h('code', 'forum_topic_new'), ', ', h('code', 'forum_post_new'), ', ', h('code', 'blog_post_new'), ', ', h('code', 'join_request'), ', ', h('code', 'member_join'), ', ', h('code', 'member_leave'), '.'),
       h('div.stack-s',
         ...[
           {
@@ -541,12 +541,30 @@ function buildDocsSection(scopes) {
           },
           {
             method: 'POST', path: '/api/v1/bot/sendMessage', scope: 'messages',
-            summary: 'Ответить пользователю в личные сообщения от лица сообщества (строго если пользователь писал первым)',
+            summary: 'Ответить пользователю в ЛС от лица сообщества (поддерживает inline-кнопки и нижнюю клавиатуру)',
             params: [
               ['user_id', 'int (JSON body)', 'ID пользователя-получателя'],
               ['text', 'string (JSON body)', 'Текст ответа (1–2000 символов, поддерживается BBCode)'],
+              ['inline_keyboard', '[][]Button', 'Кнопки под сообщением: [[{"text":"Ок","callback_data":"ok","color":"primary|positive|negative|default","url":"..."}]]. Нажатие шлёт событие inline_button_click'],
+              ['keyboard', '[][]Button', 'Нижняя клавиатура под полем ввода: [[{"text":"Меню","callback_data":"menu","color":"primary"}]]. Нажатие шлёт событие keyboard_button_click'],
+              ['one_time', 'bool', 'Скрыть нижнюю клавиатуру автоматически после нажатия (необязательно)'],
+              ['remove_keyboard', 'bool', 'Убрать нижнюю клавиатуру у пользователя (true)'],
             ],
-            response: JSON.stringify({ ok: true, message: { id: 43, group_id: 1, user_id: 2, text: 'Здравствуйте! Чем помочь?', time: 1795460005 } }, null, 2),
+            response: JSON.stringify({ ok: true, message: { id: 43, group_id: 1, user_id: 2, text: 'Выберите действие:', time: 1795460005 } }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/setMyCommands', scope: 'Любой токен сообщества',
+            summary: 'Установить список команд бота для быстрого меню «/» у пользователей',
+            params: [
+              ['commands', '[]Command (JSON body)', 'Массив команд: [{"command":"start","description":"Главное меню"},{"command":"help","description":"Помощь"}] (до 30 команд)'],
+            ],
+            response: JSON.stringify({ ok: true, commands: [{ command: 'start', description: 'Главное меню' }] }, null, 2),
+          },
+          {
+            method: 'GET', path: '/api/v1/bot/getMyCommands', scope: 'Любой токен сообщества',
+            summary: 'Получить текущий список команд бота',
+            params: [],
+            response: JSON.stringify({ ok: true, commands: [{ command: 'start', description: 'Главное меню' }] }, null, 2),
           },
           {
             method: 'GET', path: '/api/v1/bot/inbox', scope: 'messages',
