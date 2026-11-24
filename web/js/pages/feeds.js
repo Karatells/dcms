@@ -163,9 +163,109 @@ router.add('/mail', async ctx => {
   const reload = () => router.render();
   const [d, gd] = await Promise.all([
     api.get('/api/konts', { page: ctx.page, type }),
-    type === 'common' && ctx.page === 1 ? api.get('/api/my-group-dialogs', null, { silent: true }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
+    ctx.page === 1 ? api.get('/api/my-group-dialogs', { type }, { silent: true }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
   ]);
-  const sel = new Set();
+  const selUsers = new Set();
+  const selGroups = new Set();
+  const rowRefs = [];
+
+  const totalSel = () => selUsers.size + selGroups.size;
+  const selBar = h('div.card.pad.mail-sel-bar', { style: { display: 'none' } });
+  const selCount = h('b');
+
+  const doMove = async targetType => {
+    if (!totalSel()) return;
+    const reqs = [];
+    if (selUsers.size) reqs.push(api.post('/api/konts/move', { ids: [...selUsers], type: targetType }));
+    if (selGroups.size) reqs.push(api.post('/api/my-group-dialogs/move', { ids: [...selGroups], type: targetType }));
+    await Promise.all(reqs);
+    reload();
+  };
+
+  const clearSel = () => {
+    selUsers.clear();
+    selGroups.clear();
+    syncSelUI();
+  };
+
+  const syncSelUI = () => {
+    const cnt = totalSel();
+    selBar.style.display = cnt > 0 ? '' : 'none';
+    selCount.textContent = `Выбрано: ${cnt}`;
+    for (const r of rowRefs) {
+      const on = r.kind === 'group' ? selGroups.has(r.id) : selUsers.has(r.id);
+      r.el.classList.toggle('mail-row-sel', on);
+      r.el.classList.toggle('mail-sel-mode', cnt > 0);
+    }
+  };
+
+  const toggleItem = (kind, id) => {
+    const set = kind === 'group' ? selGroups : selUsers;
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    syncSelUI();
+  };
+
+  selBar.append(
+    h('div.row',
+      ui.btn('', { ic: 'x', small: true, title: 'Отменить выделение', onclick: clearSel }),
+      selCount,
+      h('span.grow'),
+      ...KONT_TABS.filter(([k]) => k !== type).map(([k]) => ui.btn(
+        k === 'deleted' ? 'Удалить' : k === 'common' ? 'В контакты' : k === 'favorite' ? 'В избранные' : 'В игнор',
+        { small: true, kind: k === 'deleted' ? 'danger' : '', onclick: () => doMove(k) }))));
+
+  const bindSelectable = (el, kind, id, href) => {
+    let lpTimer = null;
+    let lpFired = false;
+    let sx = 0, sy = 0;
+
+    el.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) return;
+      lpFired = false;
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        if (navigator.vibrate) try { navigator.vibrate(25); } catch {}
+        toggleItem(kind, id);
+      }, 420);
+    }, { passive: true });
+
+    el.addEventListener('touchmove', e => {
+      if (!lpTimer) return;
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - sx, t.clientY - sy) > 10) {
+        clearTimeout(lpTimer);
+        lpTimer = null;
+      }
+    }, { passive: true });
+
+    const cancelLP = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+    el.addEventListener('touchend', cancelLP);
+    el.addEventListener('touchcancel', cancelLP);
+
+    el.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      toggleItem(kind, id);
+    });
+
+    el.addEventListener('click', e => {
+      if (lpFired) {
+        e.preventDefault();
+        lpFired = false;
+        return;
+      }
+      if (totalSel() > 0) {
+        e.preventDefault();
+        toggleItem(kind, id);
+      } else {
+        e.preventDefault();
+        router.go(href);
+      }
+    });
+    rowRefs.push({ el, kind, id });
+  };
 
   const initialOf = s => (Array.from((s || 'С').trim())[0] || 'С').toUpperCase();
   const merged = [
@@ -174,10 +274,13 @@ router.add('/mail', async ctx => {
   ].sort((a, b) => b.time - a.time);
 
   const rows = merged.map(entry => {
+    const checkMark = h('span.mail-sel-chk', icon('check', 13));
     if (entry.kind === 'group') {
       const item = entry.data;
       const g = item.group;
-      return h('a.list-item' + (item.new ? '.unread' : ''), { href: '/mail/group/' + g.id },
+      const href = '/mail/group/' + g.id;
+      const el = h('a.list-item.mail-chat-row' + (item.new ? '.unread' : ''), { href },
+        checkMark,
         h('div.grp-ava-sm', { style: { width: '44px', height: '44px', borderRadius: '12px', fontSize: '1.05rem', flexShrink: '0', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,var(--accent),#ec4899)', color: '#fff', fontWeight: '800', overflow: 'hidden' } },
           g.avatar ? h('img', { src: g.avatar, alt: g.name, style: { width: '100%', height: '100%', objectFit: 'cover' } }) : initialOf(g.name)),
         h('div.main',
@@ -186,23 +289,30 @@ router.add('/mail', async ctx => {
             item.new ? h('span.badge.danger', { style: { marginLeft: '6px' } }, '+' + item.new) : null),
           item.last ? h('div.small.muted.clip', (item.last.mine ? 'Вы: ' : '') + item.last.text) : h('div.small.muted', 'Сообщений нет')),
         item.last ? ui.time(item.last.time) : null);
+      bindSelectable(el, 'group', g.id, href);
+      return el;
     }
     const k = entry.data;
-    return h('div.list-item' + (k.new ? '.unread' : ''),
-      h('input', { type: 'checkbox', onchange: e => e.target.checked ? sel.add(k.user.id) : sel.delete(k.user.id) }),
-      ui.avatar(k.user, 44), h('a.main', { href: '/mail/' + k.user.id, style: { color: 'inherit', textDecoration: 'none' } },
+    const href = '/mail/' + k.user.id;
+    const el = h('a.list-item.mail-chat-row' + (k.new ? '.unread' : ''), { href },
+      checkMark,
+      ui.avatar(k.user, 44),
+      h('div.main',
         h('div.title', k.name || k.user.nick, k.new ? h('span.badge.danger', { style: { marginLeft: '8px' } }, '+' + k.new) : null),
         k.last ? h('div.small.muted.clip', (k.last.mine ? 'Вы: ' : '') + k.last.text) : h('div.small.muted', 'Сообщений нет')),
-      k.last ? ui.time(k.last.time) : null, ...(type === 'deleted' ? [h('span.small.muted', 'удалится ' + fmt.date(k.expires))] : []));
+      k.last ? ui.time(k.last.time) : null,
+      ...(type === 'deleted' ? [h('span.small.muted', 'удалится ' + fmt.date(k.expires))] : []));
+    bindSelectable(el, 'user', k.user.id, href);
+    return el;
   });
-  const move = (t, l, kind) => ui.btn(l, { small: true, kind, onclick: async () => { if (!sel.size) return ui.toast('Отметьте контакты', 'warn'); await api.post('/api/konts/move', { ids: [...sel], type: t }); reload(); } });
+
   const to = h('input.input', { placeholder: 'Логин получателя' });
   const msg = h('textarea.input', { rows: 3, placeholder: 'Сообщение (2–1024 символа)', maxlength: 1024 });
   const compose = h('details.card.pad', h('summary', icon('edit', 16), ' Написать по логину'), h('div.stack', { style: { marginTop: '12px' } }, to, msg,
     ui.btn('Отправить', { kind: 'primary', ic: 'send', onclick: async () => { const r = await api.post('/api/mail/send', { to: to.value, msg: msg.value }); ui.ok('Сообщение отправлено'); router.go('/mail/' + r.id); } })));
-  return [ui.pageHead('Почта'), mailTabs(type), compose,
+  return [ui.pageHead('Почта'), mailTabs(type), selBar, compose,
     ui.card(rows.length ? h('div.list', rows) : ui.empty(type === 'common' ? 'Контактов пока нет' : 'Список пуст', 'mail')),
-    d.items.length ? h('div.row', ...KONT_TABS.filter(([k]) => k !== type).map(([k, l]) => move(k, k === 'deleted' ? 'Удалить' : k === 'common' ? 'В контакты' : k === 'favorite' ? 'В избранные' : 'В игнор', k === 'deleted' ? 'danger' : ''))) : null,
+    rows.length ? h('div.muted.small', 'Удерживайте диалог (или нажмите правой кнопкой), чтобы выбрать, переместить или удалить.') : null,
     type === 'deleted' ? h('div.muted.small', 'Удалённые контакты очищаются через 30 дней вместе с перепиской.') : null, ui.pager(d)];
 }, { auth: true });
 

@@ -67,6 +67,27 @@ func unreadUserGroupMsgs(gid, uid int64) int {
 	return n
 }
 
+// GroupDialogFolder — папка диалога с сообществом в почте пользователя (common|favorite|ignor|deleted).
+type GroupDialogFolder struct {
+	store.Base
+	IDUser    int64  `json:"id_user"`
+	IDGroup   int64  `json:"id_group"`
+	Folder    string `json:"folder"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+var dmFolderT *store.Table[GroupDialogFolder, *GroupDialogFolder]
+
+func groupDialogFolder(uid, gid int64) string {
+	if dmFolderT == nil {
+		return "common"
+	}
+	if f, ok := dmFolderT.OneBy("pair", store.Key(uid, gid)); ok && f.Folder != "" {
+		return f.Folder
+	}
+	return "common"
+}
+
 func totalUnreadUserGroupMsgs(uid int64) int {
 	if dmT == nil || uid == 0 {
 		return 0
@@ -74,6 +95,10 @@ func totalUnreadUserGroupMsgs(uid int64) int {
 	n := 0
 	for _, m := range dmT.By("user", i(uid)) {
 		if m.FromGroup && !m.ReadByUsr {
+			f := groupDialogFolder(uid, m.IDGroup)
+			if f == "ignor" || f == "deleted" {
+				continue
+			}
 			n++
 		}
 	}
@@ -85,6 +110,9 @@ func registerMessages(a *core.App) {
 		Index("group", func(x *GroupMessage) string { return i(x.IDGroup) }).
 		Index("pair", func(x *GroupMessage) string { return store.Key(x.IDGroup, x.IDUser) }).
 		Index("user", func(x *GroupMessage) string { return i(x.IDUser) })
+	dmFolderT = store.NewTable[GroupDialogFolder](a.DB, "group_dialog_folders").
+		Index("user", func(x *GroupDialogFolder) string { return i(x.IDUser) }).
+		Index("pair", func(x *GroupDialogFolder) string { return store.Key(x.IDUser, x.IDGroup) })
 
 	feeds.RegisterExtraUnread(totalUnreadUserGroupMsgs)
 
@@ -200,11 +228,15 @@ func registerMessages(a *core.App) {
 		return a.Text.Clean(msg), nil
 	}
 
-	// ── Список диалогов пользователя с сообществами (для отображения прямо в основной Почте /mail)
+	// ── Список диалогов пользователя с сообществами (с поддержкой папок common/favorite/ignor/deleted)
 	a.GET("/api/my-group-dialogs", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
+		}
+		wantFolder := c.Q("type")
+		if wantFolder == "" {
+			wantFolder = "common"
 		}
 		type agg struct {
 			g      Group
@@ -213,6 +245,9 @@ func registerMessages(a *core.App) {
 		}
 		byGrp := map[int64]*agg{}
 		for _, m := range dmT.By("user", i(me.ID)) {
+			if groupDialogFolder(me.ID, m.IDGroup) != wantFolder {
+				continue
+			}
 			g, ok := groupsT.Get(m.IDGroup)
 			if !ok {
 				continue
@@ -261,6 +296,47 @@ func registerMessages(a *core.App) {
 			})
 		}
 		return c.JSON(map[string]any{"items": items})
+	}, core.Auth)
+
+	// ── Перемещение/удаление диалогов с сообществами по папкам Почты
+	a.POST("/api/my-group-dialogs/move", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		var in struct {
+			IDs  []int64 `json:"ids"`
+			Type string  `json:"type"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		switch in.Type {
+		case "common", "favorite", "ignor", "deleted":
+		default:
+			return core.ErrBad("Недопустимая папка")
+		}
+		now := core.Now()
+		for _, gid := range in.IDs {
+			if gid <= 0 {
+				continue
+			}
+			if cur, ok := dmFolderT.OneBy("pair", store.Key(me.ID, gid)); ok {
+				dmFolderT.Update(cur.ID, func(x *GroupDialogFolder) {
+					x.Folder = in.Type
+					x.UpdatedAt = now
+				})
+			} else {
+				dmFolderT.Insert(&GroupDialogFolder{
+					IDUser:    me.ID,
+					IDGroup:   gid,
+					Folder:    in.Type,
+					UpdatedAt: now,
+				})
+			}
+		}
+		a.Hub.ToUser(me.ID, "counters", nil)
+		return c.OK()
 	}, core.Auth)
 
 	// ── Пользователь: открыть диалог с сообществом
