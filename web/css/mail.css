@@ -1,6 +1,7 @@
 /* Мессенджер (личная переписка) и интерактивный BB-тулбар */
 body.msg-page .footer { display: none; }
 @media (max-width: 700px) {
+  body.msg-page { overflow: hidden !important; overscroll-behavior: none; }
   body.msg-page .tabbar { display: none !important; }
   body.msg-page .shell { padding: 0 !important; gap: 0 !important; }
   body.msg-page main#view { gap: 0 !important; }
@@ -8,7 +9,7 @@ body.msg-page .footer { display: none; }
 
 .msg-shell { display: flex; flex-direction: column; height: calc(100dvh - var(--top) - 36px); min-height: 460px; background: var(--bg-card); border: 1px solid var(--border-s); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
 @media (max-width: 700px) {
-  .msg-shell { height: calc(100dvh - var(--top)); min-height: 0; border-radius: 0; border: 0; box-shadow: none; }
+  .msg-shell { position: fixed; left: 0; right: 0; top: var(--top); height: var(--msg-h, calc(100dvh - var(--top))); min-height: 0; border-radius: 0; border: 0; box-shadow: none; z-index: 25; }
 }
 
 .msg-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border-s); background: var(--bg-card); z-index: 3; }

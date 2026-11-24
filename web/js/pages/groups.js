@@ -686,13 +686,6 @@ router.add('/groups/:id/settings', async ctx => {
         revBtn.textContent = revealed ? 'Скрыть' : 'Показать';
       },
     });
-    const runCmd = `dcms-bot -url ${location.origin} -token ${t.token}`;
-    const cmdIn = h('input.input', {
-      value: runCmd,
-      readOnly: true,
-      style: { fontFamily: 'ui-monospace,monospace', fontSize: '.82rem' },
-      onclick: e => e.target.select(),
-    });
     return h('div.card.pad.stack-s', { style: { background: 'var(--bg)' } },
       h('div.row',
         h('b.grow', t.name),
@@ -702,9 +695,7 @@ router.add('/groups/:id/settings', async ctx => {
           onclick: async () => { if (await ui.confirm(`Отозвать токен «${t.name}»?`, { danger: true })) { await api.del('/api/group-tokens/' + t.id); ui.ok('Токен отозван'); reload(); } },
         })),
       h('div.field', h('label', 'Токен сообщества'),
-        h('div.row.nowrap', tokIn, revBtn, ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => copyFallback(t.token, 'Токен скопирован') }))),
-      h('div.field', h('label', 'Команда запуска тестового бота (нажмите, чтобы выделить)'),
-        h('div.row.nowrap', cmdIn, ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => copyFallback(runCmd, 'Команда скопирована') }))));
+        h('div.row.nowrap', tokIn, revBtn, ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => copyFallback(t.token, 'Токен скопирован') }))));
   });
 
   // Ссылки для автовступления

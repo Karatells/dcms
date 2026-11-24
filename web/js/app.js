@@ -135,7 +135,24 @@ async function refreshAll() {
 }
 bus.on('user', () => { refreshAll(); events.restart(); });
 bus.on('counters', () => { drawTop(); drawSide(); drawTabbar(); });
-bus.on('route', () => { markActive(); });
+bus.on('route', () => { markActive(); syncMsgViewport(); });
+function syncMsgViewport() {
+  if (!document.body.classList.contains('msg-page')) {
+    document.documentElement.style.removeProperty('--msg-h');
+    return;
+  }
+  const vv = window.visualViewport;
+  const hPx = vv ? Math.round(vv.height) : window.innerHeight;
+  const topEl = document.querySelector('header.topbar');
+  const topH = topEl ? Math.round(topEl.getBoundingClientRect().height) : 56;
+  document.documentElement.style.setProperty('--msg-h', Math.max(200, hPx - topH) + 'px');
+  if (window.scrollY !== 0) window.scrollTo(0, 0);
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncMsgViewport);
+  window.visualViewport.addEventListener('scroll', syncMsgViewport);
+}
+window.addEventListener('resize', syncMsgViewport);
 bus.on('sse:counters', () => refreshCounters());
 bus.on('sse:notify', d => { refreshCounters(); ui.toast('🔔 ' + (d.from ? d.from.nick + ': ' : '') + (notifyTitle[d.type] || 'новое уведомление'), 'info'); });
 const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип', group_invite: 'приглашает вас в сообщество', group_req: 'подал заявку в ваше сообщество', group_req_ok: 'одобрил вашу заявку в сообщество', group_dm: 'ответили от имени сообщества' };
