@@ -419,7 +419,8 @@ export const ui = {
   /** Аватар пользователя (ref из API). */
   avatar(ref, size = 40) {
     const st = { width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px' };
-    const wrap = h('span.avatar' + (ref && ref.online ? '.online' : ''), { style: st });
+    const fr = ref && ref.avatar_frame ? '.ava-' + ref.avatar_frame : '';
+    const wrap = h('span.avatar' + (ref && ref.online ? '.online' : '') + fr, { style: st });
     if (ref && ref.avatar) wrap.append(h('img', { src: ref.avatar.replace(/s=\d+/, 's=' + (size > 60 ? 200 : 100)), alt: '', loading: 'lazy' }));
     else wrap.append(h('span.ph.pol' + (ref ? ref.pol : 1), (ref && ref.nick ? ref.nick[0] : '?').toUpperCase()));
     return wrap;

@@ -122,7 +122,7 @@ func (a *App) refOf(u *model.User) model.UserRef {
 	}
 	return model.UserRef{ID: u.ID, Nick: u.Nick, Pol: u.Pol, Online: a.isOnline(u.ID), Mobile: u.Browser == "wap",
 		Avatar: AvatarURL(u, 50), Group: g.Name, Level: g.Level, Medal: Medal(u.Rating), Banned: a.IsBanned(u.ID), Verified: u.Verified, Accent: u.Accent,
-		VIP: isVIP, VIPBadge: vipBadge, VIPNickStyle: vipNick}
+		VIP: isVIP, VIPBadge: vipBadge, VIPNickStyle: vipNick, AvatarFrame: u.AvatarFrame}
 }
 
 // Refs — карточки списка id (порядок сохраняется).

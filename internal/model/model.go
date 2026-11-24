@@ -89,6 +89,7 @@ type User struct {
 	VIPUntil      int64  `json:"vip_until"`      // VIP-подписка активна до (unix)
 	VIPBadge      string `json:"vip_badge"`      // иконка возле ника (эмодзи)
 	VIPNickStyle  string `json:"vip_nick_style"` // стиль градиента ника
+	AvatarFrame   string `json:"avatar_frame"`   // купленная рамка аватара из магазина
 	VIPCover      string `json:"vip_cover"`      // стиль обложки профиля
 	VIPStealth    bool   `json:"vip_stealth"`    // невидимка в гостях
 	VIPTop        bool   `json:"vip_top"`        // показывать анкету в Топе / Знакомствах
@@ -131,6 +132,7 @@ type UserRef struct {
 	VIP          bool   `json:"vip,omitempty"`
 	VIPBadge     string `json:"vip_badge,omitempty"`
 	VIPNickStyle string `json:"vip_nick_style,omitempty"`
+	AvatarFrame  string `json:"avatar_frame,omitempty"`
 }
 
 // UserGroup — таблица `user_group` старого движка.
