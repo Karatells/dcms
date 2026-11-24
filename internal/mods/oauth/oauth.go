@@ -63,9 +63,10 @@ type OAuthToken struct {
 
 // ScopeInfo — описание разрешения OAuth.
 type ScopeInfo struct {
-	Name  string `json:"name"`
-	Title string `json:"title"`
-	Desc  string `json:"desc"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	Desc   string `json:"desc"`
+	Danger bool   `json:"danger,omitempty"`
 }
 
 // AllScopes — поддерживаемые разрешения OAuth 2.0.
@@ -76,6 +77,8 @@ var AllScopes = []ScopeInfo{
 	{Name: "wall", Title: "Чтение стены", Desc: "Просмотр записей на вашей стене и стенах пользователей"},
 	{Name: "wall_write", Title: "Публикация на стене", Desc: "Публикация новых записей на вашей стене от вашего имени"},
 	{Name: "notifications", Title: "Уведомления", Desc: "Чтение списка ваших уведомлений на сайте"},
+	{Name: "messages", Title: "Чтение личных сообщений", Desc: "Полный доступ к списку диалогов и содержимому ваших личных переписок", Danger: true},
+	{Name: "messages_write", Title: "Отправка личных сообщений", Desc: "Отправка личных сообщений другим пользователям от вашего имени", Danger: true},
 	{Name: "offline", Title: "Долгий доступ", Desc: "Продление токена на 30 дней без повторной авторизации"},
 }
 

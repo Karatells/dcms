@@ -9,6 +9,7 @@ import (
 
 	"dcms/internal/core"
 	"dcms/internal/model"
+	"dcms/internal/mods/feeds"
 	"dcms/internal/mods/profile"
 )
 
@@ -22,11 +23,15 @@ func registerV1(a *core.App) {
 		return strings.TrimSpace(r.URL.Query().Get("access_token"))
 	}
 
+	registeredOptions := map[string]bool{}
 	handle := func(method, path, needScope string, fn func(w http.ResponseWriter, r *http.Request, tok *OAuthToken, u *model.User)) {
-		a.Mux.HandleFunc("OPTIONS "+path, func(w http.ResponseWriter, r *http.Request) {
-			setCORS(w)
-			w.WriteHeader(http.StatusNoContent)
-		})
+		if !registeredOptions[path] {
+			registeredOptions[path] = true
+			a.Mux.HandleFunc("OPTIONS "+path, func(w http.ResponseWriter, r *http.Request) {
+				setCORS(w)
+				w.WriteHeader(http.StatusNoContent)
+			})
+		}
 		a.Mux.HandleFunc(method+" "+path, func(w http.ResponseWriter, r *http.Request) {
 			setCORS(w)
 			if needScope == "-" {
@@ -341,5 +346,77 @@ func registerV1(a *core.App) {
 			pages = 1
 		}
 		writeJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "per": per, "pages": pages})
+	})
+
+	// 11. GET /api/v1/me/messages — список диалогов (опасное разрешение: messages)
+	handle("GET", "/api/v1/me/messages", "messages", func(w http.ResponseWriter, r *http.Request, _ *OAuthToken, me *model.User) {
+		page, per, offset := pageParams(r, 20)
+		items, total := feeds.ListDialogs(a, me.ID, offset, per)
+		pages := (total + per - 1) / per
+		if pages < 1 {
+			pages = 1
+		}
+		writeJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "per": per, "pages": pages})
+	})
+
+	// 12. GET /api/v1/me/messages/{id} — сообщения переписки с пользователем {id} (опасное разрешение: messages)
+	handle("GET", "/api/v1/me/messages/{id}", "messages", func(w http.ResponseWriter, r *http.Request, _ *OAuthToken, me *model.User) {
+		peerID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if _, ok := a.GetUser(peerID); !ok {
+			writeOAuthErr(w, 404, "not_found", "Пользователь не найден")
+			return
+		}
+		page, per, offset := pageParams(r, 30)
+		items, total := feeds.ListDialogMessages(a, me.ID, peerID, offset, per)
+		pages := (total + per - 1) / per
+		if pages < 1 {
+			pages = 1
+		}
+		writeJSON(w, 200, map[string]any{"peer": a.Ref(peerID), "items": items, "total": total, "page": page, "per": per, "pages": pages})
+	})
+
+	// 13. POST /api/v1/me/messages/{id} — отправка личного сообщения пользователю {id} (опасное разрешение: messages_write)
+	handle("POST", "/api/v1/me/messages/{id}", "messages_write", func(w http.ResponseWriter, r *http.Request, _ *OAuthToken, me *model.User) {
+		peerID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		target, ok := a.GetUser(peerID)
+		if !ok {
+			writeOAuthErr(w, 404, "not_found", "Получатель не найден")
+			return
+		}
+		var in struct {
+			Text    string `json:"text"`
+			Msg     string `json:"msg"`
+			ReplyID int64  `json:"reply_id"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+			writeOAuthErr(w, 400, "invalid_request", "Ожидается JSON с полем text")
+			return
+		}
+		txt := strings.TrimSpace(in.Text)
+		if txt == "" {
+			txt = strings.TrimSpace(in.Msg)
+		}
+		m, err := feeds.SendMessage(a, me, &target, txt, in.ReplyID)
+		if err != nil {
+			code := 400
+			errCode := "invalid_request"
+			if he, ok := err.(*core.HTTPError); ok {
+				code = he.Code
+				if code == 403 {
+					errCode = "forbidden"
+				}
+			}
+			writeOAuthErr(w, code, errCode, err.Error())
+			return
+		}
+		writeJSON(w, 201, map[string]any{
+			"id":       m.ID,
+			"from":     a.Ref(m.IDUser),
+			"to":       a.Ref(m.IDKont),
+			"text":     m.Msg,
+			"html":     a.Text.Render(m.Msg),
+			"reply_id": m.ReplyID,
+			"time":     m.Time,
+		})
 	})
 }

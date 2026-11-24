@@ -117,6 +117,119 @@ type sendOpts struct {
 	AttID   int64
 }
 
+// ListDialogs возвращает список диалогов пользователя (для публичного API v1).
+func ListDialogs(a *core.App, uid int64, offset, per int) ([]map[string]any, int) {
+	type dlg struct {
+		peer     int64
+		lastText string
+		lastTime int64
+		unread   int
+		favorite bool
+	}
+	var list []dlg
+	for _, k := range konts.By("user", store.I(uid)) {
+		if k.Type == "deleted" || k.Type == "ignor" {
+			continue
+		}
+		lm, has := lastMsg(uid, k.IDKont)
+		lt := k.Time
+		txt := ""
+		if has {
+			lt = lm.Time
+			txt = lm.Msg
+		}
+		list = append(list, dlg{
+			peer:     k.IDKont,
+			lastText: txt,
+			lastTime: lt,
+			unread:   unreadFrom(uid, k.IDKont),
+			favorite: k.Type == "favorite",
+		})
+	}
+	// Сортируем по времени последнего сообщения по убыванию
+	for i := 0; i < len(list); i++ {
+		for j := i + 1; j < len(list); j++ {
+			if list[j].lastTime > list[i].lastTime {
+				list[i], list[j] = list[j], list[i]
+			}
+		}
+	}
+	total := len(list)
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + per
+	if end > total {
+		end = total
+	}
+	var sl []dlg
+	if offset < total {
+		sl = list[offset:end]
+	}
+	items := make([]map[string]any, 0, len(sl))
+	for _, d := range sl {
+		items = append(items, map[string]any{
+			"peer":         a.Ref(d.peer),
+			"last_message": d.lastText,
+			"last_time":    d.lastTime,
+			"unread":       d.unread,
+			"favorite":     d.favorite,
+		})
+	}
+	return items, total
+}
+
+// ListDialogMessages возвращает сообщения диалога между uid и peerID (для публичного API v1).
+func ListDialogMessages(a *core.App, uid, peerID int64, offset, per int) ([]map[string]any, int) {
+	raw := mails.By("dialog", pairKey(uid, peerID))
+	var vis []Mail
+	for _, m := range raw {
+		if m.Unlink == uid {
+			continue
+		}
+		vis = append(vis, m)
+	}
+	for i := 0; i < len(vis); i++ {
+		for j := i + 1; j < len(vis); j++ {
+			if vis[j].ID > vis[i].ID {
+				vis[i], vis[j] = vis[j], vis[i]
+			}
+		}
+	}
+	total := len(vis)
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + per
+	if end > total {
+		end = total
+	}
+	var sl []Mail
+	if offset < total {
+		sl = vis[offset:end]
+	}
+	items := make([]map[string]any, 0, len(sl))
+	for _, m := range sl {
+		items = append(items, map[string]any{
+			"id":       m.ID,
+			"from":     a.Ref(m.IDUser),
+			"to":       a.Ref(m.IDKont),
+			"text":     m.Msg,
+			"html":     a.Text.Render(m.Msg),
+			"read":     m.Read,
+			"pinned":   m.Pinned,
+			"reply_id": m.ReplyID,
+			"time":     m.Time,
+		})
+	}
+	return items, total
+}
+
+// SendMessage отправляет личное сообщение от from к to (для публичного API v1).
+func SendMessage(a *core.App, from, to *model.User, msg string, replyID int64) (Mail, error) {
+	return send(a, from, to, msg, sendOpts{ReplyID: replyID})
+}
+
 func send(a *core.App, from, to *model.User, msg string, opts ...sendOpts) (Mail, error) {
 	var o sendOpts
 	if len(opts) > 0 {

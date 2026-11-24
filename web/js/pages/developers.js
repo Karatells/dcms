@@ -72,13 +72,21 @@ router.add('/oauth/authorize', async ctx => {
         ui.btn('Регистрация', { href: `/reg?return=${ret}` }))));
   }
 
+  const requestedScopes = info.scopes || [];
+  const hasDanger = requestedScopes.some(sc => sc.danger);
+  const selected = new Set(requestedScopes.map(sc => sc.name));
+
   let busy = false;
   const decide = async approve => {
     if (busy) return;
+    if (approve && selected.size === 0) {
+      ui.toast('Выберите хотя бы одно разрешение или нажмите «Отмена»', 'warn');
+      return;
+    }
     busy = true;
     try {
       const r = await api.post('/api/oauth/authorize', {
-        client_id, redirect_uri, scope: info.scope_string, state: stateParam,
+        client_id, redirect_uri, scope: [...selected].join(' '), state: stateParam,
         approve, code_challenge, code_challenge_method,
       });
       if (r.redirect) location.href = r.redirect;
@@ -90,6 +98,26 @@ router.add('/oauth/authorize', async ctx => {
   let hostText = redirect_uri;
   try { hostText = new URL(redirect_uri).origin; } catch {}
 
+  const scopeNodes = requestedScopes.map(sc => {
+    const locked = sc.name === 'profile' && requestedScopes.length === 1;
+    const cb = h('input', { type: 'checkbox', checked: true, disabled: locked });
+    const row = h('label.oauth-scope-item' + (sc.danger ? '.danger' : ''),
+      cb,
+      h('div.grow',
+        h('div.row',
+          h('b', sc.title),
+          h('span.badge', sc.name),
+          sc.danger ? h('span.badge.danger', icon('lock', 11), ' Опасное разрешение') : null),
+        h('div.small.muted', sc.desc),
+        sc.danger ? h('div.small.err', { style: { marginTop: '3px' } }, 'Вы можете снять галочку, если не доверяете этому приложению доступ к перепискам.') : null));
+    cb.onchange = () => {
+      if (cb.checked) selected.add(sc.name);
+      else selected.delete(sc.name);
+      row.classList.toggle('unchecked', !cb.checked);
+    };
+    return row;
+  });
+
   return h('div.oauth-box', h('div.card.pad.stack',
     h('div.row',
       h('span.oauth-scope-ic', icon('shield', 18)),
@@ -98,11 +126,14 @@ router.add('/oauth/authorize', async ctx => {
         h('div.small.muted', 'Автор: ', ui.userLink(app.owner), app.website ? [' · ', h('a', { href: app.website, target: '_blank', rel: 'noopener nofollow', 'data-native': '' }, app.website)] : null))),
     app.description ? h('p.small.muted', app.description) : null,
     h('div.row.small', ui.avatar(me(), 28), h('span', 'Вы вошли как '), h('b', me().nick)),
+    hasDanger ? h('div.oauth-danger-banner',
+      icon('shield', 20),
+      h('div',
+        h('b', 'Внимание: запрошены потенциально опасные разрешения!'),
+        h('div', 'Приложение запрашивает доступ к вашим личным сообщениям. Вы можете снять галочку возле опасных разрешений — авторизация пройдёт без них.'))) : null,
     h('div.stack-s',
-      h('div.small.muted', 'Приложение запрашивает следующие разрешения:'),
-      ...(info.scopes || []).map(sc => h('div.oauth-scope-item',
-        h('span.oauth-scope-ic', icon('check', 16)),
-        h('div', h('b', sc.title, ' ', h('span.badge', sc.name)), h('div.small.muted', sc.desc))))),
+      h('div.small.muted', 'Выберите разрешения, которые вы готовы предоставить:'),
+      ...scopeNodes),
     h('div.small.muted', 'После подтверждения вы будете перенаправлены на ', h('b', hostText)),
     h('div.row',
       ui.btn('Разрешить доступ', { kind: 'primary', ic: 'check', onclick: () => decide(true) }),
@@ -237,6 +268,38 @@ function buildDocsSection(scopes) {
         total: 1, page: 1, per: 20, pages: 1,
       }, null, 2),
     },
+    {
+      method: 'GET', path: '/api/v1/me/messages', scope: 'messages (опасное)',
+      summary: 'Список личных диалогов авторизованного пользователя',
+      params: [['page', 'int', 'Страница'], ['per', 'int', 'На странице (до 100)']],
+      response: JSON.stringify({
+        items: [{ peer: { id: 2, nick: 'Elena', online: true }, last_message: 'Привет! Как дела?', last_time: 1795458300, unread: 1, favorite: false }],
+        total: 1, page: 1, per: 20, pages: 1,
+      }, null, 2),
+    },
+    {
+      method: 'GET', path: '/api/v1/me/messages/{id}', scope: 'messages (опасное)',
+      summary: 'История личной переписки с пользователем {id}',
+      params: [['id', 'int (path)', 'ID собеседника'], ['page', 'int', 'Страница'], ['per', 'int', 'Сообщений на странице (до 100)']],
+      response: JSON.stringify({
+        peer: { id: 2, nick: 'Elena' },
+        items: [{ id: 105, from: { id: 2, nick: 'Elena' }, to: { id: 1, nick: 'Admin' }, text: 'Привет!', html: 'Привет!', read: true, pinned: false, reply_id: 0, time: 1795458300 }],
+        total: 1, page: 1, per: 30, pages: 1,
+      }, null, 2),
+    },
+    {
+      method: 'POST', path: '/api/v1/me/messages/{id}', scope: 'messages_write (опасное)',
+      summary: 'Отправить личное сообщение пользователю {id} от имени авторизованного пользователя',
+      params: [
+        ['id', 'int (path)', 'ID получателя'],
+        ['text', 'string (JSON body)', 'Текст сообщения (1–1024 символа, поддерживается BBCode)'],
+        ['reply_id', 'int (JSON body)', 'ID сообщения для ответа (необязательно)'],
+      ],
+      response: JSON.stringify({
+        id: 106, from: { id: 1, nick: 'Admin' }, to: { id: 2, nick: 'Elena' },
+        text: 'Отправлено через API!', html: 'Отправлено через API!', reply_id: 0, time: 1795458600,
+      }, null, 2),
+    },
   ];
 
   // Интерактивная песочница API
@@ -247,7 +310,8 @@ function buildDocsSection(scopes) {
     h('option', { value: '/api/v1/token/info' }, 'GET /api/v1/token/info'),
     h('option', { value: '/api/v1/me/friends' }, 'GET /api/v1/me/friends (friends)'),
     h('option', { value: '/api/v1/users' }, 'GET /api/v1/users (profile)'),
-    h('option', { value: '/api/v1/me/notifications' }, 'GET /api/v1/me/notifications (notifications)'));
+    h('option', { value: '/api/v1/me/notifications' }, 'GET /api/v1/me/notifications (notifications)'),
+    h('option', { value: '/api/v1/me/messages' }, 'GET /api/v1/me/messages (messages · опасное)'));
   const resPre = h('pre.dev-code', '// Нажмите «Выполнить запрос», чтобы увидеть реальный ответ сервера');
   const statusSpan = h('span', 'Готов к тесту');
   const runTest = async () => {
@@ -296,11 +360,14 @@ function buildDocsSection(scopes) {
 
     h('div.card.pad.stack',
       h('h2', 'Разрешения (Scopes)'),
-      h('p.small.muted', 'Передавайте нужные разрешения через пробел в параметре ', h('code', 'scope'), '. Пользователь увидит их список на экране согласия.'),
+      h('p.small.muted', 'Передавайте нужные разрешения через пробел в параметре ', h('code', 'scope'), '. Пользователь может снять галочку с любого опасного или необязательного разрешения на экране согласия — проверяйте фактически выданный список в поле ', h('code', 'scope'), ' ответа ', h('code', 'POST /oauth/token'), '.'),
       h('div', { style: { overflowX: 'auto' } },
         h('table.dev-table',
           h('thead', h('tr', h('th', 'Scope'), h('th', 'Название'), h('th', 'Что даёт'))),
-          h('tbody', ...scopes.map(s => h('tr', h('td', h('code', s.name)), h('td', h('b', s.title)), h('td', s.desc))))))),
+          h('tbody', ...scopes.map(s => h('tr',
+            h('td', h('code', s.name), s.danger ? [' ', h('span.badge.danger', 'Опасное')] : null),
+            h('td', h('b', s.title)),
+            h('td', s.desc))))))),
 
     h('div.card.pad.stack',
       h('h2', 'Справочник методов REST API v1'),
@@ -365,7 +432,7 @@ router.add('/developers', async ctx => {
         });
         const firstUri = (app.redirect_uris && app.redirect_uris[0]) || '';
         const testHref = firstUri
-          ? `/oauth/authorize?client_id=${encodeURIComponent(app.client_id)}&redirect_uri=${encodeURIComponent(firstUri)}&response_type=code&scope=profile%20email&state=test`
+          ? `/oauth/authorize?client_id=${encodeURIComponent(app.client_id)}&redirect_uri=${encodeURIComponent(firstUri)}&response_type=code&scope=profile%20email%20messages%20messages_write&state=test`
           : '';
         return h('div.card.pad.stack-s',
           h('div.row',
