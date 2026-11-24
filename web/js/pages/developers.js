@@ -394,6 +394,67 @@ function buildDocsSection(scopes) {
       h('div.dev-code-wrap', h('div.dev-code-head', statusSpan), resPre)));
 }
 
+// ───────── КОНСТРУКТОР ССЫЛКИ OAuth-АВТОРИЗАЦИИ
+function buildAuthUrlBuilder(app, scopes) {
+  const uris = app.redirect_uris || [];
+  if (!uris.length) return null;
+
+  const chosen = new Set(['profile']);
+  const uriSel = uris.length > 1
+    ? h('select.input', ...uris.map(u => h('option', { value: u }, u)))
+    : h('input.input', { value: uris[0], readOnly: true });
+  const stateIn = h('input.input', { placeholder: 'Необязательно (например: random123)', maxlength: 128 });
+  const urlBox = h('div.dev-url-box');
+  let curPath = '';
+  let curFull = '';
+
+  const rebuild = () => {
+    const scList = scopes.map(s => s.name).filter(n => chosen.has(n));
+    const params = new URLSearchParams({
+      client_id: app.client_id,
+      redirect_uri: uriSel.value,
+      response_type: 'code',
+      scope: scList.length ? scList.join(' ') : 'profile',
+    });
+    const st = stateIn.value.trim();
+    if (st) params.set('state', st);
+    curPath = '/oauth/authorize?' + params.toString();
+    curFull = location.origin + curPath;
+    urlBox.textContent = curFull;
+  };
+
+  uriSel.onchange = rebuild;
+  stateIn.oninput = rebuild;
+
+  const pills = scopes.map(sc => {
+    const cb = h('input', { type: 'checkbox', checked: chosen.has(sc.name) });
+    cb.onchange = () => {
+      if (cb.checked) chosen.add(sc.name);
+      else chosen.delete(sc.name);
+      rebuild();
+    };
+    return h('label.dev-scope-pill' + (sc.danger ? '.danger' : ''), { title: sc.desc },
+      cb,
+      h('span', sc.title),
+      h('code', { style: { fontSize: '.74rem', opacity: '.75' } }, sc.name),
+      sc.danger ? h('span.badge.danger', 'опасное') : null);
+  });
+
+  rebuild();
+
+  return h('details.dev-builder',
+    h('summary', icon('link', 16), ' Конструктор ссылки авторизации'),
+    h('div.dev-builder-body',
+      h('div.field', h('label', 'Выберите разрешения (scopes)'), h('div.dev-scope-grid', ...pills)),
+      h('div.row',
+        h('div.field.grow', h('label', 'Redirect URI'), uriSel),
+        h('div.field', { style: { minWidth: '180px' } }, h('label', 'Параметр state'), stateIn)),
+      h('div.field', h('label', 'Готовая ссылка для перехода пользователя'), urlBox),
+      h('div.row',
+        ui.btn('Скопировать ссылку', { ic: 'copy', kind: 'primary', small: true, onclick: () => copyText(curFull, 'Ссылка авторизации скопирована') }),
+        ui.btn('Открыть и проверить', { ic: 'key', small: true, onclick: () => router.go(curPath) }))));
+}
+
 // ───────── РАЗДЕЛ ДЛЯ РАЗРАБОТЧИКОВ (/developers)
 router.add('/developers', async ctx => {
   const tab = ctx.query.tab || (me() ? 'docs' : 'docs');
@@ -430,10 +491,6 @@ router.add('/developers', async ctx => {
             toggleBtn.textContent = shown ? 'Скрыть' : 'Показать';
           },
         });
-        const firstUri = (app.redirect_uris && app.redirect_uris[0]) || '';
-        const testHref = firstUri
-          ? `/oauth/authorize?client_id=${encodeURIComponent(app.client_id)}&redirect_uri=${encodeURIComponent(firstUri)}&response_type=code&scope=profile%20email%20messages%20messages_write&state=test`
-          : '';
         return h('div.card.pad.stack-s',
           h('div.row',
             h('h3.grow', app.name),
@@ -470,7 +527,7 @@ router.add('/developers', async ctx => {
                 },
               }))),
           h('div.small.muted', 'Redirect URI: ', (app.redirect_uris || []).join(', ')),
-          testHref ? h('div.row', ui.btn('Проверить экран OAuth', { ic: 'key', small: true, href: testHref })) : null);
+          buildAuthUrlBuilder(app, scopes));
       })) : ui.card(ui.empty('У вас пока нет OAuth-приложений', 'key',
         ui.btn('Создать первое приложение', { ic: 'plus', kind: 'primary', onclick: () => openAppModal(null, reload) }))));
   } else if (tab === 'grants' && me()) {
