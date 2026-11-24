@@ -8,6 +8,7 @@ import (
 
 	"dcms/internal/core"
 	"dcms/internal/model"
+	"dcms/internal/mods/chats"
 	"dcms/internal/mods/groups"
 )
 
@@ -71,10 +72,12 @@ func registerV1Bot(a *core.App, extractToken func(*http.Request) string, pagePar
 		})
 	})
 
-	// 3. POST /api/v1/bot/sendMessage — ответить пользователю от лица сообщества (с поддержкой inline_keyboard и keyboard)
+	// 3. POST /api/v1/bot/sendMessage — ответить пользователю (user_id) ИЛИ в групповую беседу (chat_id) от лица сообщества
 	botHandle("POST", "/api/v1/bot/sendMessage", "messages", func(w http.ResponseWriter, r *http.Request, _ groups.GroupToken, g groups.Group, _ model.User) {
 		var in struct {
 			UserID         int64                `json:"user_id"`
+			ChatID         int64                `json:"chat_id"`
+			ReplyID        int64                `json:"reply_id"`
 			Text           string               `json:"text"`
 			Msg            string               `json:"msg"`
 			InlineKeyboard [][]groups.BotButton `json:"inline_keyboard"`
@@ -83,14 +86,47 @@ func registerV1Bot(a *core.App, extractToken func(*http.Request) string, pagePar
 			RemoveKeyboard bool                 `json:"remove_keyboard"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-			writeOAuthErr(w, 400, "invalid_request", "Ожидается JSON с полями user_id и text")
+			writeOAuthErr(w, 400, "invalid_request", "Ожидается JSON с полями user_id (или chat_id) и text")
 			return
 		}
 		body := in.Text
 		if body == "" {
 			body = in.Msg
 		}
+		if in.ChatID > 0 {
+			res, err := chats.BotSendToChat(a, g.ID, in.ChatID, body, in.ReplyID)
+			if err != nil {
+				writeCoreErr(w, err)
+				return
+			}
+			writeJSON(w, 200, map[string]any{"ok": true, "message": res})
+			return
+		}
 		res, err := groups.BotReplyWithKeyboard(a, g, in.UserID, body, in.InlineKeyboard, in.Keyboard, in.OneTime, in.RemoveKeyboard)
+		if err != nil {
+			writeCoreErr(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "message": res})
+	})
+
+	// 3a. POST /api/v1/bot/sendChatMessage — отправить сообщение в групповую беседу, куда приглашён бот
+	botHandle("POST", "/api/v1/bot/sendChatMessage", "messages", func(w http.ResponseWriter, r *http.Request, _ groups.GroupToken, g groups.Group, _ model.User) {
+		var in struct {
+			ChatID  int64  `json:"chat_id"`
+			ReplyID int64  `json:"reply_id"`
+			Text    string `json:"text"`
+			Msg     string `json:"msg"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil || in.ChatID <= 0 {
+			writeOAuthErr(w, 400, "invalid_request", "Укажите chat_id и text")
+			return
+		}
+		body := in.Text
+		if body == "" {
+			body = in.Msg
+		}
+		res, err := chats.BotSendToChat(a, g.ID, in.ChatID, body, in.ReplyID)
 		if err != nil {
 			writeCoreErr(w, err)
 			return

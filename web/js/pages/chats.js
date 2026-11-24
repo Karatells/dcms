@@ -207,12 +207,17 @@ router.add('/chats/:id', async ctx => {
             onclick: e => { e.stopPropagation(); doReact(rx.emoji); },
           }, rx.emoji, rx.count > 1 ? h('span', String(rx.count)) : null)))
           : null;
+        const senderHeader = !m.mine
+          ? h('div.small', { style: { fontWeight: '700', marginBottom: '2px', opacity: '.92', display: 'flex', alignItems: 'center', gap: '6px' } },
+            m.bot ? h('a', { href: '/groups/' + m.bot.id, style: { color: 'inherit' } }, m.bot.name) : ui.userLink(m.user),
+            m.bot ? h('span.badge.primary', { style: { fontSize: '.66rem', padding: '1px 5px' } }, 'БОТ') : null)
+          : null;
         const bubble = h('div.bubble' + (m.mine ? '.mine' : '') + (m.sticker ? '.is-sticker' : ''), {
           dataset: { mid: String(m.id) },
           onclick: openMenu,
           oncontextmenu: openMenu,
         },
-          !m.mine ? h('div.small', { style: { fontWeight: '700', marginBottom: '2px', opacity: '.9' } }, ui.userLink(m.user)) : null,
+          senderHeader,
           m.fwd ? h('div.bubble-fwd', icon('share', 12), 'Переслано от ', m.fwd.nick) : null,
           m.reply ? h('div.bubble-reply', { onclick: e => { e.stopPropagation(); jumpToMsg(m.reply.id); } }, h('b', m.reply.nick), h('span', m.reply.text)) : null,
           m.sticker ? h('div.bubble-sticker', m.sticker) : null,
@@ -255,9 +260,30 @@ router.add('/chats/:id', async ctx => {
     else requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight - prevH + prevTop; });
   };
 
-  const openMembersModal = () => {
+  const openMembersModal = async () => {
     const inviteURL = `${location.origin}/chats/join/${d.invite_code}`;
     const addIn = h('input.input', { placeholder: 'Логин пользователя' });
+    const botPickerWrap = h('div.stack-s');
+    const botsList = d.bots || [];
+
+    const botsSection = h('div.stack-s',
+      h('b', `Боты сообществ (${botsList.length})`),
+      h('div.small.muted', 'Боты реагируют ТОЛЬКО когда к ним обращаются: @тег, /команда@тег или ответ на сообщение бота.'),
+      botsList.length ? h('div.list', ...botsList.map(b => h('div.list-item',
+        h('div.grp-ava-sm', { style: { width: '34px', height: '34px', borderRadius: '10px', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,var(--accent),#ec4899)', color: '#fff', fontWeight: '800', overflow: 'hidden', flexShrink: '0' } },
+          b.avatar ? h('img', { src: b.avatar, alt: '', style: { width: '100%', height: '100%', objectFit: 'cover' } }) : Array.from(b.name || 'B')[0].toUpperCase()),
+        h('div.main',
+          h('div.title', b.name, h('span.badge.primary', { style: { marginLeft: '6px' } }, '@' + b.alias)),
+          b.commands && b.commands.length ? h('div.small.muted', b.commands.map(c => `/${c.command}@${b.alias}`).join(', ')) : h('div.small.muted', 'Обращение: @' + b.alias)),
+        isAdm ? ui.btn('', {
+          ic: 'trash', small: true, kind: 'danger', title: 'Убрать бота',
+          onclick: async () => {
+            await api.del(`/api/chats/${cid}/bots/${b.group_id}`);
+            ui.ok('Бот удалён из беседы'); modal.close(); reload();
+          },
+        }) : null))) : h('div.small.muted', 'В беседе пока нет ботов.'),
+      isAdm ? botPickerWrap : null);
+
     const body = h('div.stack',
       h('div.field', h('label', 'Ссылка-приглашение'),
         h('div.row.nowrap',
@@ -271,6 +297,8 @@ router.add('/chats/:id', async ctx => {
             ui.ok('Участник добавлен'); modal.close(); reload();
           },
         }))) : null,
+      botsSection,
+      h('b', `Участники (${(d.members || []).length})`),
       h('div.list', ...(d.members || []).map(mem => h('div.list-item',
         ui.avatar(mem.user, 34),
         h('div.main',
@@ -290,7 +318,7 @@ router.add('/chats/:id', async ctx => {
           },
         }) : null))));
     const modal = ui.modal({
-      title: `Участники (${(d.members || []).length})`,
+      title: `Участники и боты`,
       body,
       actions: [
         {
@@ -305,6 +333,30 @@ router.add('/chats/:id', async ctx => {
         { label: 'Закрыть' },
       ],
     });
+
+    if (isAdm) {
+      botPickerWrap.replaceChildren(h('div.small.muted', 'Загрузка доступных ботов…'));
+      try {
+        const av = await api.get('/api/chat-bots', null, { silent: true });
+        const inChat = new Set(botsList.map(x => x.group_id));
+        const avail = (av.items || []).filter(x => !inChat.has(x.id));
+        if (!avail.length) {
+          botPickerWrap.replaceChildren(h('div.small.muted', 'Нет других сообществ с настроенным ботом.'));
+          return;
+        }
+        const sel = h('select.input', ...avail.map(g => h('option', { value: g.id }, `${g.name} (@bot${g.id})`)));
+        const aliasIn = h('input.input', { placeholder: 'Свой тег (необяз., напр. helper)', maxlength: 24 });
+        botPickerWrap.replaceChildren(
+          h('div.field', h('label', 'Пригласить бота сообщества'), sel),
+          h('div.row.nowrap', aliasIn, ui.btn('Пригласить', {
+            ic: 'plus', kind: 'primary', small: true,
+            onclick: async () => {
+              await api.post(`/api/chats/${cid}/bots`, { group_id: +sel.value, alias: aliasIn.value.trim() });
+              ui.ok('Бот приглашён в беседу!'); modal.close(); reload();
+            },
+          })));
+      } catch { botPickerWrap.replaceChildren(); }
+    }
   };
 
   let searchOpen = false;
@@ -345,12 +397,39 @@ router.add('/chats/:id', async ctx => {
     ui.btn('', { ic: 'users', small: true, title: 'Участники и ссылка', onclick: openMembersModal }));
 
   // ───────── Полный композер как в личной переписке (+, вложения, стикеры, BB, смайлы, голос)
-  const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Сообщение… (можно @ник)', maxlength: 1024 });
+  const ta = h('textarea.msg-input', { rows: 1, placeholder: (d.bots && d.bots.length) ? 'Сообщение… (@тег или /команда@тег для бота)' : 'Сообщение… (можно @ник)', maxlength: 1024 });
   inputTa = ta;
   const charEl = h('span.msg-char');
   const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', disabled: true }, icon('send', 18));
   const micBtn = h('button.msg-tool', { type: 'button', title: 'Записать голосовое сообщение' }, icon('mic', 19));
   const plusBtn = h('button.msg-tool', { type: 'button', title: 'Вложения, стикеры, формат и смайлы' }, icon('plus', 20));
+  const chatBots = d.bots || [];
+  let cmdBtn = null;
+  if (chatBots.length) {
+    cmdBtn = h('button.msg-tool', {
+      type: 'button', title: 'Команды ботов в беседе',
+      onclick: () => {
+        activeDrawer = activeDrawer === 'cmds' ? '' : 'cmds';
+        plusBtn.classList.remove('active');
+        cmdBtn.classList.toggle('active', activeDrawer === 'cmds');
+        if (activeDrawer !== 'cmds') { drawerHost.replaceChildren(); return; }
+        const rows = [];
+        chatBots.forEach(b => {
+          rows.push(h('button.msg-cmd-item', {
+            type: 'button',
+            onclick: () => { ta.value = `@${b.alias} `; ta.focus(); syncTa(); activeDrawer = ''; cmdBtn.classList.remove('active'); drawerHost.replaceChildren(); },
+          }, h('span.msg-cmd-name', '@' + b.alias), h('span.msg-cmd-desc', `Обратиться к боту «${b.name}»`)));
+          (b.commands || []).forEach(c => {
+            rows.push(h('button.msg-cmd-item', {
+              type: 'button',
+              onclick: () => { ta.value = `/${c.command}@${b.alias} `; ta.focus(); syncTa(); activeDrawer = ''; cmdBtn.classList.remove('active'); drawerHost.replaceChildren(); },
+            }, h('span.msg-cmd-name', `/${c.command}@${b.alias}`), h('span.msg-cmd-desc', c.description || b.name)));
+          });
+        });
+        drawerHost.replaceChildren(h('div.msg-drawer', h('div.msg-cmd-list', ...rows)));
+      },
+    }, h('b', '/'));
+  }
   const recHost = h('div');
   const drawerHost = h('div');
   let activeDrawer = '';
@@ -519,7 +598,7 @@ router.add('/chats/:id', async ctx => {
     }
   };
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); doSend(); } };
-  const foot = h('div.msg-foot', chipHost, recHost, drawerHost, h('div.msg-compose', plusBtn, h('div.msg-input-wrap', ta, charEl), micBtn, sendBtn));
+  const foot = h('div.msg-foot', chipHost, recHost, drawerHost, h('div.msg-compose', plusBtn, cmdBtn, h('div.msg-input-wrap', ta, charEl), micBtn, sendBtn));
 
   let typingTimer = null;
   const onTyping = bus.on('sse:gchat_typing', ev => {

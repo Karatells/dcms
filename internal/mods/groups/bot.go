@@ -364,6 +364,69 @@ func BotGetCommands(g Group) []BotCommand {
 	return out
 }
 
+// GetGroupBotInfo возвращает краткую информацию о сообществе как о боте.
+func GetGroupBotInfo(gid int64) (map[string]any, bool) {
+	if groupsT == nil {
+		return nil, false
+	}
+	g, ok := groupsT.Get(gid)
+	if !ok || g.Blocked {
+		return nil, false
+	}
+	ava := ""
+	if g.AvatarExt != "" {
+		ava = "/api/groups/" + i(g.ID) + "/avatar?v=" + i(g.Time)
+	}
+	cmds := BotGetCommands(g)
+	if cmds == nil {
+		cmds = []BotCommand{}
+	}
+	return map[string]any{
+		"id":       g.ID,
+		"name":     g.Name,
+		"avatar":   ava,
+		"verified": g.Verified,
+		"commands": cmds,
+	}, true
+}
+
+// ListBotGroups возвращает список всех не заблокированных сообществ с настроенным ботом (токен, вебхук или команды).
+func ListBotGroups() []map[string]any {
+	if groupsT == nil {
+		return nil
+	}
+	hasBot := map[int64]bool{}
+	if botTokensT != nil {
+		for _, t := range botTokensT.All() {
+			if !t.Revoked {
+				hasBot[t.IDGroup] = true
+			}
+		}
+	}
+	if botWebhooksT != nil {
+		for _, w := range botWebhooksT.All() {
+			if w.Enabled && w.URL != "" {
+				hasBot[w.IDGroup] = true
+			}
+		}
+	}
+	var out []map[string]any
+	for _, g := range groupsT.All() {
+		if g.Blocked {
+			continue
+		}
+		cmds := BotGetCommands(g)
+		if !hasBot[g.ID] && len(cmds) == 0 {
+			continue
+		}
+		if info, ok := GetGroupBotInfo(g.ID); ok {
+			out = append(out, info)
+		}
+	}
+	sort.Slice(out, func(x, y int) bool { return out[x]["id"].(int64) < out[y]["id"].(int64) })
+	return out
+}
+
 // sanitizeKeyboard очищает двумерный массив кнопок.
 func sanitizeKeyboard(a *core.App, rows [][]BotButton) [][]BotButton {
 	if len(rows) > 8 {

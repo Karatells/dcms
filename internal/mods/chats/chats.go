@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"dcms/internal/core"
+	"dcms/internal/mods/groups"
 	"dcms/internal/store"
 )
 
@@ -37,21 +38,32 @@ type GroupChatMember struct {
 	JoinedAt int64  `json:"joined_at"`
 }
 
+// GroupChatBot — приглашённый в беседу бот сообщества.
+type GroupChatBot struct {
+	store.Base
+	ChatID  int64  `json:"chat_id"`
+	GroupID int64  `json:"group_id"`
+	Alias   string `json:"alias"` // короткий тег обращения без @ (например, bot12 или helper)
+	AddedBy int64  `json:"added_by"`
+	AddedAt int64  `json:"added_at"`
+}
+
 // GroupChatMsg — сообщение в групповой беседе (полный паритет с ЛС).
 type GroupChatMsg struct {
 	store.Base
-	ChatID   int64  `json:"chat_id"`
-	UserID   int64  `json:"user_id"`
-	Msg      string `json:"msg"`
-	ReplyID  int64  `json:"reply_id"`
-	AttType  string `json:"att_type,omitempty"`
-	AttID    int64  `json:"att_id,omitempty"`
-	EditedAt int64  `json:"edited_at,omitempty"`
-	FwdFrom  int64  `json:"fwd_from,omitempty"`
-	VoiceExt string `json:"voice_ext,omitempty"`
-	VoiceDur int    `json:"voice_dur,omitempty"`
-	Sticker  string `json:"sticker,omitempty"`
-	Time     int64  `json:"time"`
+	ChatID     int64  `json:"chat_id"`
+	UserID     int64  `json:"user_id"`
+	BotGroupID int64  `json:"bot_group_id,omitempty"` // >0 если отправлено ботом сообщества
+	Msg        string `json:"msg"`
+	ReplyID    int64  `json:"reply_id"`
+	AttType    string `json:"att_type,omitempty"`
+	AttID      int64  `json:"att_id,omitempty"`
+	EditedAt   int64  `json:"edited_at,omitempty"`
+	FwdFrom    int64  `json:"fwd_from,omitempty"`
+	VoiceExt   string `json:"voice_ext,omitempty"`
+	VoiceDur   int    `json:"voice_dur,omitempty"`
+	Sticker    string `json:"sticker,omitempty"`
+	Time       int64  `json:"time"`
 }
 
 // GroupChatReaction — эмодзи-реакция на сообщение в беседе.
@@ -65,9 +77,12 @@ type GroupChatReaction struct {
 var (
 	chatsT        *store.Table[GroupChat, *GroupChat]
 	membersT      *store.Table[GroupChatMember, *GroupChatMember]
+	botsT         *store.Table[GroupChatBot, *GroupChatBot]
 	msgsT         *store.Table[GroupChatMsg, *GroupChatMsg]
 	reactsT       *store.Table[GroupChatReaction, *GroupChatReaction]
 	mentionRe     = regexp.MustCompile(`@([A-Za-zА-Яа-яЁё0-9_\-\.]{2,32})`)
+	aliasRe       = regexp.MustCompile(`^[a-z0-9_]{2,24}$`)
+	cmdAddrRe     = regexp.MustCompile(`^/([A-Za-z0-9_]{1,32})@([A-Za-z0-9_]{2,24})(?:\s+(.*))?$`)
 	allowedReacts = map[string]bool{"👍": true, "❤️": true, "😂": true, "🔥": true, "😱": true, "👎": true}
 	vipStickers   = map[string]bool{"👑": true, "💎": true, "🛸": true, "🌌": true, "🦄": true, "🐉": true, "⚡": true, "🔮": true, "🏆": true, "🎭": true, "🌠": true, "🦚": true}
 )
@@ -150,13 +165,22 @@ func msgView(a *core.App, m GroupChatMsg, me int64, pinnedID int64) map[string]a
 	out := map[string]any{
 		"id":        m.ID,
 		"chat":      m.ChatID,
-		"user":      a.Ref(m.UserID),
-		"mine":      m.UserID == me,
+		"mine":      m.BotGroupID == 0 && m.UserID == me,
 		"msg":       a.Text.Render(m.Msg),
 		"raw":       m.Msg,
 		"time":      m.Time,
 		"pinned":    pinnedID > 0 && pinnedID == m.ID,
 		"edited_at": m.EditedAt,
+	}
+	if m.BotGroupID > 0 {
+		if bInfo, ok := groups.GetGroupBotInfo(m.BotGroupID); ok {
+			out["bot"] = bInfo
+			out["user"] = map[string]any{"id": 0, "nick": bInfo["name"], "avatar": bInfo["avatar"], "bot": true, "group_id": m.BotGroupID}
+		} else {
+			out["user"] = map[string]any{"id": 0, "nick": "Бот сообщества", "bot": true, "group_id": m.BotGroupID}
+		}
+	} else {
+		out["user"] = a.Ref(m.UserID)
 	}
 	if m.FwdFrom > 0 {
 		out["fwd"] = a.Ref(m.FwdFrom)
@@ -172,9 +196,15 @@ func msgView(a *core.App, m GroupChatMsg, me int64, pinnedID int64) map[string]a
 	}
 	if m.ReplyID > 0 {
 		if rm, ok := msgsT.Get(m.ReplyID); ok && rm.ChatID == m.ChatID {
+			rNick := a.Ref(rm.UserID).Nick
+			if rm.BotGroupID > 0 {
+				if bi, ok := groups.GetGroupBotInfo(rm.BotGroupID); ok {
+					rNick = bi["name"].(string)
+				}
+			}
 			out["reply"] = map[string]any{
 				"id":   rm.ID,
-				"nick": a.Ref(rm.UserID).Nick,
+				"nick": rNick,
 				"text": msgPreview(a, rm),
 			}
 		}
@@ -197,6 +227,136 @@ func msgView(a *core.App, m GroupChatMsg, me int64, pinnedID int64) map[string]a
 	return out
 }
 
+// dispatchChatBots уведомляет ботов беседы ТОЛЬКО при явном обращении к конкретному боту:
+// 1) /команда@алиас или /команда@bot<id>
+// 2) @алиас или @bot<id> в тексте сообщения
+// 3) ответ (reply) на сообщение этого бота
+func dispatchChatBots(a *core.App, ch GroupChat, m GroupChatMsg, rawText string) {
+	if botsT == nil || m.BotGroupID > 0 {
+		return
+	}
+	chatBots := botsT.By("chat", i(ch.ID))
+	if len(chatBots) == 0 {
+		return
+	}
+	var replyBotGID int64
+	if m.ReplyID > 0 {
+		if rm, ok := msgsT.Get(m.ReplyID); ok && rm.ChatID == ch.ID && rm.BotGroupID > 0 {
+			replyBotGID = rm.BotGroupID
+		}
+	}
+	trimmed := strings.TrimSpace(rawText)
+	low := strings.ToLower(trimmed)
+	cmdMatch := cmdAddrRe.FindStringSubmatch(trimmed)
+
+	for _, b := range chatBots {
+		defHandle := "bot" + i(b.GroupID)
+		alias := strings.ToLower(strings.TrimSpace(b.Alias))
+		if alias == "" {
+			alias = defHandle
+		}
+		triggered := false
+		cmd := ""
+		args := ""
+		cleanText := trimmed
+
+		// 1. Формат /cmd@alias [args]
+		if len(cmdMatch) >= 3 {
+			target := strings.ToLower(cmdMatch[2])
+			if target == alias || target == defHandle {
+				triggered = true
+				cmd = strings.ToLower(cmdMatch[1])
+				if len(cmdMatch) >= 4 {
+					args = strings.TrimSpace(cmdMatch[3])
+				}
+				cleanText = "/" + cmd
+				if args != "" {
+					cleanText += " " + args
+				}
+			}
+		}
+		// 2. Формат @alias или @bot<id> в тексте
+		if !triggered {
+			for _, h := range []string{"@" + alias, "@" + defHandle} {
+				if idx := strings.Index(low, h); idx >= 0 {
+					// проверяем границы слова, чтобы @bot1 не срабатывал на @bot12
+					end := idx + len(h)
+					if end == len(low) || strings.ContainsRune(" ,.!?:;\n\t", rune(low[end])) {
+						triggered = true
+						cleanText = strings.TrimSpace(trimmed[:idx] + " " + trimmed[end:])
+						if strings.HasPrefix(cleanText, "/") {
+							parts := strings.SplitN(cleanText[1:], " ", 2)
+							cmd = strings.ToLower(parts[0])
+							if len(parts) > 1 {
+								args = strings.TrimSpace(parts[1])
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+		// 3. Ответ (reply) на сообщение этого бота
+		if !triggered && replyBotGID == b.GroupID {
+			triggered = true
+			if strings.HasPrefix(trimmed, "/") {
+				parts := strings.SplitN(trimmed[1:], " ", 2)
+				cmd = strings.ToLower(parts[0])
+				if len(parts) > 1 {
+					args = strings.TrimSpace(parts[1])
+				}
+			}
+		}
+		if !triggered {
+			continue
+		}
+		groups.EmitUpdate(b.GroupID, "group_chat_message", "messages", map[string]any{
+			"chat_id":     ch.ID,
+			"chat_title":  ch.Title,
+			"message_id":  m.ID,
+			"from":        a.Ref(m.UserID),
+			"text":        trimmed,
+			"clean_text":  cleanText,
+			"command":     cmd,
+			"args":        args,
+			"reply_to_id": m.ReplyID,
+			"alias":       alias,
+			"time":        m.Time,
+		})
+	}
+}
+
+// BotSendToChat позволяет боту сообщества отправить ответ в групповую беседу, в которую он приглашён.
+func BotSendToChat(a *core.App, gid, chatID int64, text string, replyID int64) (map[string]any, error) {
+	if chatsT == nil || botsT == nil {
+		return nil, core.ErrNotFound("Модуль бесед не инициализирован")
+	}
+	ch, ok := chatsT.Get(chatID)
+	if !ok {
+		return nil, core.ErrNotFound("Беседа не найдена")
+	}
+	if _, invited := botsT.OneBy("pair", store.Key(chatID, gid)); !invited {
+		return nil, core.ErrForbidden("Бот этого сообщества не приглашён в данную беседу")
+	}
+	txt := strings.TrimSpace(text)
+	if n := utf8.RuneCountInString(txt); n < 1 || n > 1024 {
+		return nil, core.ErrBad("Текст ответа должен быть от 1 до 1024 символов")
+	}
+	m := GroupChatMsg{
+		ChatID:     ch.ID,
+		UserID:     0,
+		BotGroupID: gid,
+		Msg:        a.Text.Clean(txt),
+		ReplyID:    replyID,
+		Time:       core.Now(),
+	}
+	msgsT.Insert(&m)
+	for _, mem := range membersT.By("chat", i(ch.ID)) {
+		a.Hub.ToUser(mem.UserID, "gchat_msg", msgView(a, m, mem.UserID, ch.PinnedMsgID))
+	}
+	return msgView(a, m, 0, ch.PinnedMsgID), nil
+}
+
 // Register регистрирует модуль групповых бесед.
 func Register(a *core.App) {
 	chatsT = store.NewTable[GroupChat](a.DB, "gchats").
@@ -205,6 +365,9 @@ func Register(a *core.App) {
 		Index("chat", func(x *GroupChatMember) string { return i(x.ChatID) }).
 		Index("user", func(x *GroupChatMember) string { return i(x.UserID) }).
 		Index("pair", func(x *GroupChatMember) string { return store.Key(x.ChatID, x.UserID) })
+	botsT = store.NewTable[GroupChatBot](a.DB, "gchat_bots").
+		Index("chat", func(x *GroupChatBot) string { return i(x.ChatID) }).
+		Index("pair", func(x *GroupChatBot) string { return store.Key(x.ChatID, x.GroupID) })
 	msgsT = store.NewTable[GroupChatMsg](a.DB, "gchat_msgs").
 		Index("chat", func(x *GroupChatMsg) string { return i(x.ChatID) })
 	reactsT = store.NewTable[GroupChatReaction](a.DB, "gchat_reactions").
@@ -383,6 +546,21 @@ func Register(a *core.App) {
 		for _, m := range mems {
 			memOut = append(memOut, map[string]any{"user": a.Ref(m.UserID), "role": m.Role, "joined": m.JoinedAt})
 		}
+		chatBots := botsT.By("chat", i(ch.ID))
+		botOut := make([]map[string]any, 0, len(chatBots))
+		for _, b := range chatBots {
+			info, ok := groups.GetGroupBotInfo(b.GroupID)
+			if !ok {
+				continue
+			}
+			botOut = append(botOut, map[string]any{
+				"group_id": b.GroupID,
+				"alias":    b.Alias,
+				"name":     info["name"],
+				"avatar":   info["avatar"],
+				"commands": info["commands"],
+			})
+		}
 		return c.JSON(map[string]any{
 			"id":          ch.ID,
 			"title":       ch.Title,
@@ -391,11 +569,82 @@ func Register(a *core.App) {
 			"my_role":     myMem.Role,
 			"pinned":      pinned,
 			"members":     memOut,
+			"bots":        botOut,
 			"items":       items,
 			"total":       total,
 			"page":        p.Page,
 			"pages":       max(1, (total+p.Per-1)/p.Per),
 		})
+	}, core.Auth)
+
+	// Список доступных ботов сообществ для приглашения в беседы
+	a.GET("/api/chat-bots", func(c *core.Ctx) error {
+		return c.JSON(map[string]any{"items": groups.ListBotGroups()})
+	}, core.Auth)
+
+	// Пригласить бота сообщества в беседу (только админы/создатель беседы)
+	a.POST("/api/chats/{id}/bots", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		ch, ok := chatsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound("Беседа не найдена")
+		}
+		mem, ok := memberOf(ch.ID, me.ID)
+		if !ok || !isAdmin(mem) {
+			return core.ErrForbidden("Приглашать ботов могут только администраторы беседы")
+		}
+		var in struct {
+			GroupID int64  `json:"group_id"`
+			Alias   string `json:"alias"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		if _, ok := groups.GetGroupBotInfo(in.GroupID); !ok {
+			return core.ErrNotFound("Сообщество не найдено или заблокировано")
+		}
+		if _, exists := botsT.OneBy("pair", store.Key(ch.ID, in.GroupID)); exists {
+			return core.ErrBad("Бот этого сообщества уже в беседе")
+		}
+		alias := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(in.Alias, "@")))
+		if alias == "" {
+			alias = "bot" + i(in.GroupID)
+		}
+		if !aliasRe.MatchString(alias) {
+			return core.ErrBad("Тег бота должен содержать 2–24 латинских букв, цифр или _")
+		}
+		for _, other := range botsT.By("chat", i(ch.ID)) {
+			if strings.EqualFold(other.Alias, alias) {
+				return core.ErrBad("В беседе уже есть бот с тегом @" + alias)
+			}
+		}
+		botsT.Insert(&GroupChatBot{ChatID: ch.ID, GroupID: in.GroupID, Alias: alias, AddedBy: me.ID, AddedAt: core.Now()})
+		return c.OK("alias", alias)
+	}, core.Auth)
+
+	// Убрать бота сообщества из беседы
+	a.DELETE("/api/chats/{id}/bots/{gid}", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		ch, ok := chatsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		mem, ok := memberOf(ch.ID, me.ID)
+		if !ok || !isAdmin(mem) {
+			return core.ErrForbidden("Убирать ботов могут только администраторы беседы")
+		}
+		b, ok := botsT.OneBy("pair", store.Key(ch.ID, c.PathInt("gid")))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		botsT.Delete(b.ID)
+		return c.OK()
 	}, core.Auth)
 
 	// Поиск по истории беседы
@@ -508,6 +757,7 @@ func Register(a *core.App) {
 		for _, mem := range membersT.By("chat", i(ch.ID)) {
 			a.Hub.ToUser(mem.UserID, "gchat_msg", msgView(a, m, mem.UserID, ch.PinnedMsgID))
 		}
+		dispatchChatBots(a, ch, m, txt)
 		return c.JSON(msgView(a, m, me.ID, ch.PinnedMsgID))
 	}, core.Auth)
 
