@@ -203,7 +203,7 @@ cmd_install() {
   cat > "$ENV_FILE" <<ENVEOF
 DCMS_ADDR=$( [ -n "${DOMAIN:-}" ] && echo "127.0.0.1:$PORT" || echo ":$PORT" )
 DCMS_DATA=$DATA_DIR
-DCMS_DSN=$DCMS_DSN
+DCMS_DSN="$DCMS_DSN"
 DCMS_DB_HOST=$DB_HOST
 DCMS_DB_PORT=$DB_PORT
 DCMS_DB_NAME=$DB_NAME
@@ -232,14 +232,24 @@ CONFEOF
   echo "  Обновление: sudo dcms-update   ·   Логи: dcms logs   ·   Резервная копия: dcms backup"
 }
 
+load_env() {
+  [ -f "$ENV_FILE" ] || return 0
+  local k v
+  while IFS='=' read -r k v || [ -n "$k" ]; do
+    [[ -z "$k" || "$k" == \#* ]] && continue
+    v="${v%$'\r'}"
+    v="${v#\"}"; v="${v%\"}"
+    v="${v#\'}"; v="${v%\'}"
+    export "$k=$v"
+  done < "$ENV_FILE"
+}
+
 cmd_backup() {
   need_root; mkdir -p "$BACKUP_DIR"
   local ts; ts="$(date +%Y%m%d-%H%M%S)"
   local tmp; tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
-  if [ -f "$ENV_FILE" ]; then
-    set -a; . "$ENV_FILE"; set +a
-  fi
+  load_env
   local dump_bin; dump_bin="$(command -v mariadb-dump || command -v mysqldump || true)"
   if [ -n "$dump_bin" ] && [ -n "${DCMS_DB_NAME:-}" ]; then
     local extra=()
@@ -272,7 +282,7 @@ cmd_update() {
     info "Обнаружено обновление на MySQL/MariaDB — настраиваю БД…"
     ensure_mariadb
     cat >> "$ENV_FILE" <<ENVEOF
-DCMS_DSN=$DCMS_DSN
+DCMS_DSN="$DCMS_DSN"
 DCMS_DB_HOST=$DB_HOST
 DCMS_DB_PORT=$DB_PORT
 DCMS_DB_NAME=$DB_NAME
