@@ -472,15 +472,15 @@ export const ui = {
       [h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b'],
       [h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i'],
       [h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u'],
-      [h('del', 'S'), 'Зачёркнутый', () => wrap('[s]', '[/s]')],
-      [icon('eye-off', 14), 'Спойлер (скрытый текст)', () => wrap('[spoiler]', '[/spoiler]')],
-      [h('span.bb-rainbow', 'A'), 'Радужный градиент', () => wrap('[rainbow]', '[/rainbow]')],
-      [h('code', { style: { fontSize: '.75rem' } }, '<>'), 'Моноширинный', () => wrap('[mono]', '[/mono]')],
-      [icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]')],
+      [h('del', 'S'), 'Зачёркнутый', () => wrap('[s]', '[/s]'), 's'],
+      [icon('eye-off', 14), 'Спойлер (скрытый текст)', () => wrap('[spoiler]', '[/spoiler]'), 'spoiler'],
+      [h('span.bb-rainbow', 'A'), 'Радужный градиент', () => wrap('[rainbow]', '[/rainbow]'), 'rainbow'],
+      [h('code', { style: { fontSize: '.75rem' } }, '<>'), 'Моноширинный', () => wrap('[mono]', '[/mono]'), 'mono'],
+      [icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]'), 'quote'],
       [icon('chevron-down', 14), 'Сворачиваемый блок [cut]', async () => {
         const t = await ui.prompt('Заголовок скрытого блока', 'Подробнее', { title: 'Скрытый блок' });
         if (t !== null) wrap(t.trim() ? `[cut=${t.trim()}]` : '[cut]', '[/cut]');
-      }],
+      }, 'cut'],
       [icon('link', 14), 'Вставить ссылку', async () => {
         const u = await ui.prompt('Адрес ссылки (https://...)', 'https://', { title: 'Вставить ссылку' });
         if (u && u.trim()) {
@@ -501,8 +501,8 @@ export const ui = {
 
     const hexTextIn = h('input', { type: 'color', value: '#ff4081', onchange: () => wrap(`[color=${hexTextIn.value}]`, '[/color]') });
     const hexBgIn = h('input', { type: 'color', value: '#fef08a', onchange: () => wrap(`[bg=${hexBgIn.value}]`, '[/bg]') });
-    const hexTextBtn = h('label.bb-color-pick', { title: 'Любой HEX-цвет текста [color=#...]' }, h('span', { style: { color: '#ff4081' } }, 'A'), hexTextIn);
-    const hexBgBtn = h('label.bb-color-pick', { title: 'Любой HEX-цвет маркера/фона [bg=#...]' }, h('span', { style: { background: '#fef08a', color: '#111', padding: '0 3px', borderRadius: '3px' } }, 'bg'), hexBgIn);
+    const hexTextBtn = bb.color !== false ? h('label.bb-color-pick', { title: 'Любой HEX-цвет текста [color=#...]' }, h('span', { style: { color: '#ff4081' } }, 'A'), hexTextIn) : null;
+    const hexBgBtn = bb.bg !== false ? h('label.bb-color-pick', { title: 'Любой HEX-цвет маркера/фона [bg=#...]' }, h('span', { style: { background: '#fef08a', color: '#111', padding: '0 3px', borderRadius: '3px' } }, 'bg'), hexBgIn) : null;
 
     const smileBtn = h('button.btn.ghost.icon-only.sm', {
       type: 'button', title: 'Смайлы',

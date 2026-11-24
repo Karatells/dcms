@@ -73,9 +73,17 @@ var (
 		}},
 		"bbcode": {"BBCode", "adm_set_sys", func() []field {
 			var f []field
-			for _, k := range [][2]string{{"i", "[i] курсив"}, {"u", "[u] подчёркнутый"}, {"b", "[b] жирный"}, {"big", "[big] крупный"}, {"small", "[small] мелкий"},
-				{"code", "[code] код"}, {"red", "[red] красный"}, {"yellow", "[yellow] жёлтый"}, {"green", "[green] зелёный"}, {"blue", "[blue] синий"},
-				{"white", "[white] белый"}, {"size", "[size=N] размер"}, {"http", "Автоссылки http://"}, {"url", "[url] ссылки"}, {"img", "[img] картинки"}} {
+			for _, k := range [][2]string{
+				{"b", "[b] жирный"}, {"i", "[i] курсив"}, {"u", "[u] подчёркнутый"}, {"s", "[s] зачёркнутый"},
+				{"big", "[big] крупный"}, {"small", "[small] мелкий"}, {"size", "[size=N] размер шрифта"},
+				{"color", "[color=#HEX] произвольный HEX-цвет текста"}, {"bg", "[bg=#HEX] маркер / HEX-цвет фона"},
+				{"red", "[red] красный"}, {"yellow", "[yellow] жёлтый"}, {"green", "[green] зелёный"}, {"blue", "[blue] синий"}, {"white", "[white] белый"},
+				{"spoiler", "[spoiler] спойлер (размытие до клика)"}, {"cut", "[cut=Заголовок] сворачиваемый блок"},
+				{"rainbow", "[rainbow] радужный градиент"}, {"mono", "[mono] встроенный моноширинный код"},
+				{"quote", "[quote] цитата"}, {"code", "[code] блок кода"}, {"box", "[box=info|ok|warn|danger] цветной инфоблок"},
+				{"center", "[center] выравнивание по центру"}, {"right", "[right] выравнивание по правому краю"}, {"hr", "[hr] горизонтальная линия"},
+				{"http", "Автоссылки http://"}, {"url", "[url] ссылки"}, {"img", "[img] картинки"},
+			} {
 				f = append(f, field{Key: "bb_" + k[0], Label: k[1], Type: "bool"})
 			}
 			return f

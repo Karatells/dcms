@@ -54,10 +54,6 @@ var tagHTML = map[string]string{
 	"green": `<span style="color:#16a34a">%s</span>`, "blue": `<span style="color:#2563eb">%s</span>`, "white": `<span style="color:#fff;text-shadow:0 0 2px #000">%s</span>`,
 }
 
-var alwaysOnTags = map[string]bool{
-	"s": true, "mono": true, "spoiler": true, "rainbow": true, "center": true, "right": true,
-}
-
 // Censor заменяет нецензурные слова на звёздочки (настройка antimat).
 func (t *Text) Censor(s string) string {
 	if !t.a.Cfg.Bool("antimat") {
@@ -112,25 +108,31 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 	}
 	if bb {
 		s = reBR.ReplaceAllString(s, "<br>")
-		s = reHR.ReplaceAllString(s, `<hr class="bb-hr">`)
+		if cfg.Bool("bb_hr") {
+			s = reHR.ReplaceAllString(s, `<hr class="bb-hr">`)
+		}
 		// несколько проходов для вложенных тегов
 		for i := 0; i < 4; i++ {
 			s = reTag.ReplaceAllStringFunc(s, func(m string) string {
 				sm := reTag.FindStringSubmatch(m)
 				tag := strings.ToLower(sm[1])
-				if !alwaysOnTags[tag] && !cfg.Bool("bb_"+tag) {
+				if !cfg.Bool("bb_" + tag) {
 					return m
 				}
 				return strings.Replace(tagHTML[tag], "%s", sm[2], 1)
 			})
-			s = reColor.ReplaceAllStringFunc(s, func(m string) string {
-				sm := reColor.FindStringSubmatch(m)
-				return `<span style="color:` + sm[1] + `">` + sm[2] + `</span>`
-			})
-			s = reBg.ReplaceAllStringFunc(s, func(m string) string {
-				sm := reBg.FindStringSubmatch(m)
-				return `<span class="bb-bg" style="background:` + sm[1] + `">` + sm[2] + `</span>`
-			})
+			if cfg.Bool("bb_color") {
+				s = reColor.ReplaceAllStringFunc(s, func(m string) string {
+					sm := reColor.FindStringSubmatch(m)
+					return `<span style="color:` + sm[1] + `">` + sm[2] + `</span>`
+				})
+			}
+			if cfg.Bool("bb_bg") {
+				s = reBg.ReplaceAllStringFunc(s, func(m string) string {
+					sm := reBg.FindStringSubmatch(m)
+					return `<span class="bb-bg" style="background:` + sm[1] + `">` + sm[2] + `</span>`
+				})
+			}
 		}
 		if cfg.Bool("bb_size") {
 			s = reSize.ReplaceAllStringFunc(s, func(m string) string {
@@ -144,30 +146,36 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 				return `<span style="font-size:` + strconv.Itoa(sz) + `px">` + sm[2] + `</span>`
 			})
 		}
-		s = reCut.ReplaceAllStringFunc(s, func(m string) string {
-			sm := reCut.FindStringSubmatch(m)
-			title := strings.TrimSpace(sm[1])
-			if title == "" {
-				title = "Показать скрытый текст"
-			}
-			return `<details class="bb-cut"><summary>` + title + `</summary><div class="bb-cut-body">` + sm[2] + `</div></details>`
-		})
-		s = reBox.ReplaceAllStringFunc(s, func(m string) string {
-			sm := reBox.FindStringSubmatch(m)
-			kind := strings.ToLower(sm[1])
-			if kind == "" {
-				kind = "info"
-			}
-			return `<div class="bb-box bb-box-` + kind + `">` + sm[2] + `</div>`
-		})
-		s = reQuote.ReplaceAllStringFunc(s, func(m string) string {
-			sm := reQuote.FindStringSubmatch(m)
-			who := ""
-			if sm[1] != "" {
-				who = `<cite>` + sm[1] + `</cite>`
-			}
-			return `<blockquote class="bb-quote">` + who + sm[2] + `</blockquote>`
-		})
+		if cfg.Bool("bb_cut") {
+			s = reCut.ReplaceAllStringFunc(s, func(m string) string {
+				sm := reCut.FindStringSubmatch(m)
+				title := strings.TrimSpace(sm[1])
+				if title == "" {
+					title = "Показать скрытый текст"
+				}
+				return `<details class="bb-cut"><summary>` + title + `</summary><div class="bb-cut-body">` + sm[2] + `</div></details>`
+			})
+		}
+		if cfg.Bool("bb_box") {
+			s = reBox.ReplaceAllStringFunc(s, func(m string) string {
+				sm := reBox.FindStringSubmatch(m)
+				kind := strings.ToLower(sm[1])
+				if kind == "" {
+					kind = "info"
+				}
+				return `<div class="bb-box bb-box-` + kind + `">` + sm[2] + `</div>`
+			})
+		}
+		if cfg.Bool("bb_quote") {
+			s = reQuote.ReplaceAllStringFunc(s, func(m string) string {
+				sm := reQuote.FindStringSubmatch(m)
+				who := ""
+				if sm[1] != "" {
+					who = `<cite>` + sm[1] + `</cite>`
+				}
+				return `<blockquote class="bb-quote">` + who + sm[2] + `</blockquote>`
+			})
+		}
 	}
 	s = strings.ReplaceAll(s, "\n", "<br>")
 	for i := len(slots) - 1; i >= 0; i-- {
