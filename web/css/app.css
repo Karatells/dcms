@@ -571,3 +571,14 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 .mp-seek{flex:1;accent-color:var(--accent);cursor:pointer;min-width:60px}
 .mp-time{font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 @media (max-width:700px){.mini-player{bottom:66px;padding:6px 10px}.mp-meta{max-width:120px}}
+
+/* ── Обновлённое сгруппированное боковое меню ── */
+.nav a.nav-create{background:var(--accent);color:#fff!important;font-weight:700;margin-bottom:4px;justify-content:center;box-shadow:0 4px 12px color-mix(in srgb,var(--accent) 35%,transparent)}
+.nav a.nav-create:hover{filter:brightness(1.06);background:var(--accent)}
+.nav.nav-more{padding:4px 6px}
+.nav-more-sum{list-style:none;display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer;font-weight:600;font-size:.9rem;color:var(--muted);user-select:none}
+.nav-more-sum::-webkit-details-marker{display:none}
+.nav-more-sum:hover{background:var(--bg-hover);color:var(--text)}
+.nav-more-sum svg:last-child{margin-left:auto;transition:transform .18s}
+.nav-more[open] .nav-more-sum svg:last-child{transform:rotate(180deg)}
+.nav-more-list{display:flex;flex-direction:column;gap:2px;padding-top:4px}

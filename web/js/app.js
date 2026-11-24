@@ -140,30 +140,78 @@ function drawTop() {
 async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('Выйти из аккаунта?'))) return; await api.post('/api/logout'); await refreshMe(); events.restart(); router.go('/'); }
 
 async function drawSide() {
-  let items = state.menu;
-  const nav = h('nav.nav', h('div.nav-title', 'Разделы'),
-    link('/', icon('home', 19), 'Главная'),
-    link('/feed', icon('trending', 19), 'Умная лента'),
-    link('/music', icon('music', 19), 'Музыка'),
-    link('/games', icon('dice', 19), 'Мини-игры'),
-    link('/shop', icon('shopping-bag', 19), 'Магазин рамок'));
-  items.forEach(m => {
-    if (m.type === 'razd') nav.append(h('div.nav-title', m.name));
-    else nav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 19), m.name, m.count ? h('span.cnt', m.count) : null));
-  });
-  const parts = [nav];
-  if (state.user) {
-    const u = state.user, c = state.counters;
-    const mk = (href, ic, label, key) => h('a', { href }, icon(ic, 19), label, key && c[key] ? h('span.cnt', c[key]) : null);
-    parts.push(h('nav.nav', h('div.nav-title', 'Мой кабинет'),
-      mk('/create', 'plus', 'Создать публикацию'),
-      mk('/id' + u.id, 'user', 'Моя страница'), mk('/user/tape', 'rss', 'Лента', 'tape'), mk('/user/discussions', 'message-circle', 'Обсуждения', 'discussions'),
-      mk('/user/notification', 'bell', 'Уведомления', 'notification'), mk('/mail', 'mail', 'Почта', 'mail'), mk('/chats', 'users', 'Беседы'), mk('/user/frends', 'users', 'Друзья', 'friends_new'),
-      mk('/quests', 'award', 'Задания и бонусы'), mk('/user/myguest', 'eye', 'Гости', 'myguest'), mk('/user/bookmark', 'bookmark', 'Закладки'), mk('/user/gift', 'gift', 'Подарки'),
-      mk('/vip', 'crown', 'VIP-подписка'), mk('/user/money', 'coins', 'Монеты'), mk('/user/settings', 'settings', 'Настройки')));
-    if (can('adm_panel_show')) parts.push(h('nav.nav', mk('/admin', 'shield', 'Администрирование', 'admin')));
+  const u = state.user, c = state.counters || {};
+  const mk = (href, ic, label, key) => h('a', { href }, icon(ic, 18), label, key && c[key] ? h('span.cnt', c[key]) : null);
+  const parts = [];
+
+  // 1. Главное — самые частые разделы (всегда сверху)
+  const mainNav = h('nav.nav',
+    u ? h('a.nav-create', { href: '/create' }, icon('plus', 18), 'Создать публикацию') : null,
+    mk('/', 'home', 'Главная'),
+    mk('/feed', 'trending', 'Умная лента'));
+  if (u) {
+    mainNav.append(
+      mk('/id' + u.id, 'user', 'Моя страница'),
+      mk('/mail', 'mail', 'Сообщения', 'mail'),
+      mk('/user/frends', 'users', 'Друзья', 'friends_new'),
+      mk('/user/notification', 'bell', 'Уведомления', 'notification'));
   }
-  parts.push(h('nav.nav', h('div.nav-title', 'Инструменты'), link('/developers', icon('key', 19), 'Разработчикам (API)')));
+  parts.push(mainNav);
+
+  // 2. Разделы и медиа (сообщества, клипы, музыка, форум, фото, файлы и др. из /api/menu)
+  const mediaNav = h('nav.nav', h('div.nav-title', 'Разделы и медиа'));
+  const seenUrls = new Set(['/', '/feed', '/music', '/games', '/shop', '/quests', '/vip', '/mail', '/chats']);
+  const menuItems = (state.menu || []).filter(m => m.type !== 'razd');
+  // Приоритетные разделы из /api/menu (Клипы, Сообщества) ставим первыми, затем Музыку, затем остальные
+  const normUrl = url => (url || '').replace(/\/+$/, '') || '/';
+  const priority = ['/shorts', '/groups'];
+  const firstMenu = [];
+  const restMenu = [];
+  menuItems.forEach(m => {
+    const nu = normUrl(m.url);
+    if (seenUrls.has(nu)) return;
+    seenUrls.add(nu);
+    if (priority.includes(nu)) firstMenu.push(m);
+    else restMenu.push(m);
+  });
+  firstMenu.forEach(m => mediaNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
+  mediaNav.append(mk('/music', 'music', 'Музыка'));
+  restMenu.slice(0, 5).forEach(m => mediaNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
+  parts.push(mediaNav);
+
+  // 3. Активность, игры и бонусы
+  parts.push(h('nav.nav', h('div.nav-title', 'Игры и бонусы'),
+    u ? mk('/quests', 'award', 'Задания и бонусы') : null,
+    mk('/games', 'dice', 'Мини-игры'),
+    mk('/shop', 'shopping-bag', 'Магазин рамок'),
+    u ? mk('/vip', 'crown', 'VIP-подписка') : null));
+
+  // 4. Администрирование (видимо сразу для модераторов/админов)
+  if (u && can('adm_panel_show')) {
+    parts.push(h('nav.nav', mk('/admin', 'shield', 'Администрирование', 'admin')));
+  }
+
+  // 5. Ещё — сворачиваемый блок для дополнительных разделов и инструментов
+  const moreNav = h('div.nav-more-list');
+  if (u) {
+    moreNav.append(
+      mk('/user/tape', 'rss', 'События', 'tape'),
+      mk('/user/discussions', 'message-circle', 'Обсуждения', 'discussions'),
+      mk('/user/myguest', 'eye', 'Гости', 'myguest'),
+      mk('/user/bookmark', 'bookmark', 'Закладки'),
+      mk('/user/gift', 'gift', 'Подарки'),
+      mk('/user/money', 'coins', 'Монеты'),
+      mk('/user/settings', 'settings', 'Настройки'));
+  }
+  restMenu.slice(5).forEach(m => moreNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
+  moreNav.append(mk('/developers', 'key', 'Разработчикам (API)'));
+
+  const moreOpen = location.pathname.startsWith('/user/') || location.pathname.startsWith('/developers');
+  const moreDetails = h('details.nav.nav-more', moreOpen ? { open: true } : null,
+    h('summary.nav-more-sum', icon('grid', 17), 'Ещё разделы', icon('chevron-down', 16)),
+    moreNav);
+  parts.push(moreDetails);
+
   const head = h('div.side-head',
     h('a.logo', { href: '/' }, h('span.logo-mark', icon('message-circle', 18)), h('span', state.config.site_name || 'DCMS Social')),
     h('button.icon-btn', { onclick: closeNav, 'aria-label': 'Закрыть меню', title: 'Закрыть' }, icon('x', 20)));
