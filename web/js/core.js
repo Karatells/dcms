@@ -558,7 +558,7 @@ function reconnect() {
     if (es) es.close();
     const t = [...topics.keys()].join(',');
     es = new EventSource('/api/events' + (t ? '?topics=' + encodeURIComponent(t) : ''));
-    ['notify', 'counters', 'chat', 'message', 'event'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
+    ['notify', 'counters', 'chat', 'message', 'event', 'group_dm', 'group_chat', 'shorts_ready'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
     es.onerror = () => { es.close(); es = null; setTimeout(reconnect, 5000); };
   }, 50);
 }
