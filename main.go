@@ -16,6 +16,7 @@ import (
 	"dcms/internal/mods/account"
 	"dcms/internal/mods/admin"
 	"dcms/internal/mods/chatnews"
+	"dcms/internal/mods/chats"
 	"dcms/internal/mods/content"
 	"dcms/internal/mods/extras"
 	"dcms/internal/mods/feeds"
@@ -59,7 +60,7 @@ func main() {
 	}
 	// порядок важен только для зависимостей между таблицами; все модули независимы по маршрутам
 	for _, reg := range []func(*core.App){
-		account.Register, profile.Register, feeds.Register, extras.Register, forum.Register,
+		account.Register, profile.Register, feeds.Register, chats.Register, extras.Register, forum.Register,
 		chatnews.Register, foto.Register, files.Register, content.Register, shorts.Register, stories.Register, groups.Register, oauth.Register, search.Register, admin.Register,
 	} {
 		reg(a)

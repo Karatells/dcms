@@ -310,7 +310,7 @@ router.add('/mail', async ctx => {
   const msg = h('textarea.input', { rows: 3, placeholder: 'Сообщение (2–1024 символа)', maxlength: 1024 });
   const compose = h('details.card.pad', h('summary', icon('edit', 16), ' Написать по логину'), h('div.stack', { style: { marginTop: '12px' } }, to, msg,
     ui.btn('Отправить', { kind: 'primary', ic: 'send', onclick: async () => { const r = await api.post('/api/mail/send', { to: to.value, msg: msg.value }); ui.ok('Сообщение отправлено'); router.go('/mail/' + r.id); } })));
-  return [ui.pageHead('Почта'), mailTabs(type), selBar, compose,
+  return [ui.pageHead('Почта', ui.btn('Беседы', { ic: 'users', small: true, kind: 'primary', href: '/chats' })), mailTabs(type), selBar, compose,
     ui.card(rows.length ? h('div.list', rows) : ui.empty(type === 'common' ? 'Контактов пока нет' : 'Список пуст', 'mail')),
     rows.length ? h('div.muted.small', 'Удерживайте диалог (или нажмите правой кнопкой), чтобы выбрать, переместить или удалить.') : null,
     type === 'deleted' ? h('div.muted.small', 'Удалённые контакты очищаются через 30 дней вместе с перепиской.') : null, ui.pager(d)];
