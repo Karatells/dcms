@@ -245,6 +245,32 @@ export const fmt = {
 // ───────────────────────────────────────────── router
 const routes = [];
 let currentCleanup = null;
+let renderSeq = 0;
+let lastRenderedPath = '';
+let navBarEl = null;
+
+function navProgress(on) {
+  if (!navBarEl) {
+    navBarEl = h('div.nav-progress');
+    document.body.append(navBarEl);
+  }
+  navBarEl.classList.toggle('active', !!on);
+}
+
+function swapView(view, nodes, isSamePage) {
+  view.classList.remove('is-loading', 'view-enter', 'view-fade');
+  if (nodes instanceof Node) view.replaceChildren(nodes);
+  else if (Array.isArray(nodes)) view.replaceChildren(...nodes.filter(Boolean));
+  else return;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduced) {
+    // Для мессенджера и перерисовки той же страницы — только мягкий fade без сдвига (чтобы не дёргать fixed-элементы)
+    const cls = (isSamePage || document.body.classList.contains('msg-page')) ? 'view-fade' : 'view-enter';
+    void view.offsetWidth;
+    view.classList.add(cls);
+  }
+}
+
 function compile(pattern) {
   const keys = [];
   const re = new RegExp('^' + pattern.replace(/\/+$/, '').replace(/:([a-zA-Z_]+)(\*)?/g, (_, k, star) => { keys.push(k); return star ? '(.+)' : '([^/]+)'; }) + '/?$');
@@ -258,39 +284,79 @@ export const router = {
   async render() {
     const view = $('#view');
     if (!view) return;
-    if (currentCleanup) { try { currentCleanup(); } catch (e) {} currentCleanup = null; }
+    const seq = ++renderSeq;
     const url = new URL(location.href);
     const path = url.pathname.replace(/\/+$/, '') || '/';
+    const isSamePage = path === lastRenderedPath;
+
     for (const r of routes) {
       const m = path.match(r.re);
       if (!m) continue;
       const params = {};
       r.keys.forEach((k, i) => (params[k] = decodeURIComponent(m[i + 1])));
       const query = Object.fromEntries(url.searchParams);
+      let nextCleanup = null;
       const ctx = {
         params, query, path, page: Math.max(1, parseInt(query.page) || 1), el: view,
         title: t => { document.title = (t ? t + ' — ' : '') + (state.config.site_name || 'DCMS Social'); bus.emit('title', t); },
-        onLeave: fn => { currentCleanup = fn; },
+        onLeave: fn => { nextCleanup = fn; },
       };
-      ctx.title('');
-      view.replaceChildren(ui.loading());
-      window.scrollTo(0, 0);
+
+      // Быстрые проверки прав без мигания
+      if (r.opts.auth && !state.user) {
+        if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
+        swapView(view, ui.needAuth(), false);
+        lastRenderedPath = path;
+        bus.emit('route', path);
+        return;
+      }
+      if ((r.opts.level && level() < r.opts.level) || (r.opts.access && !can(r.opts.access))) {
+        if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
+        swapView(view, ui.forbidden(), false);
+        lastRenderedPath = path;
+        bus.emit('route', path);
+        return;
+      }
+
+      navProgress(true);
+      if (!isSamePage && view.childNodes.length) view.classList.add('is-loading');
+      // Показываем спиннер только если загрузка реально затянулась (> 350 мс)
+      const spinTimer = setTimeout(() => {
+        if (seq === renderSeq && !isSamePage) view.replaceChildren(ui.loading());
+      }, 350);
+
       try {
-        if (r.opts.auth && !state.user) { view.replaceChildren(ui.needAuth()); return; }
-        if (r.opts.level && level() < r.opts.level) { view.replaceChildren(ui.forbidden()); return; }
-        if (r.opts.access && !can(r.opts.access)) { view.replaceChildren(ui.forbidden()); return; }
         const out = await r.handler(ctx);
-        if (out instanceof Node) view.replaceChildren(out);
-        else if (Array.isArray(out)) view.replaceChildren(...out.filter(Boolean));
+        clearTimeout(spinTimer);
+        if (seq !== renderSeq) {
+          if (nextCleanup) { try { nextCleanup(); } catch {} }
+          return;
+        }
+        if (currentCleanup) { try { currentCleanup(); } catch {} }
+        currentCleanup = nextCleanup;
+        if (out !== undefined) swapView(view, out, isSamePage);
+        else view.classList.remove('is-loading');
+        if (!isSamePage) window.scrollTo(0, 0);
+        lastRenderedPath = path;
       } catch (e) {
+        clearTimeout(spinTimer);
+        if (seq !== renderSeq) return;
         console.error(e);
-        if (e instanceof ApiError) view.replaceChildren(e.status === 404 ? ui.notFound(e.message) : e.status === 403 ? ui.forbidden(e.message) : e.status === 401 ? ui.needAuth() : ui.errorBox(e.message));
-        else view.replaceChildren(ui.errorBox('Ошибка отображения: ' + e.message));
+        if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
+        const errNode = e instanceof ApiError
+          ? (e.status === 404 ? ui.notFound(e.message) : e.status === 403 ? ui.forbidden(e.message) : e.status === 401 ? ui.needAuth() : ui.errorBox(e.message))
+          : ui.errorBox('Ошибка отображения: ' + e.message);
+        swapView(view, errNode, false);
+        lastRenderedPath = path;
+      } finally {
+        if (seq === renderSeq) navProgress(false);
       }
       bus.emit('route', path);
       return;
     }
-    view.replaceChildren(ui.notFound());
+    if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
+    swapView(view, ui.notFound(), false);
+    lastRenderedPath = path;
   },
   start() {
     addEventListener('popstate', () => router.render());

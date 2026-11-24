@@ -416,3 +416,20 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 .adm-chat-shell .msg-foot{flex:none}
 @keyframes popIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
 @media (max-width:700px){.adm-chat-pop{right:8px;left:8px;bottom:68px;width:auto;height:70dvh;max-width:none}}
+
+/* ── Плавные переходы страниц и элементов (без моргания) ── */
+.nav-progress{position:fixed;top:0;left:0;right:0;height:2.5px;z-index:200;pointer-events:none;opacity:0;background:linear-gradient(90deg,transparent,var(--accent),color-mix(in srgb,var(--accent) 55%,#ec4899),transparent);background-size:200% 100%;transition:opacity .18s ease}
+.nav-progress.active{opacity:1;animation:navProg .9s linear infinite}
+@keyframes navProg{0%{background-position:100% 0}100%{background-position:-100% 0}}
+#view{transition:opacity .14s ease}
+#view.is-loading{opacity:.72;pointer-events:none}
+#view.view-enter{animation:viewEnter .2s cubic-bezier(.22,1,.36,1) both}
+#view.view-fade{animation:viewFade .16s ease-out both}
+@keyframes viewEnter{from{opacity:.35;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes viewFade{from{opacity:.65}to{opacity:1}}
+.modal-back{animation:modalBackIn .15s ease-out both}
+.modal-box{animation:modalBoxIn .18s cubic-bezier(.22,1,.36,1) both}
+@keyframes modalBackIn{from{opacity:0}to{opacity:1}}
+@keyframes modalBoxIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+.list-item,.tab,.btn,.badge,.card{transition:background-color .15s ease,border-color .15s ease,color .15s ease,transform .15s ease,opacity .15s ease}
+@media (prefers-reduced-motion:reduce){#view.view-enter,#view.view-fade,.modal-back,.modal-box,.nav-progress.active{animation:none!important}}
