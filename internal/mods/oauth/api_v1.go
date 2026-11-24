@@ -114,7 +114,6 @@ func registerV1(a *core.App) {
 		if includeEmail {
 			m["email"] = u.Email
 			m["telegram"] = u.AnkTelegram
-			m["vk"] = u.AnkVk
 			m["skype"] = u.AnkSkype
 			m["phone"] = u.AnkNTel
 		}

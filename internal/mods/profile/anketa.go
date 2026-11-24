@@ -52,7 +52,7 @@ func registerProfile(a *core.App) {
 			"day": u.AnkDR, "month": u.AnkMR, "year": u.AnkGR, "age": ageOf(&u),
 			"marital": label(maritalLabels, u.AnkMaritalStatus, u.Pol), "baby": label(babyLabels, u.AnkBaby, u.Pol),
 			"smok": label(smokLabels, u.AnkSmok, u.Pol), "alko": label(alkoLabels, u.AnkAlkoN, u.Pol), "meet": lovList(&u),
-			"skype": u.AnkSkype, "telegram": u.AnkTelegram, "vk": u.AnkVk, "phone": u.AnkNTel,
+			"skype": u.AnkSkype, "telegram": u.AnkTelegram, "phone": u.AnkNTel,
 		}
 		if u.ShowMail {
 			info["email"] = u.Email
@@ -316,7 +316,7 @@ func editView(u *model.User) map[string]any {
 	}
 	return map[string]any{
 		"name": u.AnkName, "city": u.AnkCity, "about": u.AnkOSebe, "job": u.AnkZan, "skype": u.AnkSkype, "telegram": u.AnkTelegram,
-		"vk": u.AnkVk, "phone": u.AnkNTel, "day": u.AnkDR, "month": u.AnkMR, "year": u.AnkGR, "pol": u.Pol, "show_mail": u.ShowMail,
+		"phone": u.AnkNTel, "day": u.AnkDR, "month": u.AnkMR, "year": u.AnkGR, "pol": u.Pol, "show_mail": u.ShowMail,
 		"marital": u.AnkMaritalStatus, "baby": u.AnkBaby, "smok": u.AnkSmok, "alko": u.AnkAlkoN, "meet": meet, "email": u.Email,
 		"options": map[string]any{"marital": maritalLabels, "baby": babyLabels, "smok": smokLabels, "alko": alkoLabels, "meet": lovLabels},
 	}

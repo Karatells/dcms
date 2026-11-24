@@ -185,7 +185,7 @@ router.add('/user/settings/password', async ctx => {
   } else {
     const codeIn = h('input.input', { inputMode: 'numeric', maxLength: 6, placeholder: '6-значный код из приложения' });
     tfaBox = h('div.pad.stack',
-      h('div.small.muted', 'Добавьте ключ вручную в Google Authenticator, Яндекс Ключ, Authy или 1Password (тип: по времени / TOTP), затем введите 6-значный код:'),
+      h('div.small.muted', 'Добавьте ключ вручную в Google Authenticator, Authy или 1Password (тип: по времени / TOTP), затем введите 6-значный код:'),
       h('div.row.nowrap',
         h('input.input', { value: tfa.secret || '', readOnly: true, style: { fontFamily: 'ui-monospace,monospace', letterSpacing: '.08em' }, onclick: e => e.target.select() }),
         ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => navigator.clipboard?.writeText(tfa.secret).then(() => ui.ok('Ключ скопирован')) })),

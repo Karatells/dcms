@@ -85,7 +85,7 @@ router.add('/id:id', async ctx => {
       infoRow('Дата рождения', bday), infoRow('Город', i.city), infoRow('Семейное положение', i.marital), infoRow('Дети', i.baby),
       infoRow('Курение', i.smok), infoRow('Алкоголь', i.alko), infoRow('Занятие', i.job),
       infoRow('Цели знакомства', i.meet && i.meet.length ? i.meet.join(', ') : ''), infoRow('О себе', i.about),
-      infoRow('Skype', i.skype), infoRow('Telegram', i.telegram), infoRow('VK', i.vk), infoRow('Телефон', i.phone), infoRow('E-mail', i.email),
+      infoRow('Skype', i.skype), infoRow('Telegram', i.telegram), infoRow('Телефон', i.phone), infoRow('E-mail', i.email),
       d.url ? infoRow('Сейчас на странице', h('code', d.url)) : null,
     ].filter(Boolean);
     out.push(ui.section('Анкета', h('div.krows.pad', rows.length ? rows : h('span.muted', 'Анкета не заполнена'))));
@@ -241,7 +241,7 @@ router.add('/user/info/edit', async ctx => {
     { name: 'job', label: 'Занятие', value: d.job, maxlength: 215 },
     { name: 'about', label: 'О себе', type: 'textarea', value: d.about, rows: 5, maxlength: 512 },
     { name: 'skype', label: 'Skype', value: d.skype }, { name: 'telegram', label: 'Telegram', value: d.telegram },
-    { name: 'vk', label: 'VK (ссылка или id)', value: d.vk }, { name: 'phone', label: 'Телефон', value: d.phone },
+    { name: 'phone', label: 'Телефон', value: d.phone },
     { name: 'show_mail', type: 'checkbox', label: 'Показывать e-mail в анкете', value: d.show_mail },
   ], {
     submit: 'Сохранить',
