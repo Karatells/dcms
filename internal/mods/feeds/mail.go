@@ -63,6 +63,11 @@ func unreadFrom(user, other int64) int {
 	return n
 }
 
+var extraMailUnread []func(uid int64) int
+
+// RegisterExtraUnread позволяет другим модулям (например, личным сообщениям сообществ) добавлять непрочитанные в счётчик почты.
+func RegisterExtraUnread(fn func(uid int64) int) { extraMailUnread = append(extraMailUnread, fn) }
+
 func unreadTotal(user int64) int {
 	n := 0
 	mails.Scan(func(m *Mail) bool {
@@ -73,6 +78,9 @@ func unreadTotal(user int64) int {
 		}
 		return true
 	})
+	for _, fn := range extraMailUnread {
+		n += fn(user)
+	}
 	return n
 }
 

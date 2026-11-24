@@ -198,7 +198,7 @@ router.add('/groups/:id', async ctx => {
 
   const inviteBtn = me() && p.is_member ? ui.btn('Пригласить друга', { ic: 'user-plus', small: true, onclick: () => openInviteFriendModal(g) }) : null;
   const dmBtn = me() && g.enable_messages && !g.blocked
-    ? ui.btn(g.user_msg_unread > 0 ? `Написать (+${g.user_msg_unread})` : 'Написать сообществу', { ic: 'mail', kind: p.is_member ? 'primary' : '', small: true, href: `/groups/${id}/message` })
+    ? ui.btn(g.user_msg_unread > 0 ? `Написать (+${g.user_msg_unread})` : 'Написать сообществу', { ic: 'mail', kind: p.is_member ? 'primary' : '', small: true, href: `/mail/group/${id}` })
     : null;
 
   const headerCard = h('div.card.grp-head',
@@ -265,7 +265,7 @@ router.add('/groups/:id', async ctx => {
   if (p.mod_messages && (g.enable_messages || g.inbox_unread > 0)) {
     tiles.push({ title: 'Входящие (ЛС)', icon: 'mail', href: `/groups/${id}/inbox`, count: null, badge: g.inbox_unread > 0 ? `+${g.inbox_unread}` : null });
   } else if (me() && g.enable_messages && !g.blocked) {
-    tiles.push({ title: 'Написать', icon: 'mail', href: `/groups/${id}/message`, count: null, badge: g.user_msg_unread > 0 ? `+${g.user_msg_unread}` : null });
+    tiles.push({ title: 'Написать', icon: 'mail', href: `/mail/group/${id}`, count: null, badge: g.user_msg_unread > 0 ? `+${g.user_msg_unread}` : null });
   }
   tiles.push({ title: 'Участники', icon: 'users', href: `/groups/${id}/members`, count: g.members, badge: g.requests_count > 0 ? `+${g.requests_count}` : null });
   if (p.manage) tiles.push({ title: 'Настройки', icon: 'settings', href: `/groups/${id}/settings`, count: null });
@@ -807,78 +807,10 @@ router.add('/admin/communities', async ctx => {
   ];
 }, { auth: true, access: 'groups_block' });
 
-// ───────── ЛИЧНАЯ ПЕРЕПИСКА ПОЛЬЗОВАТЕЛЯ С СООБЩЕСТВОМ (/groups/:id/message)
+// ───────── ЛИЧНАЯ ПЕРЕПИСКА ПОЛЬЗОВАТЕЛЯ С СООБЩЕСТВОМ → единый диалог в Почте (/mail/group/:id)
 router.add('/groups/:id/message', async ctx => {
-  const id = +ctx.params.id;
-  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/dm`)]);
-  ctx.title(`Сообщения · ${g.name}`);
-  document.body.classList.add('msg-page');
-
-  const scrollEl = h('div.msg-scroll');
-  let items = d.items || [];
-
-  const draw = () => {
-    if (!items.length) {
-      scrollEl.replaceChildren(ui.empty('Напишите первое сообщение сообществу — администрация сможет ответить вам здесь.', 'mail'));
-      return;
-    }
-    scrollEl.replaceChildren(...items.map(m => {
-      const mine = !m.from_group;
-      return h('div.bubble-row' + (mine ? '.mine' : ''),
-        !mine ? h('div.grp-ava-sm', { style: { width: '28px', height: '28px', borderRadius: '8px', fontSize: '.8rem', flexShrink: '0' } }, g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)) : null,
-        h('div.bubble' + (mine ? '.mine' : ''),
-          !mine ? h('div', { style: { fontWeight: '700', fontSize: '.78rem', marginBottom: '2px' } }, g.name) : null,
-          ui.html(m.msg, 'text'),
-          h('div.bubble-meta', h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })))));
-    }));
-    requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
-  };
-
-  const off = bus.on('sse:group_dm', data => {
-    if (data && data.group_id === id && data.user_id === me()?.id && !items.some(x => x.id === data.id)) {
-      items.push(data);
-      draw();
-    }
-  });
-  ctx.onLeave(() => {
-    document.body.classList.remove('msg-page');
-    off && off();
-  });
-
-  const head = h('div.msg-head',
-    h('a.icon-btn', { href: '/groups/' + id, title: 'К сообществу' }, icon('arrow-left', 20)),
-    h('div.grp-ava-sm', { style: { width: '36px', height: '36px', borderRadius: '10px', fontSize: '.95rem' } }, g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
-    h('div.msg-head-info', h('b', g.name), h('div.msg-status', 'Личные сообщения сообщества')));
-
-  const foot = h('div.msg-foot');
-  if (d.can_write) {
-    const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Написать сообществу…', maxlength: 2000 });
-    const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', disabled: true }, icon('send', 18));
-    const sync = () => {
-      ta.style.height = 'auto';
-      ta.style.height = Math.min(110, Math.max(38, ta.scrollHeight)) + 'px';
-      sendBtn.disabled = !ta.value.trim();
-    };
-    const send = async () => {
-      const msg = ta.value.trim();
-      if (!msg || sendBtn.disabled) return;
-      sendBtn.disabled = true;
-      try {
-        ta.value = ''; sync();
-        const r = await api.post(`/api/groups/${id}/dm`, { msg });
-        if (!items.some(x => x.id === r.id)) { items.push(r); draw(); }
-      } finally { sync(); }
-    };
-    sendBtn.onclick = send;
-    ta.oninput = sync;
-    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); send(); } };
-    foot.append(h('div.msg-compose', h('div.msg-input-wrap', ta), sendBtn));
-  } else {
-    foot.append(h('div.pad.small.muted.center', 'Отправка новых сообщений в это сообщество отключена.'));
-  }
-
-  draw();
-  return h('div.msg-shell', head, scrollEl, foot);
+  router.go('/mail/group/' + ctx.params.id, true);
+  return ui.loading();
 }, { auth: true });
 
 // ───────── ВХОДЯЩИЕ СООБЩЕНИЯ СООБЩЕСТВА (для создателя / админа / модератора сообщений) (/groups/:id/inbox)
@@ -902,74 +834,35 @@ router.add('/groups/:id/inbox', async ctx => {
   ];
 }, { auth: true });
 
-// ───────── ДИАЛОГ С ПОЛЬЗОВАТЕЛЕМ ОТ ИМЕНИ СООБЩЕСТВА (/groups/:id/inbox/:uid)
+// ───────── ДИАЛОГ С ПОЛЬЗОВАТЕЛЕМ ОТ ИМЕНИ СООБЩЕСТВА (/groups/:id/inbox/:uid) — полноценный мессенджер
 router.add('/groups/:id/inbox/:uid', async ctx => {
   const id = +ctx.params.id, uid = +ctx.params.uid;
   const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/inbox/${uid}`)]);
   const peer = d.peer;
   ctx.title(`${peer.nick} · Сообщения ${g.name}`);
-  document.body.classList.add('msg-page');
-
-  const scrollEl = h('div.msg-scroll');
-  let items = d.items || [];
-
-  const draw = () => {
-    if (!items.length) { scrollEl.replaceChildren(ui.empty('Сообщений нет', 'mail')); return; }
-    scrollEl.replaceChildren(...items.map(m => {
-      const mine = !!m.from_group;
-      return h('div.bubble-row' + (mine ? '.mine' : ''),
-        !mine ? ui.avatar(peer, 28) : null,
-        h('div.bubble' + (mine ? '.mine' : ''),
-          mine && m.staff ? h('div', { style: { fontSize: '.74rem', opacity: '.75', marginBottom: '2px' } }, `От имени сообщества · ${m.staff.nick}`) : null,
-          ui.html(m.msg, 'text'),
-          h('div.bubble-meta', h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })))));
-    }));
-    requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
-  };
-
-  const leaveSSE = events.join('group_dm:' + id, (ev, data) => {
-    if (ev === 'group_dm' && data && data.group_id === id && data.user_id === uid && !items.some(x => x.id === data.id)) {
-      items.push(data);
-      draw();
-    }
-  });
-  ctx.onLeave(() => {
-    document.body.classList.remove('msg-page');
-    leaveSSE && leaveSSE();
-  });
 
   const head = h('div.msg-head',
     h('a.icon-btn', { href: `/groups/${id}/inbox`, title: 'К диалогам' }, icon('arrow-left', 20)),
     ui.avatar(peer, 36),
     h('div.msg-head-info', ui.userLink(peer), h('div.msg-status', `Ответ от имени «${g.name}»`)));
 
-  const foot = h('div.msg-foot');
-  if (d.can_write) {
-    const ta = h('textarea.msg-input', { rows: 1, placeholder: `Ответить от имени «${g.name}»…`, maxlength: 2000 });
-    const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', disabled: true }, icon('send', 18));
-    const sync = () => {
-      ta.style.height = 'auto';
-      ta.style.height = Math.min(110, Math.max(38, ta.scrollHeight)) + 'px';
-      sendBtn.disabled = !ta.value.trim();
-    };
-    const send = async () => {
-      const msg = ta.value.trim();
-      if (!msg || sendBtn.disabled) return;
-      sendBtn.disabled = true;
-      try {
-        ta.value = ''; sync();
-        const r = await api.post(`/api/groups/${id}/inbox/${uid}`, { msg });
-        if (!items.some(x => x.id === r.id)) { items.push(r); draw(); }
-      } finally { sync(); }
-    };
-    sendBtn.onclick = send;
-    ta.oninput = sync;
-    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); send(); } };
-    foot.append(h('div.msg-compose', h('div.msg-input-wrap', ta), sendBtn));
-  } else {
-    foot.append(h('div.pad.small.muted.center', 'Отправка ответов недоступна.'));
-  }
-
-  draw();
-  return h('div.msg-shell', head, scrollEl, foot);
+  return state.renderRichGroupDialog({
+    ctx, head,
+    initialItems: d.items,
+    initialPinned: d.pinned,
+    canWrite: d.can_write,
+    emptyText: 'Сообщений нет',
+    disabledText: 'Отправка ответов недоступна.',
+    placeholder: `Ответить от имени «${g.name}»…`,
+    isMine: m => !!m.from_group,
+    senderLabel: m => (m.from_group ? g.name : peer.nick),
+    showStaff: true,
+    canDeleteMsg: () => true,
+    onSend: payload => api.post(`/api/groups/${id}/inbox/${uid}`, payload),
+    onPin: m => api.post(`/api/group-dm/${m.id}/pin`),
+    onDelete: m => api.del(`/api/group-dm/${m.id}`),
+    onSubscribe: cb => events.join('group_dm:' + id, (ev, data) => {
+      if (ev === 'group_dm' && data && data.group_id === id && data.user_id === uid) cb(data);
+    }),
+  });
 }, { auth: true });

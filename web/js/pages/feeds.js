@@ -161,14 +161,40 @@ router.add('/mail', async ctx => {
   ctx.title('Почта');
   const type = ctx.query.type || 'common';
   const reload = () => router.render();
-  const d = await api.get('/api/konts', { page: ctx.page, type });
+  const [d, gd] = await Promise.all([
+    api.get('/api/konts', { page: ctx.page, type }),
+    type === 'common' && ctx.page === 1 ? api.get('/api/my-group-dialogs', null, { silent: true }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
+  ]);
   const sel = new Set();
-  const rows = d.items.map(k => h('div.list-item' + (k.new ? '.unread' : ''),
-    h('input', { type: 'checkbox', onchange: e => e.target.checked ? sel.add(k.user.id) : sel.delete(k.user.id) }),
-    ui.avatar(k.user, 44), h('a.main', { href: '/mail/' + k.user.id, style: { color: 'inherit', textDecoration: 'none' } },
-      h('div.title', k.name || k.user.nick, k.new ? h('span.badge.danger', { style: { marginLeft: '8px' } }, '+' + k.new) : null),
-      k.last ? h('div.small.muted.clip', (k.last.mine ? 'Вы: ' : '') + k.last.text) : h('div.small.muted', 'Сообщений нет')),
-    k.last ? ui.time(k.last.time) : null, ...(type === 'deleted' ? [h('span.small.muted', 'удалится ' + fmt.date(k.expires))] : [])));
+
+  const initialOf = s => (Array.from((s || 'С').trim())[0] || 'С').toUpperCase();
+  const merged = [
+    ...d.items.map(k => ({ kind: 'user', time: (k.last && k.last.time) || k.time || 0, data: k })),
+    ...(gd.items || []).map(g => ({ kind: 'group', time: g.time || 0, data: g })),
+  ].sort((a, b) => b.time - a.time);
+
+  const rows = merged.map(entry => {
+    if (entry.kind === 'group') {
+      const item = entry.data;
+      const g = item.group;
+      return h('a.list-item' + (item.new ? '.unread' : ''), { href: '/mail/group/' + g.id },
+        h('div.grp-ava-sm', { style: { width: '44px', height: '44px', borderRadius: '12px', fontSize: '1.05rem', flexShrink: '0', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,var(--accent),#ec4899)', color: '#fff', fontWeight: '800', overflow: 'hidden' } },
+          g.avatar ? h('img', { src: g.avatar, alt: g.name, style: { width: '100%', height: '100%', objectFit: 'cover' } }) : initialOf(g.name)),
+        h('div.main',
+          h('div.title', g.name,
+            h('span.badge.primary', { style: { marginLeft: '6px' } }, 'Сообщество'),
+            item.new ? h('span.badge.danger', { style: { marginLeft: '6px' } }, '+' + item.new) : null),
+          item.last ? h('div.small.muted.clip', (item.last.mine ? 'Вы: ' : '') + item.last.text) : h('div.small.muted', 'Сообщений нет')),
+        item.last ? ui.time(item.last.time) : null);
+    }
+    const k = entry.data;
+    return h('div.list-item' + (k.new ? '.unread' : ''),
+      h('input', { type: 'checkbox', onchange: e => e.target.checked ? sel.add(k.user.id) : sel.delete(k.user.id) }),
+      ui.avatar(k.user, 44), h('a.main', { href: '/mail/' + k.user.id, style: { color: 'inherit', textDecoration: 'none' } },
+        h('div.title', k.name || k.user.nick, k.new ? h('span.badge.danger', { style: { marginLeft: '8px' } }, '+' + k.new) : null),
+        k.last ? h('div.small.muted.clip', (k.last.mine ? 'Вы: ' : '') + k.last.text) : h('div.small.muted', 'Сообщений нет')),
+      k.last ? ui.time(k.last.time) : null, ...(type === 'deleted' ? [h('span.small.muted', 'удалится ' + fmt.date(k.expires))] : []));
+  });
   const move = (t, l, kind) => ui.btn(l, { small: true, kind, onclick: async () => { if (!sel.size) return ui.toast('Отметьте контакты', 'warn'); await api.post('/api/konts/move', { ids: [...sel], type: t }); reload(); } });
   const to = h('input.input', { placeholder: 'Логин получателя' });
   const msg = h('textarea.input', { rows: 3, placeholder: 'Сообщение (2–1024 символа)', maxlength: 1024 });
@@ -176,7 +202,7 @@ router.add('/mail', async ctx => {
     ui.btn('Отправить', { kind: 'primary', ic: 'send', onclick: async () => { const r = await api.post('/api/mail/send', { to: to.value, msg: msg.value }); ui.ok('Сообщение отправлено'); router.go('/mail/' + r.id); } })));
   return [ui.pageHead('Почта'), mailTabs(type), compose,
     ui.card(rows.length ? h('div.list', rows) : ui.empty(type === 'common' ? 'Контактов пока нет' : 'Список пуст', 'mail')),
-    rows.length ? h('div.row', ...KONT_TABS.filter(([k]) => k !== type).map(([k, l]) => move(k, k === 'deleted' ? 'Удалить' : k === 'common' ? 'В контакты' : k === 'favorite' ? 'В избранные' : 'В игнор', k === 'deleted' ? 'danger' : ''))) : null,
+    d.items.length ? h('div.row', ...KONT_TABS.filter(([k]) => k !== type).map(([k, l]) => move(k, k === 'deleted' ? 'Удалить' : k === 'common' ? 'В контакты' : k === 'favorite' ? 'В избранные' : 'В игнор', k === 'deleted' ? 'danger' : ''))) : null,
     type === 'deleted' ? h('div.muted.small', 'Удалённые контакты очищаются через 30 дней вместе с перепиской.') : null, ui.pager(d)];
 }, { auth: true });
 
@@ -607,4 +633,291 @@ router.add('/mail/:id', async ctx => {
   renderPinned();
   renderMessages(true);
   return h('div.msg-shell', head, pinnedHost, scrollEl, foot);
+}, { auth: true });
+
+// ───────── УНИВЕРСАЛЬНЫЙ ПОЛНОФУНКЦИОНАЛЬНЫЙ МЕССЕНДЖЕР ДЛЯ ПЕРЕПИСОК С СООБЩЕСТВАМИ
+function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrite, emptyText, disabledText, placeholder, isMine, senderLabel, showStaff, canDeleteMsg, onSend, onPin, onDelete, onSubscribe }) {
+  document.body.classList.add('msg-page');
+  let items = [...(initialItems || [])];
+  let pinnedMsg = initialPinned || null;
+  let replyTo = null;
+  let attach = null;
+
+  const scrollEl = h('div.msg-scroll');
+  const pinnedHost = h('div');
+  const chipHost = h('div');
+
+  const jumpToMsg = mid => {
+    const el = scrollEl.querySelector(`.bubble[data-mid="${mid}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1200);
+  };
+
+  const renderPinned = () => {
+    if (!pinnedMsg) { pinnedHost.replaceChildren(); return; }
+    pinnedHost.replaceChildren(h('div.msg-pinned', { onclick: () => jumpToMsg(pinnedMsg.id) },
+      icon('pin', 16),
+      h('div.msg-pinned-body',
+        h('div.msg-pinned-title', `Закреплено · ${pinnedMsg.nick}`),
+        h('div.msg-pinned-text', pinnedMsg.text || 'Сообщение')),
+      h('button.icon-btn', {
+        type: 'button', title: 'Открепить',
+        onclick: async e => { e.stopPropagation(); await onPin(pinnedMsg); pinnedMsg = null; items.forEach(x => { x.pinned = false; }); renderPinned(); renderMessages(false); },
+      }, icon('x', 16))));
+  };
+
+  let syncTa = () => {};
+  const renderChips = () => {
+    const nodes = [];
+    if (replyTo) {
+      nodes.push(h('div.msg-bar-chip',
+        icon('corner-up-left', 16),
+        h('div.chip-main', h('div.chip-title', `Ответ · ${replyTo.nick}`), h('div.chip-text', replyTo.text)),
+        h('button.icon-btn', { type: 'button', onclick: () => { replyTo = null; renderChips(); } }, icon('x', 16))));
+    }
+    if (attach) {
+      const lbl = { foto: 'Фотография', files: 'Личный файл', shorts: 'Клип' }[attach.type] || 'Вложение';
+      nodes.push(h('div.msg-bar-chip',
+        attach.image ? h('img', { src: attach.image, alt: '' }) : icon('paperclip', 16),
+        h('div.chip-main', h('div.chip-title', lbl), h('div.chip-text', attach.title)),
+        h('button.icon-btn', { type: 'button', onclick: () => { attach = null; renderChips(); syncTa(); } }, icon('x', 16))));
+    }
+    chipHost.replaceChildren(...nodes);
+  };
+
+  const renderMessages = (keepBottom = true) => {
+    const prevH = scrollEl.scrollHeight;
+    const prevTop = scrollEl.scrollTop;
+    const nodes = [];
+    if (!items.length) {
+      nodes.push(ui.empty(emptyText, 'mail'));
+    } else {
+      let lastDay = '';
+      items.forEach(m => {
+        const mine = isMine(m);
+        const dl = dayLabel(m.time);
+        if (dl !== lastDay) { lastDay = dl; nodes.push(h('div.msg-day', dl)); }
+        const openMenu = e => {
+          if (e.target.closest('a, .bubble-reply')) return;
+          e.preventDefault();
+          const close = () => back.remove();
+          const itemBtn = (ic, label, fn, danger = false) => h('button.msg-ctx-item' + (danger ? '.danger' : ''), {
+            type: 'button', onclick: () => { close(); fn(); },
+          }, icon(ic, 18), label);
+          const menu = h('div.msg-ctx',
+            itemBtn('corner-up-left', 'Ответить', () => {
+              replyTo = { id: m.id, nick: senderLabel(m), text: (m.raw || '').slice(0, 80) || (m.attach ? m.attach.title : 'Сообщение') };
+              renderChips();
+            }),
+            itemBtn('pin', m.pinned ? 'Открепить' : 'Закрепить', async () => {
+              const r = await onPin(m);
+              items.forEach(x => { x.pinned = false; });
+              m.pinned = !!r.pinned;
+              pinnedMsg = m.pinned ? { id: m.id, nick: senderLabel(m), text: (m.raw || '').slice(0, 80) || (m.attach ? m.attach.title : 'Сообщение') } : null;
+              renderPinned();
+              renderMessages(false);
+            }),
+            m.raw ? itemBtn('copy', 'Копировать текст', () => navigator.clipboard?.writeText(m.raw).then(() => ui.ok('Скопировано'))) : null,
+            canDeleteMsg(m) ? itemBtn('trash', 'Удалить', async () => {
+              await onDelete(m);
+              items = items.filter(x => x.id !== m.id);
+              if (pinnedMsg && pinnedMsg.id === m.id) { pinnedMsg = null; renderPinned(); }
+              renderMessages(false);
+            }, true) : null);
+          const back = h('div.msg-ctx-back', { onclick: ev => { if (ev.target === back) close(); } }, menu);
+          document.body.append(back);
+        };
+        const bubble = h('div.bubble' + (mine ? '.mine' : ''), {
+          dataset: { mid: String(m.id) },
+          onclick: openMenu,
+          oncontextmenu: openMenu,
+        },
+          showStaff && mine && m.staff ? h('div', { style: { fontSize: '.74rem', opacity: '.75', marginBottom: '2px' } }, `От имени сообщества · ${m.staff.nick}`) : null,
+          m.reply ? h('div.bubble-reply', { onclick: e => { e.stopPropagation(); jumpToMsg(m.reply.id); } }, h('b', m.reply.nick), h('span', m.reply.text)) : null,
+          renderBubbleAttach(m.attach),
+          m.msg ? ui.html(m.msg, 'text') : null,
+          h('div.bubble-meta',
+            m.pinned ? icon('pin', 11) : null,
+            h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
+            mine ? icon(m.read ? 'check-all' : 'check', 14) : null));
+        nodes.push(h('div.bubble-row' + (mine ? '.mine' : ''), bubble));
+      });
+    }
+    scrollEl.replaceChildren(...nodes);
+    if (keepBottom) requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
+    else requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight - prevH + prevTop; });
+  };
+
+  const foot = h('div.msg-foot');
+  if (canWrite) {
+    const ta = h('textarea.msg-input', { rows: 1, placeholder: placeholder || 'Сообщение…', maxlength: 2000 });
+    const charEl = h('span.msg-char');
+    const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', 'aria-label': 'Отправить', disabled: true }, icon('send', 18));
+    const drawerHost = h('div');
+    let activeDrawer = '';
+
+    syncTa = () => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(120, Math.max(38, ta.scrollHeight)) + 'px';
+      const n = ta.value.trim().length;
+      sendBtn.disabled = n < 1 && !attach;
+      if (ta.value.length > 1700) {
+        charEl.textContent = `${ta.value.length}/2000`;
+        charEl.classList.toggle('warn', ta.value.length > 1920);
+      } else {
+        charEl.textContent = '';
+      }
+    };
+
+    const wrap = (a, b = '') => {
+      const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+      ta.value = v.slice(0, s) + a + v.slice(s, e) + b + v.slice(e);
+      ta.focus();
+      ta.selectionStart = s + a.length;
+      ta.selectionEnd = e + a.length;
+      syncTa();
+    };
+
+    const attBtn = h('button.msg-tool', {
+      type: 'button', title: 'Прикрепить фото, файл или клип', 'aria-label': 'Прикрепить',
+      onclick: () => openAttachPicker(a => { attach = a; renderChips(); syncTa(); }),
+    }, icon('paperclip', 20));
+    const bbBtn = h('button.msg-tool', { type: 'button', title: 'Форматирование (BBCode)', 'aria-label': 'Форматирование' }, h('b', { style: { fontSize: '.9rem' } }, 'Aa'));
+    const smBtn = h('button.msg-tool', { type: 'button', title: 'Смайлы', 'aria-label': 'Смайлы' }, icon('smile', 20));
+
+    const toggleDrawer = async which => {
+      activeDrawer = activeDrawer === which ? '' : which;
+      bbBtn.classList.toggle('active', activeDrawer === 'bb');
+      smBtn.classList.toggle('active', activeDrawer === 'smiles');
+      if (!activeDrawer) { drawerHost.replaceChildren(); return; }
+
+      if (activeDrawer === 'bb') {
+        const bb = state.config.bb || {};
+        const ribbon = h('div.msg-bb-ribbon');
+        const addBtn = (lbl, title, fn, key) => {
+          if (key && bb[key] === false) return;
+          ribbon.append(h('button.msg-bb-btn', { type: 'button', title, onclick: fn }, lbl));
+        };
+        addBtn(h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b');
+        addBtn(h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i');
+        addBtn(h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u');
+        addBtn(icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]'));
+        addBtn(icon('hash', 14), 'Код', () => wrap('[code]', '[/code]'), 'code');
+        addBtn(icon('link', 14), 'Вставить ссылку', async () => {
+          const u = await ui.prompt('Адрес ссылки (https://...)', 'https://', { title: 'Вставить ссылку' });
+          if (u && u.trim()) {
+            const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+            wrap(`[url=${u.trim()}]`, sel ? '[/url]' : `${u.trim()}[/url]`);
+          }
+        }, 'url');
+        addBtn(icon('image', 14), 'Вставить картинку', async () => {
+          const u = await ui.prompt('Ссылка на картинку (https://...)', 'https://', { title: 'Вставить картинку' });
+          if (u && u.trim()) wrap(`[img]${u.trim()}[/img]`);
+        }, 'img');
+        ribbon.append(h('span.msg-bb-sep'));
+        [['red', '#e11d48', 'Красный'], ['yellow', '#eab308', 'Жёлтый'], ['green', '#16a34a', 'Зелёный'], ['blue', '#2563eb', 'Синий']].forEach(([tag, col, title]) => {
+          if (bb[tag] === false) return;
+          ribbon.append(h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${tag}]`, `[/${tag}]`) }));
+        });
+        drawerHost.replaceChildren(h('div.msg-drawer', ribbon));
+      } else if (activeDrawer === 'smiles') {
+        const box = h('div.msg-smiles-drawer', ui.loading());
+        drawerHost.replaceChildren(h('div.msg-drawer', box));
+        const list = await getSmiles();
+        if (!list.length) box.replaceChildren(h('span.small.muted', 'Смайлов нет'));
+        else box.replaceChildren(...list.map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => wrap(' ' + s.code + ' ') }, h('img', { src: s.url, alt: s.code }))));
+      }
+    };
+
+    bbBtn.onclick = () => toggleDrawer('bb');
+    smBtn.onclick = () => toggleDrawer('smiles');
+
+    const doSend = async () => {
+      const msg = ta.value.trim();
+      if ((msg.length < 1 && !attach) || sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      try {
+        const res = await onSend({
+          msg,
+          reply_id: replyTo ? replyTo.id : 0,
+          att_type: attach ? attach.type : '',
+          att_id: attach ? attach.id : 0,
+        });
+        ta.value = '';
+        replyTo = null;
+        attach = null;
+        renderChips();
+        syncTa();
+        if (res && !items.some(x => x.id === res.id)) {
+          items.push(res);
+          renderMessages(true);
+        }
+      } finally { syncTa(); }
+    };
+
+    sendBtn.onclick = doSend;
+    ta.oninput = syncTa;
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); doSend(); } };
+    foot.append(chipHost, drawerHost, h('div.msg-compose', attBtn, smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
+  } else {
+    foot.append(h('div.pad.small.muted.center', disabledText || 'Отправка сообщений отключена.'));
+  }
+
+  const unsub = onSubscribe ? onSubscribe(incoming => {
+    if (incoming && !items.some(x => x.id === incoming.id)) {
+      items.push(incoming);
+      renderMessages(true);
+      refreshCounters();
+    }
+  }) : null;
+  ctx.onLeave(() => {
+    document.body.classList.remove('msg-page');
+    unsub && unsub();
+  });
+
+  renderPinned();
+  renderMessages(true);
+  return h('div.msg-shell', head, pinnedHost, scrollEl, foot);
+}
+
+state.renderRichGroupDialog = renderRichGroupDialog;
+
+// ───────── ДИАЛОГ С СООБЩЕСТВОМ В ПОЧТЕ (/mail/group/:id)
+router.add('/mail/group/:id', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/dm`)]);
+  refreshCounters();
+  ctx.title(`Диалог: ${g.name}`);
+  const initialOf = s => (Array.from((s || 'С').trim())[0] || 'С').toUpperCase();
+
+  const head = h('div.msg-head',
+    h('a.icon-btn', { href: '/mail', title: 'Назад к почте', 'aria-label': 'Назад' }, icon('arrow-left', 20)),
+    h('div.grp-ava-sm', { style: { width: '38px', height: '38px', borderRadius: '10px', fontSize: '1rem', flexShrink: '0', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,var(--accent),#ec4899)', color: '#fff', fontWeight: '800', overflow: 'hidden' } },
+      g.avatar ? h('img', { src: g.avatar, alt: g.name, style: { width: '100%', height: '100%', objectFit: 'cover' } }) : initialOf(g.name)),
+    h('div.msg-head-info',
+      h('a', { href: '/groups/' + id, style: { fontWeight: '700', color: 'inherit', textDecoration: 'none' } }, g.name),
+      h('div.msg-status', 'Сообщество · личные сообщения')),
+    ui.btn('', { ic: 'users', small: true, title: 'Перейти в сообщество', href: '/groups/' + id }));
+
+  return renderRichGroupDialog({
+    ctx, head,
+    initialItems: d.items,
+    initialPinned: d.pinned,
+    canWrite: d.can_write,
+    emptyText: 'Напишите первое сообщение сообществу — администрация сможет ответить вам прямо в этом диалоге.',
+    disabledText: 'Отправка новых сообщений в это сообщество отключена.',
+    placeholder: 'Сообщение сообществу…',
+    isMine: m => !m.from_group,
+    senderLabel: m => (m.from_group ? g.name : state.user.nick),
+    showStaff: false,
+    canDeleteMsg: m => !m.from_group,
+    onSend: payload => api.post(`/api/groups/${id}/dm`, payload),
+    onPin: m => api.post(`/api/group-dm/${m.id}/pin`),
+    onDelete: m => api.del(`/api/group-dm/${m.id}`),
+    onSubscribe: cb => bus.on('sse:group_dm', data => {
+      if (data && data.group_id === id && data.user_id === state.user?.id) cb(data);
+    }),
+  });
 }, { auth: true });
