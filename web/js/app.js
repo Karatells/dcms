@@ -121,7 +121,9 @@ function drawTop() {
     can('adm_panel_show') ? { label: 'Администрирование', href: '/admin', icon: 'shield' } : null, { sep: true },
     { label: 'Выйти', icon: 'log-out', danger: true, onclick: logout },
   ]);
-  const createBtn = h('a.icon-btn', { href: '/create', title: 'Создать публикацию', 'aria-label': 'Создать' }, icon('plus', 20));
+  const createBtn = h('a.icon-btn.top-hide-mob', { href: '/create', title: 'Создать публикацию', 'aria-label': 'Создать' }, icon('plus', 20));
+  const mailBtn = topButton('/mail', 'mail', 'mail', 'Почта');
+  mailBtn.classList.add('top-hide-mob');
   const isStaff = u.level >= 1 || can('adm_panel_show');
   let staffBtn = null;
   if (isStaff) {
@@ -135,7 +137,7 @@ function drawTop() {
       },
     }, icon('shield', 20), dot);
   }
-  top.append(searchBtn, createBtn, themeBtn, staffBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), topButton('/mail', 'mail', 'mail', 'Почта'), topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
+  top.append(searchBtn, createBtn, themeBtn, staffBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), mailBtn, topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
 }
 async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('Выйти из аккаунта?'))) return; await api.post('/api/logout'); await refreshMe(); events.restart(); router.go('/'); }
 
@@ -176,7 +178,7 @@ async function drawSide() {
   });
   firstMenu.forEach(m => mediaNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
   mediaNav.append(mk('/music', 'music', 'Музыка'));
-  restMenu.slice(0, 5).forEach(m => mediaNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
+  restMenu.slice(0, 3).forEach(m => mediaNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
   parts.push(mediaNav);
 
   // 3. Активность, игры и бонусы
@@ -203,7 +205,7 @@ async function drawSide() {
       mk('/user/money', 'coins', 'Монеты'),
       mk('/user/settings', 'settings', 'Настройки'));
   }
-  restMenu.slice(5).forEach(m => moreNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
+  restMenu.slice(3).forEach(m => moreNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
   moreNav.append(mk('/developers', 'key', 'Разработчикам (API)'));
 
   const moreOpen = location.pathname.startsWith('/user/') || location.pathname.startsWith('/developers');
