@@ -88,6 +88,7 @@ async function drawSide() {
       mk('/user/money', 'coins', 'Монеты'), mk('/user/settings', 'settings', 'Настройки')));
     if (can('adm_panel_show')) parts.push(h('nav.nav', mk('/admin', 'shield', 'Администрирование', 'admin')));
   }
+  parts.push(h('nav.nav', h('div.nav-title', 'Инструменты'), link('/developers', icon('key', 19), 'Разработчикам (API)')));
   const head = h('div.side-head',
     h('a.logo', { href: '/' }, h('span.logo-mark', icon('message-circle', 18)), h('span', state.config.site_name || 'DCMS Social')),
     h('button.icon-btn', { onclick: closeNav, 'aria-label': 'Закрыть меню', title: 'Закрыть' }, icon('x', 20)));

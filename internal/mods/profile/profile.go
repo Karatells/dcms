@@ -172,6 +172,51 @@ func Register(a *core.App) {
 	registerLists(a)
 }
 
+// GetWallPosts возвращает записи со стены пользователя (используется публичным API v1).
+func GetWallPosts(a *core.App, targetID int64, offset, per int) ([]map[string]any, int) {
+	all := stena.By("wall", store.I(targetID))
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + per
+	if end > total {
+		end = total
+	}
+	var sl []Stena
+	if offset < total {
+		sl = all[offset:end]
+	}
+	items := make([]map[string]any, 0, len(sl))
+	for _, s := range sl {
+		items = append(items, map[string]any{
+			"id":        s.ID,
+			"wall_id":   s.IDStena,
+			"author":    a.Ref(s.IDUser),
+			"text":      s.Msg,
+			"html":      a.Text.Render(s.Msg),
+			"likes":     stenaLike.CountBy("post", store.I(s.ID)),
+			"time":      s.Time,
+		})
+	}
+	return items, total
+}
+
+// CreateWallPost добавляет запись на стену пользователя (используется публичным API v1).
+func CreateWallPost(a *core.App, authorID, targetID int64, msg string) (Stena, error) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return Stena{}, core.ErrBad("Текст записи не может быть пустым")
+	}
+	if utf8.RuneCountInString(msg) > 1024 {
+		return Stena{}, core.ErrBad("Максимум 1024 символа")
+	}
+	id := stena.Insert(&Stena{IDUser: authorID, IDStena: targetID, Time: core.Now(), Msg: msg})
+	p, _ := stena.Get(id)
+	return p, nil
+}
+
 // ---- вспомогательные
 
 type viewState int
