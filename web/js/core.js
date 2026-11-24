@@ -1,5 +1,15 @@
 // DCMS frontend core: api, router, hyperscript, ui-kit, icons, events. Vanilla ES modules, no build step.
 
+// Защита от вывода "null"/"undefined"/"false" в DOM при передаче условных элементов в replaceChildren/append/prepend
+for (const m of ['replaceChildren', 'append', 'prepend', 'before', 'after']) {
+  const orig = Element.prototype[m];
+  if (typeof orig === 'function') {
+    Element.prototype[m] = function (...args) {
+      return orig.apply(this, args.filter(x => x !== null && x !== undefined && x !== false && x !== true));
+    };
+  }
+}
+
 // ───────────────────────────────────────────── helpers
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
