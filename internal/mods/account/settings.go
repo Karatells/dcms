@@ -66,6 +66,7 @@ func registerSettings(a *core.App) {
 		a.T.Users.Update(u.ID, func(x *model.User) {
 			x.ShowURL, x.Abuld, x.SetFiles, x.SetPStr, x.Theme, x.Accent = in.ShowURL, in.Abuld, in.Files, in.PStr, in.Theme, in.Accent
 		})
+		a.DropUserCache(u.ID)
 		return c.OK("message", "Настройки обновлены")
 	}, core.Auth)
 
@@ -79,6 +80,7 @@ func registerSettings(a *core.App) {
 			return err
 		}
 		a.T.Users.Update(u.ID, func(x *model.User) { x.Theme = in.Theme; x.Accent = in.Accent })
+		a.DropUserCache(u.ID)
 		return c.OK()
 	}, core.Auth)
 

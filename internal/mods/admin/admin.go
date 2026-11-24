@@ -50,7 +50,7 @@ func registerUsers(a *core.App) {
 		return c.JSON(map[string]any{
 			"id": u.ID, "nick": u.Nick, "name": u.AnkName, "city": u.AnkCity, "about": u.AnkOSebe, "skype": u.AnkSkype,
 			"phone": u.AnkNTel, "email": u.Email, "day": u.AnkDR, "month": u.AnkMR, "year": u.AnkGR, "pol": u.Pol,
-			"group": u.GroupAccess, "balls": u.Balls, "money": u.Money, "set_files": u.SetFiles, "set_time_chat": u.SetTimeChat, "set_p_str": u.SetPStr,
+			"group": u.GroupAccess, "balls": u.Balls, "money": u.Money, "set_files": u.SetFiles, "set_time_chat": u.SetTimeChat, "set_p_str": u.SetPStr, "verified": u.Verified,
 			"groups": groups, "can_nick": c.Can("user_change_nick"), "can_group": c.Can("user_change_group"),
 			"can_balls": me.Level >= 3 || me.ID == u.ID, "can_delete": c.Can("user_delete") && canTouch(me, u),
 			"ip": ifShow(c.Can("user_show_ip"), u.IP), "ua": ifShow(c.Can("user_show_ua"), u.UA),
@@ -86,6 +86,7 @@ func registerUsers(a *core.App) {
 			Group    *int64  `json:"group"`
 			Balls    *int64  `json:"balls"`
 			SetFiles *bool   `json:"set_files"`
+			Verified *bool   `json:"verified"`
 			TimeChat *int64  `json:"set_time_chat"`
 			PStr     *int64  `json:"set_p_str"`
 		}
@@ -181,6 +182,9 @@ func registerUsers(a *core.App) {
 			}
 			if in.SetFiles != nil {
 				x.SetFiles = *in.SetFiles
+			}
+			if in.Verified != nil {
+				x.Verified = *in.Verified
 			}
 			if in.TimeChat != nil {
 				x.SetTimeChat = *in.TimeChat

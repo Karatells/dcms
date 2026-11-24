@@ -126,7 +126,8 @@ router.add('/admin/user/:id', async ctx => {
     { name: 'new_pass', label: 'Новый пароль', type: 'password', hint: 'Оставьте пустым, чтобы не менять (минимум 6 символов)', autocomplete: 'new-password' },
     { name: 'group', label: 'Группа', type: 'select', value: u.group, disabled: !u.can_group, options: u.groups.filter(g => g.allowed || g.id === u.group).map(g => ({ value: g.id, label: g.name })) },
     f('balls', 'Баллы', { type: 'number', disabled: !u.can_balls }), f('set_time_chat', 'Автообновление, сек', { type: 'number', min: 0, max: 900 }), f('set_p_str', 'Пунктов на страницу', { type: 'number', min: 0, max: 100 }),
-    { name: 'set_files', label: 'Показывать файлы в ленте', type: 'checkbox', value: u.set_files }],
+    { name: 'set_files', label: 'Показывать файлы в ленте', type: 'checkbox', value: u.set_files },
+    { name: 'verified', label: 'Верифицированный аккаунт (галочка)', type: 'checkbox', value: !!u.verified }],
     { submit: 'Сохранить', onSubmit: async v => {
       const b = { ...v, group: +v.group, pol: +v.pol, balls: v.balls ?? 0 }; if (!u.can_nick) delete b.nick; if (!u.can_group) delete b.group; if (!u.can_balls) delete b.balls;
       for (const k of ['day', 'month', 'year', 'set_time_chat', 'set_p_str']) b[k] = v[k] ?? 0;

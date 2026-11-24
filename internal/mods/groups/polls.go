@@ -350,7 +350,7 @@ func registerPollsAndStats(a *core.App) {
 		if err != nil {
 			return err
 		}
-		if me.Level < 3 && !a.Can(me.ID, "adm_set_user") {
+		if me.Level < 3 && !a.Can(me.ID, "adm_set_user") && !a.Can(me.ID, "user_prof_edit") {
 			return core.ErrForbidden()
 		}
 		uid := c.PathInt("id")

@@ -27,22 +27,30 @@ router.add('/id:id', async ctx => {
     const u = d.user;
     ctx.title(u.nick);
     const self = d.self;
+    const canVerify = me() && (me().level >= 3 || can('user_prof_edit') || can('adm_set_user'));
+    const verifyBtn = canVerify ? ui.btn(u.verified ? 'Снять галочку' : 'Верифицировать', {
+      ic: 'check', kind: u.verified ? 'primary' : '', small: true,
+      title: u.verified ? 'Снять верификацию' : 'Выдать галочку верификации',
+      onclick: async () => { const r = await api.post(`/api/admin/user/${u.id}/verify`); ui.ok(r.verified ? 'Аккаунт верифицирован' : 'Верификация снята'); render(); },
+    }) : null;
     const head = h('div.card.profile-head',
       h('div.profile-cover'),
       h('div.profile-main',
         h('div.profile-ava', ui.avatar(u, 112)),
         h('div.profile-name',
-          h('h1', u.nick, ' ', medal(u.medal)),
+          h('h1', u.nick,
+            u.verified ? h('span.ub.ver', { title: 'Подтверждённый аккаунт', style: { width: '20px', height: '20px', marginLeft: '6px', ...(u.accent ? { background: u.accent, boxShadow: '0 1px 4px ' + u.accent + '66' } : {}) } }, icon('check', 13)) : null,
+            ' ', medal(u.medal)),
           h('div.muted.small', u.group ? ui.badge(u.group, u.level >= 2 ? 'adm' : u.level >= 1 ? 'mod' : '') : null, ' ',
             u.online ? h('span.online-dot', 'сейчас на сайте') : h('span', 'был' + (u.pol ? '' : 'а') + ' ' + fmt.ago(d.date_last))),
           d.status ? h('div.profile-status', { html: d.status.msg }) : null),
         h('div.profile-actions', self
-          ? [ui.btn('Редактировать', { ic: 'edit', href: '/user/info/edit' }), ui.btn('Настройки', { ic: 'settings', href: '/user/settings' })]
+          ? [ui.btn('Редактировать', { ic: 'edit', href: '/user/info/edit' }), ui.btn('Настройки', { ic: 'settings', href: '/user/settings' }), verifyBtn]
           : [me() ? ui.btn('Написать', { ic: 'mail', kind: 'primary', href: '/mail/' + u.id }) : null,
              me() ? friendButton(u, d.friend, render) : null,
              me() ? ui.btn('', { ic: d.favorite ? 'heart' : 'bookmark', title: d.favorite ? 'Убрать из закладок' : 'В закладки', onclick: async () => { await api.post(`/api/user/${u.id}/favorite`, { on: !d.favorite }); render(); } }) : null,
              me() ? ui.btn('', { ic: 'gift', title: 'Подарить подарок', href: '/user/gift/' + u.id }) : null,
-             can('adm_set_user') ? ui.btn('', { ic: 'check', kind: u.verified ? 'primary' : '', title: u.verified ? 'Снять верификацию' : 'Выдать синюю галочку', onclick: async () => { const r = await api.post(`/api/admin/user/${u.id}/verify`); ui.ok(r.verified ? 'Галочка выдана' : 'Галочка снята'); render(); } }) : null,
+             verifyBtn,
              can('user_prof_edit') ? ui.btn('', { ic: 'settings', title: 'Редактировать (админ)', href: '/admin/user/' + u.id }) : null,
              can('user_ban_set') || can('user_ban_set_h') ? ui.btn('', { ic: 'gavel', title: 'Забанить', href: '/admin/ban/' + u.id }) : null])));
     const out = [head];

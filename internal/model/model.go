@@ -120,6 +120,7 @@ type UserRef struct {
 	Banned   bool   `json:"banned,omitempty"`
 	Deleted  bool   `json:"deleted,omitempty"`
 	Verified bool   `json:"verified,omitempty"`
+	Accent   string `json:"accent,omitempty"`
 }
 
 // UserGroup — таблица `user_group` старого движка.
