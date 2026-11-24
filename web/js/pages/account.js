@@ -173,7 +173,28 @@ router.add('/user/settings/privacy', async ctx => {
       ui.ok('Изменения успешно приняты');
     },
   });
-  return [ui.pageHead('Настройки'), setTabs('privacy'), ui.card(h('div.pad', form))];
+  const pushSt = await api.get('/api/push/status', null, { silent: true }).catch(() => ({ enabled: false }));
+  const pushBox = h('div.pad.row',
+    h('div.grow',
+      h('b', 'Системные Push-уведомления (PWA)'),
+      h('div.small.muted', 'Получайте уведомления о новых сообщениях и событиях, даже когда вкладка свёрнута.')),
+    pushSt.enabled && ('Notification' in window) && Notification.permission === 'granted'
+      ? ui.btn('Отключить Push', {
+        small: true, kind: 'danger',
+        onclick: async () => { await api.del('/api/push/subscribe'); ui.ok('Push-уведомления отключены'); router.render(); },
+      })
+      : ui.btn('Включить Push', {
+        ic: 'bell', small: true, kind: 'primary',
+        onclick: async () => {
+          if (!('Notification' in window)) return ui.toast('Ваш браузер не поддерживает системные уведомления', 'warn');
+          const perm = await Notification.requestPermission();
+          if (perm !== 'granted') return ui.toast('Разрешение на уведомления не выдано', 'warn');
+          await api.post('/api/push/subscribe', { endpoint: 'browser-notification:' + state.user.id });
+          ui.ok('Push-уведомления включены!');
+          router.render();
+        },
+      }));
+  return [ui.pageHead('Настройки'), setTabs('privacy'), ui.card(pushBox), ui.card(h('div.pad', form))];
 }, { auth: true });
 
 router.add('/user/settings/password', async ctx => {

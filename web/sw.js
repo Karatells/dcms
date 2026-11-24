@@ -26,3 +26,24 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.match(req).then(r => r || caches.match('/')))
   );
 });
+
+self.addEventListener('push', e => {
+  let data = { title: 'DCMS Social', body: 'Новое уведомление', url: '/' };
+  try { if (e.data) data = { ...data, ...e.data.json() }; } catch { if (e.data) data.body = e.data.text(); }
+  e.waitUntil(self.registration.showNotification(data.title, {
+    body: data.body,
+    data: { url: data.url || '/' },
+    badge: '/manifest.json',
+  }));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const target = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    for (const c of list) {
+      if ('focus' in c) { c.navigate(target); return c.focus(); }
+    }
+    return self.clients.openWindow(target);
+  }));
+});

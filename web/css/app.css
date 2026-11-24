@@ -562,3 +562,12 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 .avatar.ava-frame_cyber{box-shadow:0 0 0 2.5px #06b6d4,0 0 12px rgba(217,70,239,.75)}
 .avatar.ava-frame_cosmos{box-shadow:0 0 0 2.5px #6366f1,0 0 14px rgba(99,102,241,.8)}
 .avatar.ava-frame_gold{box-shadow:0 0 0 3px #f59e0b,0 0 14px rgba(251,191,36,.8)}
+
+/* ── Непрерывный SPA мини-плеер музыки ── */
+.mini-player{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:75;width:min(680px,calc(100vw - 24px));display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:16px;background:color-mix(in srgb,var(--bg-card) 94%,transparent);backdrop-filter:blur(14px);border:1px solid var(--border);box-shadow:0 12px 36px rgba(0,0,0,.32)}
+.mp-meta{min-width:110px;max-width:190px;overflow:hidden}
+.mp-title{font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mp-artist{font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mp-seek{flex:1;accent-color:var(--accent);cursor:pointer;min-width:60px}
+.mp-time{font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+@media (max-width:700px){.mini-player{bottom:66px;padding:6px 10px}.mp-meta{max-width:120px}}

@@ -141,7 +141,12 @@ async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('�
 
 async function drawSide() {
   let items = state.menu;
-  const nav = h('nav.nav', h('div.nav-title', 'Разделы'), link('/', icon('home', 19), 'Главная'));
+  const nav = h('nav.nav', h('div.nav-title', 'Разделы'),
+    link('/', icon('home', 19), 'Главная'),
+    link('/feed', icon('trending', 19), 'Умная лента'),
+    link('/music', icon('music', 19), 'Музыка'),
+    link('/games', icon('dice', 19), 'Мини-игры'),
+    link('/shop', icon('shopping-bag', 19), 'Магазин рамок'));
   items.forEach(m => {
     if (m.type === 'razd') nav.append(h('div.nav-title', m.name));
     else nav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 19), m.name, m.count ? h('span.cnt', m.count) : null));
@@ -153,8 +158,8 @@ async function drawSide() {
     parts.push(h('nav.nav', h('div.nav-title', 'Мой кабинет'),
       mk('/create', 'plus', 'Создать публикацию'),
       mk('/id' + u.id, 'user', 'Моя страница'), mk('/user/tape', 'rss', 'Лента', 'tape'), mk('/user/discussions', 'message-circle', 'Обсуждения', 'discussions'),
-      mk('/user/notification', 'bell', 'Уведомления', 'notification'), mk('/mail', 'mail', 'Почта', 'mail'), mk('/user/frends', 'users', 'Друзья', 'friends_new'),
-      mk('/user/myguest', 'eye', 'Гости', 'myguest'), mk('/user/bookmark', 'bookmark', 'Закладки'), mk('/user/gift', 'gift', 'Подарки'),
+      mk('/user/notification', 'bell', 'Уведомления', 'notification'), mk('/mail', 'mail', 'Почта', 'mail'), mk('/chats', 'users', 'Беседы'), mk('/user/frends', 'users', 'Друзья', 'friends_new'),
+      mk('/quests', 'award', 'Задания и бонусы'), mk('/user/myguest', 'eye', 'Гости', 'myguest'), mk('/user/bookmark', 'bookmark', 'Закладки'), mk('/user/gift', 'gift', 'Подарки'),
       mk('/vip', 'crown', 'VIP-подписка'), mk('/user/money', 'coins', 'Монеты'), mk('/user/settings', 'settings', 'Настройки')));
     if (can('adm_panel_show')) parts.push(h('nav.nav', mk('/admin', 'shield', 'Администрирование', 'admin')));
   }
@@ -239,9 +244,25 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', syncMsgViewport);
 }
 window.addEventListener('resize', syncMsgViewport);
+function fireSystemPush(title, body, url = '/') {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
+  if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+    navigator.serviceWorker.ready.then(reg => reg.showNotification(title, { body, data: { url } })).catch(() => {});
+  } else {
+    try { new Notification(title, { body }); } catch {}
+  }
+}
 bus.on('sse:counters', () => refreshCounters());
-bus.on('sse:notify', d => { refreshCounters(); ui.toast('🔔 ' + (d.from ? d.from.nick + ': ' : '') + (notifyTitle[d.type] || 'новое уведомление'), 'info'); });
-const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип', group_invite: 'приглашает вас в сообщество', group_req: 'подал заявку в ваше сообщество', group_req_ok: 'одобрил вашу заявку в сообщество', group_dm: 'ответили от имени сообщества' };
+bus.on('sse:message', m => {
+  if (m && m.from) fireSystemPush(m.from.nick, m.text || 'Новое сообщение', '/mail/' + m.from.id);
+});
+bus.on('sse:notify', d => {
+  refreshCounters();
+  const txt = (d.from ? d.from.nick + ': ' : '') + (notifyTitle[d.type] || 'новое уведомление');
+  ui.toast('🔔 ' + txt, 'info');
+  fireSystemPush(state.config.site_name || 'DCMS Social', txt, '/user/notification');
+});
+const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип', group_invite: 'приглашает вас в сообщество', group_req: 'подал заявку в ваше сообщество', group_req_ok: 'одобрил вашу заявку в сообщество', group_dm: 'ответили от имени сообщества', mention: 'упомянул вас', duel: 'вызвал вас на дуэль' };
 setInterval(() => { if (state.user && document.visibilityState === 'visible') refreshCounters(); }, 60000);
 
 // ── старт

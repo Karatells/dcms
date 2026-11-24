@@ -445,7 +445,7 @@ func msgView(a *core.App, m Mail, me int64) map[string]any {
 	}
 	if m.VoiceExt != "" {
 		out["voice"] = map[string]any{
-			"url": "/api/mail/voice/" + store.I(m.ID) + "." + m.VoiceExt,
+			"url": "/api/voice/" + store.I(m.ID) + "." + m.VoiceExt,
 			"dur": m.VoiceDur,
 		}
 	}
@@ -714,7 +714,7 @@ func registerMail(a *core.App) {
 		return c.JSON(msgView(a, m, me.ID))
 	}, core.Auth)
 
-	a.GET("/api/mail/voice/{file}", func(c *core.Ctx) error {
+	a.GET("/api/voice/{file}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err

@@ -202,6 +202,7 @@ func registerSettings(a *core.App) {
 	}, core.Auth)
 
 	registerTOTP(a)
+	registerPush(a)
 }
 
 func checkTheme(theme, accent string) error {

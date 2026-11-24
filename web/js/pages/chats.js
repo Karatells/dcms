@@ -65,7 +65,7 @@ router.add('/chats', async ctx => {
 // ───────── вступление по инвайт-ссылке
 router.add('/chats/join/:code', async ctx => {
   ctx.title('Приглашение в беседу');
-  const r = await api.post('/api/chats/join/' + encodeURIComponent(ctx.params.code));
+  const r = await api.post('/api/chat-join/' + encodeURIComponent(ctx.params.code));
   ui.ok('Вы присоединились к беседе!');
   router.go('/chats/' + r.id, true);
 }, { auth: true });

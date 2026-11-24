@@ -187,7 +187,7 @@ func Register(a *core.App) {
 	}, core.Auth)
 
 	// Вступить по инвайт-коду
-	a.POST("/api/chats/join/{code}", func(c *core.Ctx) error {
+	a.POST("/api/chat-join/{code}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
