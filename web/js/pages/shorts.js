@@ -5,7 +5,10 @@ if (!document.querySelector('link[href="/css/shorts.css"]')) {
 }
 
 const me = () => state.user;
-let globalMuted = true;
+let globalMuted = false;
+const syncMuteUI = muted => {
+  document.querySelectorAll('.short-mute').forEach(b => b.replaceChildren(icon(muted ? 'volume-x' : 'volume', 18)));
+};
 
 state.adminLinks.push({
   group: 'Модерация',
@@ -325,8 +328,14 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
     playsinline: true,
     muted: globalMuted,
     preload: 'metadata',
+    controlsList: 'nodownload noplaybackrate',
+    disablePictureInPicture: true,
+    oncontextmenu: e => e.preventDefault(),
   });
-  const card = h('article.short-card.paused', { dataset: { id: String(s.id) } });
+  const card = h('article.short-card.paused', {
+    dataset: { id: String(s.id) },
+    oncontextmenu: e => e.preventDefault(),
+  });
   const progFill = h('div.short-prog-fill');
   const prog = h('div.short-prog', h('div.short-prog-bg', progFill));
   const muteBtn = h('button.short-mute', { title: 'Звук', 'aria-label': 'Звук' }, icon(globalMuted ? 'volume-x' : 'volume', 18));
@@ -337,7 +346,7 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
     e.stopPropagation();
     globalMuted = !video.muted;
     document.querySelectorAll('.short-card video').forEach(v => { v.muted = globalMuted; });
-    document.querySelectorAll('.short-mute').forEach(b => b.replaceChildren(icon(globalMuted ? 'volume-x' : 'volume', 18)));
+    syncMuteUI(globalMuted);
   };
 
   video.onplay = () => {
@@ -353,7 +362,20 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
   video.ontimeupdate = () => {
     if (video.duration) progFill.style.width = ((video.currentTime / video.duration) * 100) + '%';
   };
-  video.onclick = () => { if (video.paused) video.play().catch(() => {}); else video.pause(); };
+  card.onclick = e => {
+    if (e.target.closest('button, a, .short-prog, .short-desc, .dropdown-menu')) return;
+    if (!globalMuted && video.muted && !video.paused) {
+      video.muted = false;
+      syncMuteUI(false);
+      return;
+    }
+    if (video.paused) {
+      video.muted = globalMuted;
+      video.play().catch(() => { video.muted = true; syncMuteUI(true); video.play().catch(() => {}); });
+    } else {
+      video.pause();
+    }
+  };
 
   prog.onclick = e => {
     e.stopPropagation();
@@ -568,7 +590,14 @@ async function renderShortsFeed(ctx, startID = 0) {
       if (!v) return;
       if (en.isIntersecting && en.intersectionRatio >= 0.6) {
         v.muted = globalMuted;
-        v.play().catch(() => {});
+        syncMuteUI(globalMuted);
+        v.play().catch(() => {
+          if (!v.muted) {
+            v.muted = true;
+            syncMuteUI(true);
+            v.play().catch(() => {});
+          }
+        });
         const idx = slides.findIndex(x => x.slide === en.target);
         if (idx >= slides.length - 2 && curPage < totalPages && !loadingMore) {
           loadMore();

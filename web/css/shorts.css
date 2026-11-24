@@ -19,8 +19,8 @@ body.shorts-fs .topbar, body.shorts-fs .tabbar, body.shorts-fs .footer { display
 
 .short-slide { height: 100%; width: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; position: relative; padding: 12px 0; }
 
-.short-card { position: relative; height: 100%; aspect-ratio: 9 / 16; max-width: min(460px, 100vw); background: #000; border-radius: 18px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, .75); border: 1px solid rgba(255, 255, 255, .1); display: flex; align-items: center; justify-content: center; user-select: none; }
-.short-card video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; cursor: pointer; }
+.short-card { position: relative; height: 100%; aspect-ratio: 9 / 16; max-width: min(460px, 100vw); background: #000; border-radius: 18px; overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, .75); border: 1px solid rgba(255, 255, 255, .1); display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; outline: none; cursor: pointer; }
+.short-card video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; pointer-events: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; outline: none; }
 
 .short-top-bar { position: absolute; top: 62px; left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; pointer-events: none; z-index: 4; }
 .short-pill { pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: rgba(10, 12, 24, .58); backdrop-filter: blur(8px); color: #fff; font-size: .78rem; font-weight: 600; border: 1px solid rgba(255, 255, 255, .12); }
