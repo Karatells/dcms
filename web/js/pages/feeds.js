@@ -326,14 +326,41 @@ router.add('/mail', async ctx => {
     return el;
   });
 
-  const to = h('input.input', { placeholder: 'Логин получателя' });
-  const msg = h('textarea.input', { rows: 3, placeholder: 'Сообщение (2–1024 символа)', maxlength: 1024 });
-  const compose = h('details.card.pad', h('summary', icon('edit', 16), ' Написать по логину'), h('div.stack', { style: { marginTop: '12px' } }, to, msg,
-    ui.btn('Отправить', { kind: 'primary', ic: 'send', onclick: async () => { const r = await api.post('/api/mail/send', { to: to.value, msg: msg.value }); ui.ok('Сообщение отправлено'); router.go('/mail/' + r.id); } })));
-  return [ui.pageHead('Почта', ui.btn('Создать беседу', { ic: 'users', small: true, kind: 'primary', onclick: async () => { const m = await import('./chats.js'); m.openCreateChatModal(); } })), mailTabs(type), selBar, compose,
-    ui.card(rows.length ? h('div.list', rows) : ui.empty(type === 'common' ? 'Контактов пока нет' : 'Список пуст', 'mail')),
-    rows.length ? h('div.muted.small', 'Удерживайте диалог (или нажмите правой кнопкой), чтобы выбрать, переместить или удалить.') : null,
-    type === 'deleted' ? h('div.muted.small', 'Удалённые контакты очищаются через 30 дней вместе с перепиской.') : null, ui.pager(d)];
+  const openWriteModal = () => {
+    const to = h('input.input', { placeholder: 'Логин получателя' });
+    const msg = h('textarea.input', { rows: 3, placeholder: 'Сообщение (2–1024 символа)', maxlength: 1024 });
+    let modal;
+    modal = ui.modal({
+      title: 'Новое сообщение',
+      body: h('div.stack',
+        h('div.field', h('label', 'Кому (логин)'), to),
+        h('div.field', h('label', 'Сообщение'), msg)),
+      actions: [
+        { label: 'Отмена' },
+        {
+          label: 'Отправить', kind: 'primary',
+          onclick: async () => {
+            const r = await api.post('/api/mail/send', { to: to.value, msg: msg.value });
+            modal.close(); ui.ok('Сообщение отправлено'); router.go('/mail/' + r.id);
+            return false;
+          },
+        },
+      ],
+    });
+  };
+
+  const tabLabels = { common: 'Все', favorite: 'Избранные', ignor: 'Игнор', deleted: 'Корзина' };
+  const compactHead = h('div.mail-compact-top',
+    h('div.mail-compact-row',
+      h('h2', { style: { margin: 0, fontSize: '1.12rem' } }, 'Сообщения'),
+      h('span.grow'),
+      ui.btn('Написать', { ic: 'edit', small: true, onclick: openWriteModal }),
+      ui.btn('Беседа', { ic: 'users', small: true, kind: 'primary', onclick: async () => { const m = await import('./chats.js'); m.openCreateChatModal(); } })),
+    h('div.mail-compact-tabs', ...KONT_TABS.map(([k]) => h('a.mail-pill' + (type === k ? '.active' : ''), { href: '/mail?type=' + k }, tabLabels[k] || k))));
+
+  return [compactHead, selBar,
+    ui.card(rows.length ? h('div.list', rows) : ui.empty(type === 'common' ? 'Диалогов пока нет' : 'Список пуст', 'mail')),
+    type === 'deleted' ? h('div.muted.small', 'Удалённые диалоги очищаются через 30 дней.') : null, ui.pager(d)];
 }, { auth: true });
 
 router.add('/mail/new', async () => { router.go('/mail'); }, { auth: true });

@@ -198,6 +198,47 @@ router.add('/groups/:id', async ctx => {
           });
 
   const inviteBtn = me() && p.is_member ? ui.btn('Пригласить друга', { ic: 'user-plus', small: true, onclick: () => openInviteFriendModal(g) }) : null;
+  const inviteBotBtn = me() && g.has_bot && !g.blocked ? ui.btn('В беседу', {
+    ic: 'message-circle', small: true, title: 'Пригласить бота сообщества в свою беседу',
+    onclick: async () => {
+      const box = h('div.stack', ui.loading());
+      const aliasIn = h('input.input', { placeholder: `Тег бота (по умолчанию bot${g.id})`, maxlength: 24 });
+      const modal = ui.modal({
+        title: `Пригласить «${g.name}» в беседу`,
+        body: h('div.stack',
+          h('div.small.muted', 'Выберите беседу, в которой вы являетесь создателем или администратором. Бот будет отвечать только на @тег, /команда@тег или ответ на своё сообщение.'),
+          h('div.field', h('label', 'Тег для обращения в беседе (необязательно)'), aliasIn),
+          box),
+        actions: [{ label: 'Закрыть' }],
+      });
+      try {
+        const ch = await api.get('/api/chats', { admin: 1, group_id: g.id }, { silent: true });
+        const list = ch.items || [];
+        if (!list.length) {
+          box.replaceChildren(h('div.small.muted', 'У вас пока нет бесед, где вы администратор. Создайте беседу в разделе Почта!'));
+          return;
+        }
+        box.replaceChildren(h('div.list', ...list.map(c => {
+          const btn = c.has_bot
+            ? h('span.badge.ok', 'Уже в беседе')
+            : ui.btn('Пригласить', {
+              ic: 'plus', small: true, kind: 'primary',
+              onclick: async () => {
+                btn.disabled = true;
+                try {
+                  const r = await api.post(`/api/chats/${c.id}/bots`, { group_id: g.id, alias: aliasIn.value.trim() });
+                  btn.replaceWith(h('span.badge.ok', `@${r.alias} ✓`));
+                  ui.ok(`Бот добавлен в «${c.title}» (@${r.alias})`);
+                } catch { btn.disabled = false; }
+              },
+            });
+          return h('div.list-item',
+            h('div.main', h('div.title', c.title), h('div.small.muted', `Участников: ${c.members}`)),
+            btn);
+        })));
+      } catch { box.replaceChildren(h('div.small.muted', 'Не удалось загрузить список бесед')); }
+    },
+  }) : null;
   const dmBtn = me() && g.enable_messages && !g.blocked
     ? ui.btn(g.user_msg_unread > 0 ? `Написать (+${g.user_msg_unread})` : 'Написать сообществу', { ic: 'mail', kind: p.is_member ? 'primary' : '', small: true, href: `/mail/group/${id}` })
     : null;
@@ -213,7 +254,7 @@ router.add('/groups/:id', async ctx => {
           g.hidden ? h('span.badge.warn', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Скрыто') : null,
           g.blocked ? h('span.badge.danger', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Заблокировано') : null),
         h('div.small.muted', g.category, ' · участников: ', fmt.num(g.members), ' · создатель: ', ui.userLink(g.creator))),
-      h('div.grp-actions', dmBtn, inviteBtn, joinBtn)),
+      h('div.grp-actions', dmBtn, inviteBotBtn, inviteBtn, joinBtn)),
     g.opis_html ? h('div.grp-opis.text', { html: g.opis_html }) : null);
 
   const modBar = p.can_block ? h('div.card.pad.row',

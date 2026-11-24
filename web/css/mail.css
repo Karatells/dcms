@@ -170,9 +170,18 @@ body.msg-page .footer { display: none; }
 .msg-cmd-name { font-family: ui-monospace, monospace; font-weight: 700; color: var(--accent); font-size: .86rem; flex: none; }
 .msg-cmd-desc { font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── Компактная шапка Почты (максимум места под список диалогов) ── */
+.mail-compact-top{display:flex;flex-direction:column;gap:8px;margin-bottom:2px}
+.mail-compact-row{display:flex;align-items:center;gap:6px}
+.mail-compact-tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.mail-compact-tabs::-webkit-scrollbar{display:none}
+.mail-pill{flex:none;padding:5px 12px;border-radius:999px;font-size:.82rem;font-weight:600;color:var(--muted);background:var(--bg-card);border:1px solid var(--border-s);text-decoration:none;transition:background .14s,color .14s,border-color .14s}
+.mail-pill:hover{color:var(--text);text-decoration:none}
+.mail-pill.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
 /* ── Выделение диалогов в Почте по долгому нажатию / ПКМ ── */
 .mail-sel-bar{position:sticky;top:64px;z-index:15;border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--bg-card))}
-.mail-chat-row{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;transition:background .15s}
+.mail-chat-row{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;transition:background .15s;padding:10px 12px!important}
 .mail-sel-chk{display:none;width:22px;height:22px;border-radius:50%;border:2px solid var(--border);flex:none;place-items:center;color:transparent;transition:background .15s,border-color .15s,color .15s}
 .mail-chat-row.mail-sel-mode .mail-sel-chk{display:grid}
 .mail-chat-row.mail-row-sel{background:color-mix(in srgb,var(--accent) 12%,transparent)}

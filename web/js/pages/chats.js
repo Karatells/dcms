@@ -335,27 +335,35 @@ router.add('/chats/:id', async ctx => {
     });
 
     if (isAdm) {
-      botPickerWrap.replaceChildren(h('div.small.muted', 'Загрузка доступных ботов…'));
-      try {
-        const av = await api.get('/api/chat-bots', null, { silent: true });
-        const inChat = new Set(botsList.map(x => x.group_id));
-        const avail = (av.items || []).filter(x => !inChat.has(x.id));
-        if (!avail.length) {
-          botPickerWrap.replaceChildren(h('div.small.muted', 'Нет других сообществ с настроенным ботом.'));
-          return;
-        }
-        const sel = h('select.input', ...avail.map(g => h('option', { value: g.id }, `${g.name} (@bot${g.id})`)));
-        const aliasIn = h('input.input', { placeholder: 'Свой тег (необяз., напр. helper)', maxlength: 24 });
-        botPickerWrap.replaceChildren(
-          h('div.field', h('label', 'Пригласить бота сообщества'), sel),
-          h('div.row.nowrap', aliasIn, ui.btn('Пригласить', {
-            ic: 'plus', kind: 'primary', small: true,
-            onclick: async () => {
-              await api.post(`/api/chats/${cid}/bots`, { group_id: +sel.value, alias: aliasIn.value.trim() });
-              ui.ok('Бот приглашён в беседу!'); modal.close(); reload();
-            },
-          })));
-      } catch { botPickerWrap.replaceChildren(); }
+      const inChat = new Set(botsList.map(x => x.group_id));
+      const qIn = h('input.input', { placeholder: 'Поиск бота по названию или ID сообщества…' });
+      const aliasIn = h('input.input', { placeholder: 'Свой тег (необяз., напр. helper)', maxlength: 24 });
+      const resBox = h('div.stack-s');
+      let tmr = null;
+      qIn.oninput = () => {
+        clearTimeout(tmr);
+        const q = qIn.value.trim();
+        if (!q) { resBox.replaceChildren(); return; }
+        tmr = setTimeout(async () => {
+          try {
+            const av = await api.get('/api/chat-bots', { q }, { silent: true });
+            const avail = (av.items || []).filter(x => !inChat.has(x.id));
+            if (!avail.length) { resBox.replaceChildren(h('div.small.muted', 'Подходящих ботов не найдено.')); return; }
+            resBox.replaceChildren(h('div.list', ...avail.map(g => h('div.list-item',
+              h('div.main', h('div.title', g.name), h('div.small.muted', `@bot${g.id}`)),
+              ui.btn('Пригласить', {
+                ic: 'plus', kind: 'primary', small: true,
+                onclick: async () => {
+                  await api.post(`/api/chats/${cid}/bots`, { group_id: g.id, alias: aliasIn.value.trim() });
+                  ui.ok('Бот приглашён в беседу!'); modal.close(); reload();
+                },
+              })))));
+          } catch { resBox.replaceChildren(); }
+        }, 250);
+      };
+      botPickerWrap.replaceChildren(
+        h('div.small.muted', 'Также бота можно пригласить прямо со страницы нужного сообщества кнопкой «В беседу».'),
+        qIn, aliasIn, resBox);
     }
   };
 

@@ -383,13 +383,15 @@ func Register(a *core.App) {
 		reactsT.DeleteWhere(func(r *GroupChatReaction) bool { return r.IDUser == uid })
 	})
 
-	// Список моих бесед (с поддержкой папок common|favorite|ignor|deleted для общего списка Почты)
+	// Список моих бесед (с поддержкой папок common|favorite|ignor|deleted и фильтра ?admin=1&group_id=N)
 	a.GET("/api/chats", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
 			return err
 		}
 		wantFolder := c.Q("type")
+		onlyAdmin := c.Q("admin") == "1"
+		checkGID, _ := strconv.ParseInt(c.Q("group_id"), 10, 64)
 		mems := membersT.By("user", i(me.ID))
 		type item struct {
 			chat     GroupChat
@@ -399,6 +401,7 @@ func Register(a *core.App) {
 			count    int
 			role     string
 			folder   string
+			hasBot   bool
 		}
 		var list []item
 		for _, m := range mems {
@@ -406,11 +409,18 @@ func Register(a *core.App) {
 			if wantFolder != "" && f != wantFolder {
 				continue
 			}
+			if onlyAdmin && !isAdmin(m) {
+				continue
+			}
 			ch, ok := chatsT.Get(m.ChatID)
 			if !ok {
 				continue
 			}
-			it := item{chat: ch, lastTime: ch.Created, count: membersT.CountBy("chat", i(ch.ID)), role: m.Role, folder: f}
+			hasB := false
+			if checkGID > 0 && botsT != nil {
+				_, hasB = botsT.OneBy("pair", store.Key(ch.ID, checkGID))
+			}
+			it := item{chat: ch, lastTime: ch.Created, count: membersT.CountBy("chat", i(ch.ID)), role: m.Role, folder: f, hasBot: hasB}
 			ms := msgsT.By("chat", i(ch.ID))
 			if len(ms) > 0 {
 				best := ms[0]
@@ -434,6 +444,7 @@ func Register(a *core.App) {
 				"members":   it.count,
 				"role":      it.role,
 				"folder":    it.folder,
+				"has_bot":   it.hasBot,
 				"last_time": it.lastTime,
 				"last_text": it.lastText,
 				"last_nick": it.lastNick,
@@ -577,9 +588,9 @@ func Register(a *core.App) {
 		})
 	}, core.Auth)
 
-	// Список доступных ботов сообществ для приглашения в беседы
+	// Поиск доступных ботов сообществ по названию или ID (максимум 10)
 	a.GET("/api/chat-bots", func(c *core.Ctx) error {
-		return c.JSON(map[string]any{"items": groups.ListBotGroups()})
+		return c.JSON(map[string]any{"items": groups.ListBotGroups(c.Q("q"), 10)})
 	}, core.Auth)
 
 	// Пригласить бота сообщества в беседу (только админы/создатель беседы)

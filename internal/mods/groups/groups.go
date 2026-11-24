@@ -266,6 +266,7 @@ func groupCard(a *core.App, g Group, viewer *model.User) map[string]any {
 		"blocked":         g.Blocked,
 		"block_reason":    g.BlockReason,
 		"verified":        g.Verified,
+		"has_bot":         HasBot(g.ID),
 		"can_view":        canViewGroup(viewer, g),
 		"pending_request": pendingReq,
 		"requests_count":  reqCnt,

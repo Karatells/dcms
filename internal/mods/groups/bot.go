@@ -390,40 +390,61 @@ func GetGroupBotInfo(gid int64) (map[string]any, bool) {
 	}, true
 }
 
-// ListBotGroups возвращает список всех не заблокированных сообществ с настроенным ботом (токен, вебхук или команды).
-func ListBotGroups() []map[string]any {
+// HasBot проверяет, настроен ли у сообщества бот (активный токен, вебхук или команды).
+func HasBot(gid int64) bool {
 	if groupsT == nil {
-		return nil
+		return false
 	}
-	hasBot := map[int64]bool{}
+	g, ok := groupsT.Get(gid)
+	if !ok || g.Blocked {
+		return false
+	}
+	if len(BotGetCommands(g)) > 0 {
+		return true
+	}
 	if botTokensT != nil {
-		for _, t := range botTokensT.All() {
+		for _, t := range botTokensT.By("group", i(gid)) {
 			if !t.Revoked {
-				hasBot[t.IDGroup] = true
+				return true
 			}
 		}
 	}
 	if botWebhooksT != nil {
-		for _, w := range botWebhooksT.All() {
-			if w.Enabled && w.URL != "" {
-				hasBot[w.IDGroup] = true
-			}
+		if w, ok := botWebhooksT.OneBy("group", i(gid)); ok && w.Enabled && w.URL != "" {
+			return true
 		}
 	}
+	return false
+}
+
+// ListBotGroups ищет не заблокированные сообщества с настроенным ботом по названию или ID (максимум limit).
+func ListBotGroups(q string, limit int) []map[string]any {
+	if groupsT == nil {
+		return nil
+	}
+	if limit <= 0 || limit > 25 {
+		limit = 10
+	}
+	ql := strings.ToLower(strings.TrimSpace(q))
 	var out []map[string]any
 	for _, g := range groupsT.All() {
-		if g.Blocked {
+		if g.Blocked || !HasBot(g.ID) {
 			continue
 		}
-		cmds := BotGetCommands(g)
-		if !hasBot[g.ID] && len(cmds) == 0 {
-			continue
+		if ql != "" {
+			idStr := i(g.ID)
+			if !strings.Contains(strings.ToLower(g.Name), ql) && idStr != ql && "bot"+idStr != ql {
+				continue
+			}
 		}
 		if info, ok := GetGroupBotInfo(g.ID); ok {
 			out = append(out, info)
 		}
 	}
 	sort.Slice(out, func(x, y int) bool { return out[x]["id"].(int64) < out[y]["id"].(int64) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
 	return out
 }
 
