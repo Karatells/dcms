@@ -294,8 +294,11 @@ func send(a *core.App, from, to *model.User, msg string, opts ...sendOpts) (Mail
 			return Mail{}, core.ErrBad("Неподдерживаемый тип вложения")
 		}
 		desc, ok := a.Describe(o.AttType, o.AttID)
-		if !ok || desc.Owner != from.ID {
-			return Mail{}, core.ErrForbidden("Можно прикреплять только свои файлы, фото и клипы")
+		if !ok {
+			return Mail{}, core.ErrNotFound("Вложение не найдено")
+		}
+		if o.AttType != "shorts" && desc.Owner != from.ID {
+			return Mail{}, core.ErrForbidden("Можно прикреплять только свои файлы и фото")
 		}
 	}
 	if n := utf8.RuneCountInString(msg); n < 1 && !hasAtt {

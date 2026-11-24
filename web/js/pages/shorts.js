@@ -385,10 +385,9 @@ async function openShareModal(s) {
         const btn = ui.btn('Отправить', {
           ic: 'send', small: true, kind: 'primary',
           onclick: async () => {
-            const text = (noteIn.value.trim() ? noteIn.value.trim() + '\n' : 'Посмотри клип: ') + bbLink;
             btn.disabled = true;
             try {
-              await api.post(`/api/mail/${u.id}`, { msg: text });
+              await api.post(`/api/mail/${u.id}`, { msg: noteIn.value.trim(), att_type: 'shorts', att_id: s.id });
               btn.textContent = 'Отправлено ✓';
               ui.ok(`Отправлено пользователю ${u.nick}`);
             } catch { btn.disabled = false; }
