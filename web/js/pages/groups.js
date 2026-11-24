@@ -456,12 +456,15 @@ router.add('/groups/:id/chat', async ctx => {
 
   const scrollEl = h('div.msg-scroll');
   let items = d.items || [];
+  const seenIds = new Set(items.map(x => x.id));
 
   const draw = () => {
     if (!items.length) { scrollEl.replaceChildren(ui.empty('Чат пуст — начните общение!', 'message-circle')); return; }
     scrollEl.replaceChildren(...items.map(m => {
       const mine = me() && me().id === m.user.id;
-      return h('div.bubble-row' + (mine ? '.mine' : ''),
+      const isNew = !seenIds.has(m.id);
+      if (isNew) seenIds.add(m.id);
+      return h('div.bubble-row' + (mine ? '.mine' : '') + (isNew ? '.new-msg' : ''),
         !mine ? ui.avatar(m.user, 28) : null,
         h('div.bubble' + (mine ? '.mine' : ''),
           !mine ? h('div', { style: { fontWeight: '700', fontSize: '.78rem', marginBottom: '2px' } }, ui.userLink(m.user)) : null,

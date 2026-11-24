@@ -136,17 +136,26 @@ async function refreshAll() {
 bus.on('user', () => { refreshAll(); events.restart(); });
 bus.on('counters', () => { drawTop(); drawSide(); drawTabbar(); });
 bus.on('route', () => { markActive(); syncMsgViewport(); });
+let _prevMsgH = 0;
 function syncMsgViewport() {
   if (!document.body.classList.contains('msg-page')) {
     document.documentElement.style.removeProperty('--msg-h');
+    _prevMsgH = 0;
     return;
   }
   const vv = window.visualViewport;
   const hPx = vv ? Math.round(vv.height) : window.innerHeight;
   const topEl = document.querySelector('header.topbar');
   const topH = topEl ? Math.round(topEl.getBoundingClientRect().height) : 56;
-  document.documentElement.style.setProperty('--msg-h', Math.max(200, hPx - topH) + 'px');
+  const nextH = Math.max(200, hPx - topH);
+  const sc = document.querySelector('.msg-scroll');
+  const nearBottom = sc ? (sc.scrollHeight - sc.scrollTop - sc.clientHeight < 90) : false;
+  document.documentElement.style.setProperty('--msg-h', nextH + 'px');
   if (window.scrollY !== 0) window.scrollTo(0, 0);
+  if (sc && (nearBottom || (_prevMsgH > 0 && nextH < _prevMsgH))) {
+    requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
+  }
+  _prevMsgH = nextH;
 }
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', syncMsgViewport);

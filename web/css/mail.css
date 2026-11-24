@@ -23,6 +23,11 @@ body.msg-page .footer { display: none; }
 .msg-older { align-self: center; margin-bottom: 8px; }
 
 .msg-shell .bubble-row { display: flex; align-items: flex-end; gap: 6px; }
+.msg-shell .bubble-row.new-msg { animation: msgIn .2s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
 .msg-shell .bubble { position: relative; max-width: min(82%, 520px); padding: 8px 12px 6px; border-radius: 16px 16px 16px 4px; background: var(--bg-card); border: 1px solid var(--border-s); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); font-size: .94rem; line-height: 1.42; overflow-wrap: anywhere; cursor: pointer; transition: box-shadow .2s, transform .12s; }
 .msg-shell .bubble.flash { box-shadow: 0 0 0 3px var(--accent); }
 .msg-shell .bubble.mine { background: var(--accent); color: var(--on-accent); border-color: transparent; border-radius: 16px 16px 4px 16px; }

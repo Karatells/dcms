@@ -352,6 +352,7 @@ router.add('/mail/:id', async ctx => {
   let curPage = 1;
   const totalPages = d.pages || 1;
   let items = [...(d.items || [])].reverse();
+  const seenIds = new Set(items.map(x => x.id));
   let pinnedMsg = d.pinned || null;
   let replyTo = null; // { id, nick, text }
   let attach = null;  // { type, id, title, image }
@@ -411,7 +412,9 @@ router.add('/mail/:id', async ctx => {
         onclick: async () => {
           const next = await api.get('/api/mail/' + uid, { page: curPage + 1 });
           curPage++;
-          items = [...(next.items || []).reverse(), ...items];
+          const older = (next.items || []).reverse();
+          older.forEach(x => seenIds.add(x.id));
+          items = [...older, ...items];
           renderMessages(false);
         },
       }));
@@ -460,7 +463,9 @@ router.add('/mail/:id', async ctx => {
             m.pinned ? icon('pin', 11) : null,
             h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
             m.mine ? icon(m.read ? 'check-all' : 'check', 14) : null));
-        nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : ''), bubble));
+        const isNew = !seenIds.has(m.id);
+        if (isNew) seenIds.add(m.id);
+        nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : '') + (isNew ? '.new-msg' : ''), bubble));
       });
     }
     scrollEl.replaceChildren(...nodes);
@@ -639,6 +644,7 @@ router.add('/mail/:id', async ctx => {
 function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrite, emptyText, disabledText, placeholder, isMine, senderLabel, showStaff, canDeleteMsg, onSend, onPin, onDelete, onSubscribe }) {
   document.body.classList.add('msg-page');
   let items = [...(initialItems || [])];
+  const seenIds = new Set(items.map(x => x.id));
   let pinnedMsg = initialPinned || null;
   let replyTo = null;
   let attach = null;
@@ -742,7 +748,9 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, canWrit
             m.pinned ? icon('pin', 11) : null,
             h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
             mine ? icon(m.read ? 'check-all' : 'check', 14) : null));
-        nodes.push(h('div.bubble-row' + (mine ? '.mine' : ''), bubble));
+        const isNew = !seenIds.has(m.id);
+        if (isNew) seenIds.add(m.id);
+        nodes.push(h('div.bubble-row' + (mine ? '.mine' : '') + (isNew ? '.new-msg' : ''), bubble));
       });
     }
     scrollEl.replaceChildren(...nodes);
