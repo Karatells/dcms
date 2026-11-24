@@ -538,3 +538,12 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 .dtap-heart{position:absolute;transform:translate(-50%,-50%) scale(.4);color:#ff2d55;pointer-events:none;z-index:20;filter:drop-shadow(0 6px 18px rgba(255,45,85,.6));animation:dtapPop .72s cubic-bezier(.22,1,.36,1) forwards}
 .dtap-heart svg{fill:currentColor}
 @keyframes dtapPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.35) rotate(-12deg)}25%{opacity:1;transform:translate(-50%,-50%) scale(1.18) rotate(6deg)}55%{opacity:1;transform:translate(-50%,-55%) scale(1) rotate(0deg)}100%{opacity:0;transform:translate(-50%,-95%) scale(1.25)}}
+
+/* ── Эмодзи-реакции на посты и @ник автодополнение ── */
+.react-bar{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center}
+.react-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-s);background:var(--bg-sunken);color:var(--text);font-size:.8rem;cursor:pointer;transition:transform .12s,background .12s,border-color .12s}
+.react-pill:hover{transform:scale(1.06);border-color:var(--accent)}
+.react-pill.mine{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700}
+.mention-pop{position:fixed;z-index:160;width:220px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-l);padding:4px;display:flex;flex-direction:column;gap:2px}
+.mention-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border:0;background:transparent;color:var(--text);border-radius:8px;cursor:pointer;font:inherit;font-size:.88rem;text-align:left}
+.mention-item:hover{background:var(--bg-hover)}

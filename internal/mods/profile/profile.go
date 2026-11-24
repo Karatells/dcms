@@ -18,10 +18,32 @@ import (
 
 type Stena struct {
 	store.Base
-	IDUser  int64  `json:"id_user"`  // автор
-	IDStena int64  `json:"id_stena"` // чья стена
-	Time    int64  `json:"time"`
-	Msg     string `json:"msg"`
+	IDUser    int64  `json:"id_user"`  // автор
+	IDStena   int64  `json:"id_stena"` // чья стена
+	Time      int64  `json:"time"`
+	Msg       string `json:"msg"`
+	PublishAt int64  `json:"publish_at,omitempty"`
+	IsDraft   bool   `json:"is_draft,omitempty"`
+}
+
+// RecentWallPosts возвращает последние опубликованные записи со стен для умной ленты.
+func RecentWallPosts(a *core.App, limit int) []Stena {
+	now := core.Now()
+	var out []Stena
+	for _, s := range stena.All() {
+		if s.IsDraft || (s.PublishAt > 0 && s.PublishAt > now) {
+			continue
+		}
+		if a.UserSettings(s.IDStena).PrivatStr != 1 {
+			continue
+		}
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time > out[j].Time })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 type StenaLike struct {
 	store.Base

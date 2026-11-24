@@ -1,12 +1,15 @@
 package profile
 
 import (
+	"regexp"
 	"strings"
 
 	"dcms/internal/core"
 	"dcms/internal/model"
 	"dcms/internal/store"
 )
+
+var wallMentionRe = regexp.MustCompile(`@([A-Za-zА-Яа-яЁё0-9_\-\.]{2,32})`)
 
 // checkText проверяет длину, мат и повтор.
 func checkText(a *core.App, msg string, min, max int) (string, error) {
@@ -29,7 +32,7 @@ func notBanned(a *core.App, u *model.User) error {
 
 func stenaView(a *core.App, p Stena, viewer *model.User) map[string]any {
 	likes := stenaLike.By("post", store.I(p.ID))
-	m := map[string]any{"id": p.ID, "user": a.Ref(p.IDUser), "time": p.Time, "msg": a.Text.Render(p.Msg), "raw": p.Msg, "likes": len(likes)}
+	m := map[string]any{"id": p.ID, "user": a.Ref(p.IDUser), "time": p.Time, "msg": a.Text.Render(p.Msg), "raw": p.Msg, "likes": len(likes), "is_draft": p.IsDraft, "publish_at": p.PublishAt}
 	if viewer != nil {
 		for _, l := range likes {
 			if l.IDUser == viewer.ID {
@@ -47,7 +50,8 @@ func registerSocial(a *core.App) {
 		if err != nil {
 			return err
 		}
-		if st := access(a, c.User(), &u); st != vOK {
+		viewer := c.User()
+		if st := access(a, viewer, &u); st != vOK {
 			return core.ErrForbidden("Стена недоступна")
 		}
 		p := c.Page()
@@ -55,10 +59,21 @@ func registerSocial(a *core.App) {
 		if c.Q("order") == "asc" {
 			desc = false
 		}
-		list, total := stena.Select(store.Opts[Stena]{Index: "wall", Key: store.I(u.ID), Desc: desc, Offset: p.Offset, Limit: p.Per})
+		wantDrafts := c.Q("drafts") == "1" && viewer != nil && viewer.ID == u.ID
+		now := core.Now()
+		list, total := stena.Select(store.Opts[Stena]{
+			Index: "wall", Key: store.I(u.ID), Desc: desc, Offset: p.Offset, Limit: p.Per,
+			Where: func(s *Stena) bool {
+				isHidden := s.IsDraft || (s.PublishAt > 0 && s.PublishAt > now)
+				if wantDrafts {
+					return isHidden
+				}
+				return !isHidden
+			},
+		})
 		items := make([]map[string]any, 0, len(list))
 		for _, s := range list {
-			items = append(items, stenaView(a, s, c.User()))
+			items = append(items, stenaView(a, s, viewer))
 		}
 		return c.List(items, total, p)
 	})
@@ -79,8 +94,10 @@ func registerSocial(a *core.App) {
 			return core.ErrForbidden("Пользователь ограничил возможность писать на стене")
 		}
 		var in struct {
-			Msg     string `json:"msg"`
-			ReplyTo int64  `json:"reply_to"`
+			Msg       string `json:"msg"`
+			ReplyTo   int64  `json:"reply_to"`
+			PublishAt int64  `json:"publish_at"`
+			IsDraft   bool   `json:"is_draft"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -90,20 +107,57 @@ func registerSocial(a *core.App) {
 			return err
 		}
 		for _, s := range stena.By("wall", store.I(u.ID)) {
-			if s.IDUser == me.ID && s.Msg == msg {
+			if s.IDUser == me.ID && s.Msg == msg && !s.IsDraft {
 				return core.ErrBad("Ваше сообщение повторяет предыдущее")
 			}
 		}
-		if in.ReplyTo > 0 && in.ReplyTo != me.ID && a.T.Users.Has(in.ReplyTo) {
-			a.Notify(me.ID, in.ReplyTo, "stena_komm", u.ID, true)
+		var pubAt int64
+		var draft bool
+		if u.ID == me.ID {
+			draft = in.IsDraft
+			if in.PublishAt > core.Now() {
+				pubAt = in.PublishAt
+			}
 		}
-		id := stena.Insert(&Stena{IDUser: me.ID, IDStena: u.ID, Time: core.Now(), Msg: msg})
-		a.AddBalls(me.ID, 1, 1)
-		if u.ID != me.ID {
-			a.Notify(me.ID, u.ID, "stena", u.ID, true)
+		now := core.Now()
+		postTime := now
+		if pubAt > now {
+			postTime = pubAt
+		}
+		id := stena.Insert(&Stena{IDUser: me.ID, IDStena: u.ID, Time: postTime, Msg: msg, PublishAt: pubAt, IsDraft: draft})
+		if !draft && pubAt == 0 {
+			if in.ReplyTo > 0 && in.ReplyTo != me.ID && a.T.Users.Has(in.ReplyTo) {
+				a.Notify(me.ID, in.ReplyTo, "stena_komm", u.ID, true)
+			}
+			a.AddBalls(me.ID, 1, 1)
+			if u.ID != me.ID {
+				a.Notify(me.ID, u.ID, "stena", u.ID, true)
+			}
+			notified := map[int64]bool{me.ID: true, u.ID: true}
+			for _, sub := range wallMentionRe.FindAllStringSubmatch(msg, 5) {
+				if target, ok := a.UserByNick(sub[1]); ok && !notified[target.ID] {
+					notified[target.ID] = true
+					a.Notify(me.ID, target.ID, "mention", u.ID, true)
+				}
+			}
 		}
 		p, _ := stena.Get(id)
 		return c.JSON(stenaView(a, p, me))
+	}, core.Auth)
+
+	a.POST("/api/stena/{id}/publish", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		p, ok := stena.Get(c.PathInt("id"))
+		if !ok || p.IDStena != me.ID {
+			return core.ErrForbidden()
+		}
+		now := core.Now()
+		stena.Update(p.ID, func(x *Stena) { x.IsDraft = false; x.PublishAt = 0; x.Time = now })
+		upd, _ := stena.Get(p.ID)
+		return c.JSON(stenaView(a, upd, me))
 	}, core.Auth)
 
 	a.DELETE("/api/stena/{id}", func(c *core.Ctx) error {

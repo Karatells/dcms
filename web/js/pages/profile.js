@@ -153,14 +153,34 @@ async function wallBlock(d, reload) {
   return h('section.card', wrap);
 }
 export function stenaComposer(u, done, preset = '', replyTo = 0) {
-  const ed = ui.bbEditor({ value: preset, rows: 3, placeholder: 'Написать на стене…', maxlength: 1024 });
-  const send = async () => { await api.post(`/api/user/${u.id}/stena`, { msg: ed.value, reply_to: +ed.ta.dataset.reply || replyTo }); ed.value = ''; delete ed.ta.dataset.reply; ui.ok('Сообщение добавлено'); done(); };
-  return h('div.pad.stack', ed.el, h('div.row', ui.btn('Отправить', { ic: 'send', kind: 'primary', onclick: send })));
+  const ed = ui.bbEditor({ value: preset, rows: 3, placeholder: 'Написать на стене… (можно @ник)', maxlength: 1024 });
+  const isOwn = me() && me().id === u.id;
+  const schedIn = isOwn ? h('input.input', { type: 'datetime-local', title: 'Отложенная публикация (необязательно)', style: { maxWidth: '210px', fontSize: '.82rem', padding: '5px 8px' } }) : null;
+  const send = async (asDraft = false) => {
+    let pubAt = 0;
+    if (schedIn && schedIn.value) {
+      const ts = Math.floor(new Date(schedIn.value).getTime() / 1000);
+      if (ts > Math.floor(Date.now() / 1000)) pubAt = ts;
+    }
+    await api.post(`/api/user/${u.id}/stena`, { msg: ed.value, reply_to: +ed.ta.dataset.reply || replyTo, publish_at: pubAt, is_draft: asDraft });
+    ed.value = '';
+    if (schedIn) schedIn.value = '';
+    delete ed.ta.dataset.reply;
+    ui.ok(asDraft ? 'Сохранено в черновики' : pubAt ? 'Запись запланирована!' : 'Сообщение добавлено');
+    done();
+  };
+  return h('div.pad.stack', ed.el, h('div.row',
+    ui.btn('Отправить', { ic: 'send', kind: 'primary', onclick: () => send(false) }),
+    isOwn ? ui.btn('В черновик', { ic: 'file', small: true, onclick: () => send(true) }) : null,
+    schedIn));
 }
 function stenaPost(p, d, reload) {
   const u = d.user, viewer = me();
   const act = [
     ui.reaction('heart', p.likes, p.liked, viewer && !p.liked ? async () => { await api.post(`/api/stena/${p.id}/like`); reload(); } : null, 'Нравится'),
+    ui.emojiReactions ? ui.emojiReactions('stena', p.id) : null,
+    (p.is_draft || (p.publish_at && p.publish_at > Date.now() / 1000)) && viewer && viewer.id === u.id
+      ? ui.btn('Опубликовать сейчас', { ic: 'send', small: true, kind: 'primary', onclick: async () => { await api.post(`/api/stena/${p.id}/publish`); ui.ok('Опубликовано!'); reload(); } }) : null,
     viewer && p.user.id !== viewer.id ? ui.btn('', { ic: 'corner-up-left', small: true, title: 'Ответить', onclick: () => { const box = document.querySelector('.card textarea'); if (box) { box.value = `[b]${p.user.nick}[/b], `; box.focus(); box.dataset.reply = p.user.id; } } }) : null,
     viewer && p.user.id !== viewer.id ? ui.btn('', { ic: 'flag', small: true, title: 'Пожаловаться', onclick: () => complain(`/api/stena/${p.id}/spam`) }) : null,
     viewer && (viewer.id === u.id || (state.user.accesses || []).includes('guest_delete')) ? ui.btn('', { ic: 'trash', small: true, title: 'Удалить', onclick: async () => { if (await ui.confirm('Удалить сообщение?', { danger: true })) { await api.del('/api/stena/' + p.id); reload(); } } }) : null,
@@ -177,12 +197,16 @@ export async function complain(url) {
 // ───────── стена отдельной страницей
 router.add('/user/stena/:id', async ctx => {
   const u = (await api.get('/api/user/' + ctx.params.id)).user;
+  const isDrafts = ctx.query.drafts === '1';
+  const isOwn = me() && me().id === u.id;
   ctx.title('Стена ' + u.nick);
   const reload = () => router.render();
-  const data = await api.get(`/api/user/${u.id}/stena`, { page: ctx.page });
+  const data = await api.get(`/api/user/${u.id}/stena`, { page: ctx.page, drafts: isDrafts ? 1 : undefined });
   const d = { user: u };
-  return [ui.breadcrumbs([{ href: '/id' + u.id, title: u.nick }, { title: 'Стена' }]), ui.pageHead('Стена: ' + u.nick),
-    ui.card(me() ? stenaComposer(u, reload) : null, data.items.length ? h('div.posts', data.items.map(p => stenaPost(p, d, reload))) : ui.empty('Сообщений пока нет'), ui.pager(data))];
+  return [ui.breadcrumbs([{ href: '/id' + u.id, title: u.nick }, { title: 'Стена' }]),
+    ui.pageHead('Стена: ' + u.nick, isOwn ? h('div.row',
+      ui.btn(isDrafts ? 'Опубликованные' : 'Черновики / Отложенные', { ic: 'file', small: true, href: isDrafts ? `/user/stena/${u.id}` : `/user/stena/${u.id}?drafts=1` })) : null),
+    ui.card(me() && !isDrafts ? stenaComposer(u, reload) : null, data.items.length ? h('div.posts', data.items.map(p => stenaPost(p, d, reload))) : ui.empty(isDrafts ? 'Черновиков и отложенных записей нет' : 'Сообщений пока нет'), ui.pager(data))];
 });
 
 // ───────── статус: комментарии/лайки
