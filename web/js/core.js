@@ -469,27 +469,40 @@ export const ui = {
     let smilesLoaded = false;
 
     const tools = [
-      ['bold', 'Жирный', () => wrap('[b]', '[/b]'), 'b'],
-      ['italic', 'Курсив', () => wrap('[i]', '[/i]'), 'i'],
-      ['underline', 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u'],
-      ['quote', 'Цитата', () => wrap('[quote]', '[/quote]'), 'code'],
-      ['link', 'Вставить ссылку', async () => {
+      [h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b'],
+      [h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i'],
+      [h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u'],
+      [h('del', 'S'), 'Зачёркнутый', () => wrap('[s]', '[/s]')],
+      [icon('eye-off', 14), 'Спойлер (скрытый текст)', () => wrap('[spoiler]', '[/spoiler]')],
+      [h('span.bb-rainbow', 'A'), 'Радужный градиент', () => wrap('[rainbow]', '[/rainbow]')],
+      [h('code', { style: { fontSize: '.75rem' } }, '<>'), 'Моноширинный', () => wrap('[mono]', '[/mono]')],
+      [icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]')],
+      [icon('chevron-down', 14), 'Сворачиваемый блок [cut]', async () => {
+        const t = await ui.prompt('Заголовок скрытого блока', 'Подробнее', { title: 'Скрытый блок' });
+        if (t !== null) wrap(t.trim() ? `[cut=${t.trim()}]` : '[cut]', '[/cut]');
+      }],
+      [icon('link', 14), 'Вставить ссылку', async () => {
         const u = await ui.prompt('Адрес ссылки (https://...)', 'https://', { title: 'Вставить ссылку' });
         if (u && u.trim()) {
           const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
           wrap(`[url=${u.trim()}]`, sel ? '[/url]' : `${u.trim()}[/url]`);
         }
       }, 'url'],
-      ['image', 'Вставить картинку', async () => {
+      [icon('image', 14), 'Вставить картинку', async () => {
         const u = await ui.prompt('Ссылка на картинку (https://...)', 'https://', { title: 'Вставить картинку' });
         if (u && u.trim()) wrap(`[img]${u.trim()}[/img]`);
       }, 'img'],
-      ['hash', 'Код', () => wrap('[code]', '[/code]'), 'code'],
+      [icon('hash', 14), 'Блок кода', () => wrap('[code]', '[/code]'), 'code'],
     ];
 
     const colors = [['red', '#e11d48', 'Красный'], ['yellow', '#eab308', 'Жёлтый'], ['green', '#16a34a', 'Зелёный'], ['blue', '#2563eb', 'Синий']]
       .filter(([k]) => bb[k] !== false)
       .map(([k, col, title]) => h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${k}]`, `[/${k}]`) }));
+
+    const hexTextIn = h('input', { type: 'color', value: '#ff4081', onchange: () => wrap(`[color=${hexTextIn.value}]`, '[/color]') });
+    const hexBgIn = h('input', { type: 'color', value: '#fef08a', onchange: () => wrap(`[bg=${hexBgIn.value}]`, '[/bg]') });
+    const hexTextBtn = h('label.bb-color-pick', { title: 'Любой HEX-цвет текста [color=#...]' }, h('span', { style: { color: '#ff4081' } }, 'A'), hexTextIn);
+    const hexBgBtn = h('label.bb-color-pick', { title: 'Любой HEX-цвет маркера/фона [bg=#...]' }, h('span', { style: { background: '#fef08a', color: '#111', padding: '0 3px', borderRadius: '3px' } }, 'bg'), hexBgIn);
 
     const smileBtn = h('button.btn.ghost.icon-only.sm', {
       type: 'button', title: 'Смайлы',
@@ -509,8 +522,8 @@ export const ui = {
     }, icon('smile', 15));
 
     const bar = h('div.bb-bar',
-      ...tools.filter(t => bb[t[3]] !== false).map(([ic, title, fn]) => h('button.btn.ghost.icon-only.sm', { type: 'button', title, onclick: fn }, icon(ic, 15))),
-      colors.length ? h('span.bb-colors', ...colors) : null,
+      ...tools.filter(t => !t[3] || bb[t[3]] !== false).map(([lbl, title, fn]) => h('button.btn.ghost.icon-only.sm', { type: 'button', title, onclick: fn }, lbl)),
+      h('span.bb-colors', ...colors, hexTextBtn, hexBgBtn),
       smileBtn);
     return { el: h('div.bb-editor', bar, smilesBox, ta), ta, get value() { return ta.value; }, set value(v) { ta.value = v; }, insert: t => wrap(t) };
   },

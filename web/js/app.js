@@ -70,6 +70,10 @@ function closeNav() { document.body.classList.remove('nav-open'); }
 function toggleNav() { document.body.classList.toggle('nav-open'); }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNav(); });
+document.addEventListener('click', e => {
+  const sp = e.target.closest('.bb-spoiler');
+  if (sp) sp.classList.toggle('open');
+});
 {
   let sx = 0, sy = 0, swiping = false;
   document.addEventListener('touchstart', e => {

@@ -547,6 +547,10 @@ router.add('/mail/:id', async ctx => {
         addBtn(h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b');
         addBtn(h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i');
         addBtn(h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u');
+        addBtn(h('del', 'S'), 'Зачёркнутый', () => wrap('[s]', '[/s]'));
+        addBtn(icon('eye-off', 14), 'Спойлер', () => wrap('[spoiler]', '[/spoiler]'));
+        addBtn(h('span.bb-rainbow', 'A'), 'Градиент', () => wrap('[rainbow]', '[/rainbow]'));
+        addBtn(h('code', { style: { fontSize: '.74rem' } }, '<>'), 'Моно', () => wrap('[mono]', '[/mono]'));
         addBtn(icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]'));
         addBtn(icon('hash', 14), 'Код', () => wrap('[code]', '[/code]'), 'code');
         addBtn(icon('link', 14), 'Вставить ссылку', async () => {
@@ -565,6 +569,11 @@ router.add('/mail/:id', async ctx => {
           if (bb[tag] === false) return;
           ribbon.append(h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${tag}]`, `[/${tag}]`) }));
         });
+        const hexT = h('input', { type: 'color', value: '#ff4081', onchange: () => wrap(`[color=${hexT.value}]`, '[/color]') });
+        const hexB = h('input', { type: 'color', value: '#fef08a', onchange: () => wrap(`[bg=${hexB.value}]`, '[/bg]') });
+        ribbon.append(
+          h('label.bb-color-pick', { title: 'Любой HEX-цвет текста [color=#...]' }, h('span', { style: { color: '#ff4081' } }, 'A'), hexT),
+          h('label.bb-color-pick', { title: 'Любой HEX-цвет фона [bg=#...]' }, h('span', { style: { background: '#fef08a', color: '#111', padding: '0 3px', borderRadius: '3px' } }, 'bg'), hexB));
         body.replaceChildren(ribbon);
       } else {
         const box = h('div.msg-smiles-drawer', ui.loading());
@@ -890,6 +899,10 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initial
           addBtn(h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b');
           addBtn(h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i');
           addBtn(h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u');
+          addBtn(h('del', 'S'), 'Зачёркнутый', () => wrap('[s]', '[/s]'));
+          addBtn(icon('eye-off', 14), 'Спойлер', () => wrap('[spoiler]', '[/spoiler]'));
+          addBtn(h('span.bb-rainbow', 'A'), 'Градиент', () => wrap('[rainbow]', '[/rainbow]'));
+          addBtn(h('code', { style: { fontSize: '.74rem' } }, '<>'), 'Моно', () => wrap('[mono]', '[/mono]'));
           addBtn(icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]'));
           addBtn(icon('hash', 14), 'Код', () => wrap('[code]', '[/code]'), 'code');
           addBtn(icon('link', 14), 'Вставить ссылку', async () => {
@@ -908,6 +921,11 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initial
             if (bb[tag] === false) return;
             ribbon.append(h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${tag}]`, `[/${tag}]`) }));
           });
+          const hexT = h('input', { type: 'color', value: '#ff4081', onchange: () => wrap(`[color=${hexT.value}]`, '[/color]') });
+          const hexB = h('input', { type: 'color', value: '#fef08a', onchange: () => wrap(`[bg=${hexB.value}]`, '[/bg]') });
+          ribbon.append(
+            h('label.bb-color-pick', { title: 'Любой HEX-цвет текста [color=#...]' }, h('span', { style: { color: '#ff4081' } }, 'A'), hexT),
+            h('label.bb-color-pick', { title: 'Любой HEX-цвет фона [bg=#...]' }, h('span', { style: { background: '#fef08a', color: '#111', padding: '0 3px', borderRadius: '3px' } }, 'bg'), hexB));
           body.replaceChildren(ribbon);
         } else {
           const box = h('div.msg-smiles-drawer', ui.loading());

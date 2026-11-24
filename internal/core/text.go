@@ -26,23 +26,36 @@ func newText(a *App) *Text { return &Text{a: a} }
 func (t *Text) SetSmiles(fn func() []Smile) { t.smiles = fn }
 
 var (
-	reURL   = regexp.MustCompile(`(^|[\s>(])((?:https?)://[^\s<>"']+)`)
-	reTag   = regexp.MustCompile(`(?is)\[(i|b|u|big|small|red|yellow|green|blue|white)\](.*?)\[/(?:i|b|u|big|small|red|yellow|green|blue|white)\]`)
-	reSize  = regexp.MustCompile(`(?is)\[size=(\d{1,2})\](.*?)\[/size\]`)
-	reURLBB = regexp.MustCompile(`(?is)\[url=((?:https?://|/[^/])[^\]\s"']*)\](.*?)\[/url\]`)
-	reURLB2 = regexp.MustCompile(`(?is)\[url\]((?:https?://|/[^/])[^\[\s"']*)\[/url\]`)
-	reImg   = regexp.MustCompile(`(?is)\[img\]((?:https?://|/[^/])[^\[\s"'<>]*)\[/img\]`)
-	reCode  = regexp.MustCompile(`(?is)\[code\](.*?)\[/code\]`)
-	reQuote = regexp.MustCompile(`(?is)\[quote(?:=([^\]]{0,40}))?\](.*?)\[/quote\]`)
-	reBR    = regexp.MustCompile(`(?i)\[br\]`)
-	mat     = regexp.MustCompile(`(?i)(\b|[а-яё]*)(хуй|хуе|хуё|хуя|пизд|ебан|ебат|ёбан|ебал|ебну|блядь|бляд|сука|сучк|мудак|мудил|залуп|пидор|пидар|гондон)([а-яё]*)`)
+	reURL     = regexp.MustCompile(`(^|[\s>(])((?:https?)://[^\s<>"']+)`)
+	reTag     = regexp.MustCompile(`(?is)\[(i|b|u|s|big|small|red|yellow|green|blue|white|mono|spoiler|rainbow|center|right)\](.*?)\[/(?:i|b|u|s|big|small|red|yellow|green|blue|white|mono|spoiler|rainbow|center|right)\]`)
+	reColor   = regexp.MustCompile(`(?is)\[color=(#[0-9a-f]{3}(?:[0-9a-f]{3})?)\](.*?)\[/color\]`)
+	reBg      = regexp.MustCompile(`(?is)\[bg=(#[0-9a-f]{3}(?:[0-9a-f]{3})?)\](.*?)\[/bg\]`)
+	reCut     = regexp.MustCompile(`(?is)\[cut(?:=([^\]]{0,60}))?\](.*?)\[/cut\]`)
+	reBox     = regexp.MustCompile(`(?is)\[box(?:=(info|ok|warn|danger))?\](.*?)\[/box\]`)
+	reSize    = regexp.MustCompile(`(?is)\[size=(\d{1,2})\](.*?)\[/size\]`)
+	reURLBB   = regexp.MustCompile(`(?is)\[url=((?:https?://|/[^/])[^\]\s"']*)\](.*?)\[/url\]`)
+	reURLB2   = regexp.MustCompile(`(?is)\[url\]((?:https?://|/[^/])[^\[\s"']*)\[/url\]`)
+	reImg     = regexp.MustCompile(`(?is)\[img\]((?:https?://|/[^/])[^\[\s"'<>]*)\[/img\]`)
+	reCode    = regexp.MustCompile(`(?is)\[code\](.*?)\[/code\]`)
+	reQuote   = regexp.MustCompile(`(?is)\[quote(?:=([^\]]{0,40}))?\](.*?)\[/quote\]`)
+	reBR      = regexp.MustCompile(`(?i)\[br\]`)
+	reHR      = regexp.MustCompile(`(?i)\[hr\]`)
+	mat       = regexp.MustCompile(`(?i)(\b|[а-яё]*)(хуй|хуе|хуё|хуя|пизд|ебан|ебат|ёбан|ебал|ебну|блядь|бляд|сука|сучк|мудак|мудил|залуп|пидор|пидар|гондон)([а-яё]*)`)
 )
 
 var tagHTML = map[string]string{
 	"i": `<em>%s</em>`, "b": `<strong>%s</strong>`, "u": `<span style="text-decoration:underline">%s</span>`,
+	"s": `<del>%s</del>`, "mono": `<code class="bb-mono">%s</code>`,
+	"spoiler": `<span class="bb-spoiler" tabindex="0" title="Нажмите, чтобы показать">%s</span>`,
+	"rainbow": `<span class="bb-rainbow">%s</span>`,
+	"center":  `<div class="bb-center">%s</div>`, "right": `<div class="bb-right">%s</div>`,
 	"big": `<span style="font-size:larger">%s</span>`, "small": `<span style="font-size:smaller">%s</span>`,
 	"red": `<span style="color:#e11d48">%s</span>`, "yellow": `<span style="color:#ca8a04">%s</span>`,
 	"green": `<span style="color:#16a34a">%s</span>`, "blue": `<span style="color:#2563eb">%s</span>`, "white": `<span style="color:#fff;text-shadow:0 0 2px #000">%s</span>`,
+}
+
+var alwaysOnTags = map[string]bool{
+	"s": true, "mono": true, "spoiler": true, "rainbow": true, "center": true, "right": true,
 }
 
 // Censor заменяет нецензурные слова на звёздочки (настройка antimat).
@@ -99,15 +112,24 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 	}
 	if bb {
 		s = reBR.ReplaceAllString(s, "<br>")
+		s = reHR.ReplaceAllString(s, `<hr class="bb-hr">`)
 		// несколько проходов для вложенных тегов
-		for i := 0; i < 3; i++ {
+		for i := 0; i < 4; i++ {
 			s = reTag.ReplaceAllStringFunc(s, func(m string) string {
 				sm := reTag.FindStringSubmatch(m)
 				tag := strings.ToLower(sm[1])
-				if !cfg.Bool("bb_" + tag) {
+				if !alwaysOnTags[tag] && !cfg.Bool("bb_"+tag) {
 					return m
 				}
 				return strings.Replace(tagHTML[tag], "%s", sm[2], 1)
+			})
+			s = reColor.ReplaceAllStringFunc(s, func(m string) string {
+				sm := reColor.FindStringSubmatch(m)
+				return `<span style="color:` + sm[1] + `">` + sm[2] + `</span>`
+			})
+			s = reBg.ReplaceAllStringFunc(s, func(m string) string {
+				sm := reBg.FindStringSubmatch(m)
+				return `<span class="bb-bg" style="background:` + sm[1] + `">` + sm[2] + `</span>`
 			})
 		}
 		if cfg.Bool("bb_size") {
@@ -122,6 +144,22 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 				return `<span style="font-size:` + strconv.Itoa(sz) + `px">` + sm[2] + `</span>`
 			})
 		}
+		s = reCut.ReplaceAllStringFunc(s, func(m string) string {
+			sm := reCut.FindStringSubmatch(m)
+			title := strings.TrimSpace(sm[1])
+			if title == "" {
+				title = "Показать скрытый текст"
+			}
+			return `<details class="bb-cut"><summary>` + title + `</summary><div class="bb-cut-body">` + sm[2] + `</div></details>`
+		})
+		s = reBox.ReplaceAllStringFunc(s, func(m string) string {
+			sm := reBox.FindStringSubmatch(m)
+			kind := strings.ToLower(sm[1])
+			if kind == "" {
+				kind = "info"
+			}
+			return `<div class="bb-box bb-box-` + kind + `">` + sm[2] + `</div>`
+		})
 		s = reQuote.ReplaceAllStringFunc(s, func(m string) string {
 			sm := reQuote.FindStringSubmatch(m)
 			who := ""
