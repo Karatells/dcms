@@ -286,6 +286,12 @@ func deleteGroupAll(a *core.App, g Group) {
 	if dmT != nil {
 		dmT.DeleteBy("group", i(g.ID))
 	}
+	if botTokensT != nil {
+		botTokensT.DeleteBy("group", i(g.ID))
+	}
+	if botUpdatesT != nil {
+		botUpdatesT.DeleteBy("group", i(g.ID))
+	}
 	for _, p := range blogT.By("group", i(g.ID)) {
 		a.T.Likes.DeleteWhere(func(l *model.LikeObject) bool { return l.Type == "gpost" && l.IDObject == p.ID })
 	}
@@ -744,10 +750,12 @@ func Register(a *core.App) {
 						a.Notify(me.ID, m.IDUser, "group_req", g.ID, false)
 					}
 				}
+				EmitUpdate(g.ID, "join_request", "members", map[string]any{"user": a.Ref(me.ID)})
 			}
 			return c.OK("pending", true)
 		}
 		membersT.Insert(&GroupMember{IDGroup: g.ID, IDUser: me.ID, Role: "member", Time: core.Now()})
+		EmitUpdate(g.ID, "member_join", "members", map[string]any{"user": a.Ref(me.ID)})
 		return c.OK("members", membersT.CountBy("group", i(g.ID)))
 	}, core.Auth)
 
@@ -768,6 +776,7 @@ func Register(a *core.App) {
 		}
 		if m, exists := memberOf(g.ID, me.ID); exists {
 			membersT.Delete(m.ID)
+			EmitUpdate(g.ID, "member_leave", "members", map[string]any{"user": a.Ref(me.ID)})
 		}
 		return c.OK("members", membersT.CountBy("group", i(g.ID)))
 	}, core.Auth)
@@ -908,4 +917,5 @@ func Register(a *core.App) {
 	registerInvites(a)
 	registerSections(a)
 	registerMessages(a)
+	registerBot(a)
 }

@@ -113,6 +113,9 @@ build() {
   info "Сборка…"
   ( cd "$APP_DIR" && CGO_ENABLED=0 HOME=/var/lib/dcms-build GOCACHE=/var/cache/dcms-go GOPATH=/var/cache/dcms-gopath "$GO_BIN" build -trimpath -ldflags "-s -w" -o "$APP_DIR/dcms.new" . ) \
     || die "Сборка не удалась"
+  if [ -d "$APP_DIR/cmd/dcms-bot" ]; then
+    ( cd "$APP_DIR" && CGO_ENABLED=0 HOME=/var/lib/dcms-build GOCACHE=/var/cache/dcms-go GOPATH=/var/cache/dcms-gopath "$GO_BIN" build -trimpath -ldflags "-s -w" -o /usr/local/bin/dcms-bot ./cmd/dcms-bot ) || true
+  fi
   ok "Собрано: $(git -C "$APP_DIR" rev-parse --short HEAD)"
 }
 

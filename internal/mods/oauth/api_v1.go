@@ -421,4 +421,5 @@ func registerV1(a *core.App) {
 	})
 
 	registerV1Groups(a, handle, pageParams)
+	registerV1Bot(a, extractToken, pageParams)
 }

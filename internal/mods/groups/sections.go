@@ -103,6 +103,7 @@ func registerSections(a *core.App) {
 			title = core.Trunc(title, 120)
 		}
 		pid := blogT.Insert(&GroupPost{IDGroup: g.ID, IDUser: me.ID, Title: title, Msg: msg, Time: core.Now()})
+		EmitUpdate(g.ID, "blog_post_new", "blog", map[string]any{"id": pid, "author": a.Ref(me.ID), "title": title, "text": msg})
 		return c.OK("id", pid)
 	}, core.Auth)
 
@@ -438,6 +439,7 @@ func registerSections(a *core.App) {
 		}
 		now := core.Now()
 		tid := topicsT.Insert(&GroupTopic{IDGroup: g.ID, IDSub: subID, IDUser: me.ID, Name: name, Msg: msg, Time: now, TimeLast: now})
+		EmitUpdate(g.ID, "forum_topic_new", "forum", map[string]any{"id": tid, "sub_id": subID, "author": a.Ref(me.ID), "name": name, "text": msg})
 		return c.OK("id", tid)
 	}, core.Auth)
 
@@ -509,6 +511,7 @@ func registerSections(a *core.App) {
 		now := core.Now()
 		pid := tpostsT.Insert(&GroupTopicPost{IDTopic: t.ID, IDGroup: g.ID, IDUser: me.ID, Time: now, Msg: msg})
 		topicsT.Update(t.ID, func(x *GroupTopic) { x.TimeLast = now })
+		EmitUpdate(g.ID, "forum_post_new", "forum", map[string]any{"id": pid, "topic_id": t.ID, "author": a.Ref(me.ID), "text": msg})
 		return c.OK("id", pid)
 	}, core.Auth)
 
@@ -632,6 +635,7 @@ func registerSections(a *core.App) {
 		id := chatT.Insert(&m)
 		payload := map[string]any{"id": id, "group_id": g.ID, "user": a.Ref(me.ID), "time": m.Time, "msg": a.Text.Render(m.Msg)}
 		a.Hub.Publish("group:"+i(g.ID), "group_chat", payload)
+		EmitUpdate(g.ID, "chat_message_new", "chat", map[string]any{"id": id, "author": a.Ref(me.ID), "text": m.Msg, "time": m.Time})
 		return c.JSON(payload)
 	}, core.Auth)
 

@@ -343,6 +343,12 @@ func registerMessages(a *core.App) {
 		m, _ := dmT.Get(id)
 		dto := msgDTO(g, m, false)
 		a.Hub.Publish("group_dm:"+i(g.ID), "group_dm", dto)
+		EmitUpdate(g.ID, "message_new", "messages", map[string]any{
+			"id":   m.ID,
+			"from": a.Ref(me.ID),
+			"text": m.Msg,
+			"time": m.Time,
+		})
 		return c.JSON(dto)
 	}, core.Auth)
 
