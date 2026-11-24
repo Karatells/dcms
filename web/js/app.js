@@ -99,8 +99,9 @@ function drawTop() {
   const top = $('.top-actions');
   top.replaceChildren();
   const dark = isDarkActive();
+  const searchBtn = h('a.icon-btn', { href: '/search', title: 'Поиск по сайту', 'aria-label': 'Поиск' }, icon('search', 20));
   const themeBtn = h('button.icon-btn', { title: dark ? 'Светлая тема' : 'Тёмная тема', onclick: e => setTheme(isDarkActive() ? 'light' : 'dark', e) }, icon(dark ? 'sun' : 'moon', 20));
-  if (!state.user) { top.append(themeBtn, link('/login', h('span.btn.sm', 'Войти')), link('/reg', h('span.btn.sm.primary', 'Регистрация'))); return; }
+  if (!state.user) { top.append(searchBtn, themeBtn, link('/login', h('span.btn.sm', 'Войти')), link('/reg', h('span.btn.sm.primary', 'Регистрация'))); return; }
   const u = state.user;
   const menu = ui.dropdown(h('button.icon-btn', { title: u.nick }, ui.avatar({ ...u, online: true }, 32)), [
     { label: u.nick, href: '/id' + u.id, icon: 'user' }, { sep: true },
@@ -110,7 +111,7 @@ function drawTop() {
     can('adm_panel_show') ? { label: 'Администрирование', href: '/admin', icon: 'shield' } : null, { sep: true },
     { label: 'Выйти', icon: 'log-out', danger: true, onclick: logout },
   ]);
-  top.append(themeBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), topButton('/mail', 'mail', 'mail', 'Почта'), topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
+  top.append(searchBtn, themeBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), topButton('/mail', 'mail', 'mail', 'Почта'), topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
 }
 async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('Выйти из аккаунта?'))) return; await api.post('/api/logout'); await refreshMe(); events.restart(); router.go('/'); }
 

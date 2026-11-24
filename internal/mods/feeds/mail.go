@@ -36,10 +36,54 @@ type Kont struct {
 	Name   string `json:"name"`
 }
 
+// MailReaction — реакция-эмодзи на личное сообщение.
+type MailReaction struct {
+	store.Base
+	IDMsg  int64  `json:"id_msg"`
+	IDUser int64  `json:"id_user"`
+	Emoji  string `json:"emoji"`
+}
+
 var (
-	mails *store.Table[Mail, *Mail]
-	konts *store.Table[Kont, *Kont]
+	mails      *store.Table[Mail, *Mail]
+	konts      *store.Table[Kont, *Kont]
+	mailReacts *store.Table[MailReaction, *MailReaction]
 )
+
+var allowedReacts = map[string]bool{"👍": true, "❤️": true, "😂": true, "🔥": true, "😱": true, "👎": true}
+
+func reactionsOf(msgID, me int64) []map[string]any {
+	if mailReacts == nil {
+		return nil
+	}
+	list := mailReacts.By("msg", store.I(msgID))
+	if len(list) == 0 {
+		return nil
+	}
+	type agg struct {
+		count int
+		mine  bool
+	}
+	byE := map[string]*agg{}
+	var order []string
+	for _, r := range list {
+		a, ok := byE[r.Emoji]
+		if !ok {
+			a = &agg{}
+			byE[r.Emoji] = a
+			order = append(order, r.Emoji)
+		}
+		a.count++
+		if r.IDUser == me {
+			a.mine = true
+		}
+	}
+	out := make([]map[string]any, 0, len(order))
+	for _, e := range order {
+		out = append(out, map[string]any{"emoji": e, "count": byE[e].count, "mine": byE[e].mine})
+	}
+	return out
+}
 
 const deletedTTL = 30 * 86400
 
@@ -355,6 +399,9 @@ func msgView(a *core.App, m Mail, me int64) map[string]any {
 			}
 		}
 	}
+	if r := reactionsOf(m.ID, me); len(r) > 0 {
+		out["reactions"] = r
+	}
 	return out
 }
 
@@ -363,6 +410,9 @@ func registerMail(a *core.App) {
 	konts = store.NewTable[Kont](a.DB, "users_konts").
 		Index("user", func(k *Kont) string { return store.I(k.IDUser) }).
 		Index("pair", func(k *Kont) string { return store.Key(k.IDUser, k.IDKont) })
+	mailReacts = store.NewTable[MailReaction](a.DB, "mail_reactions").
+		Index("msg", func(r *MailReaction) string { return store.I(r.IDMsg) }).
+		Index("pair", func(r *MailReaction) string { return store.Key(r.IDMsg, r.IDUser) })
 
 	a.OnUserDelete(func(uid int64) {
 		mails.DeleteWhere(func(m *Mail) bool { return m.IDUser == uid || m.IDKont == uid })
@@ -397,13 +447,18 @@ func registerMail(a *core.App) {
 		}
 		key := pairKey(me.ID, other.ID)
 		var pinned map[string]any
+		markedRead := false
 		for _, m := range mails.By("dialog", key) {
 			if m.IDUser == other.ID && m.IDKont == me.ID && !m.Read {
 				mails.Update(m.ID, func(x *Mail) { x.Read = true })
+				markedRead = true
 			}
 			if m.Pinned && m.Unlink != me.ID {
 				pinned = map[string]any{"id": m.ID, "nick": a.Ref(m.IDUser).Nick, "text": msgPreview(a, m)}
 			}
+		}
+		if markedRead {
+			a.Hub.ToUser(other.ID, "mail_read", map[string]any{"by": me.ID})
 		}
 		p := c.Page()
 		list, total := mails.Select(store.Opts[Mail]{Index: "dialog", Key: key, Where: func(m *Mail) bool { return m.Unlink != me.ID }, Desc: true, Offset: p.Offset, Limit: p.Per})
@@ -441,6 +496,56 @@ func registerMail(a *core.App) {
 			return err
 		}
 		return c.JSON(msgView(a, m, me.ID))
+	}, core.Auth)
+
+	// индикатор «печатает…»
+	a.POST("/api/mail/{id}/typing", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		otherID := c.PathInt("id")
+		if otherID > 0 && otherID != me.ID {
+			a.Hub.ToUser(otherID, "typing", map[string]any{"from": me.ID})
+		}
+		return c.OK()
+	}, core.Auth)
+
+	// реакция-эмодзи на сообщение
+	a.POST("/api/mail/msg/{id}/react", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		m, ok := mails.Get(c.PathInt("id"))
+		if !ok || (m.IDUser != me.ID && m.IDKont != me.ID) {
+			return core.ErrNotFound()
+		}
+		var in struct {
+			Emoji string `json:"emoji"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		if !allowedReacts[in.Emoji] {
+			return core.ErrBad("Неподдерживаемая реакция")
+		}
+		if old, ok := mailReacts.OneBy("pair", store.Key(m.ID, me.ID)); ok {
+			if old.Emoji == in.Emoji {
+				mailReacts.Delete(old.ID)
+			} else {
+				mailReacts.Update(old.ID, func(x *MailReaction) { x.Emoji = in.Emoji })
+			}
+		} else {
+			mailReacts.Insert(&MailReaction{IDMsg: m.ID, IDUser: me.ID, Emoji: in.Emoji})
+		}
+		otherID := m.IDKont
+		if m.IDKont == me.ID {
+			otherID = m.IDUser
+		}
+		myReacts := reactionsOf(m.ID, me.ID)
+		a.Hub.ToUser(otherID, "mail_react", map[string]any{"id": m.ID, "reactions": reactionsOf(m.ID, otherID)})
+		return c.OK("reactions", myReacts)
 	}, core.Auth)
 
 	// закрепить / открепить сообщение в диалоге

@@ -130,6 +130,35 @@ func deleteShortData(a *core.App, id int64) {
 }
 
 // Register регистрирует таблицы, хуки и маршруты раздела коротких видео.
+// SearchShorts ищет готовые публичные клипы по названию или описанию (для глобального поиска).
+func SearchShorts(a *core.App, q string, limit int) []map[string]any {
+	if shortsT == nil {
+		return nil
+	}
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return nil
+	}
+	var res []Short
+	for _, s := range shortsT.By("status", "ready") {
+		if s.Hidden || s.Blocked {
+			continue
+		}
+		if strings.Contains(strings.ToLower(s.Title), q) || strings.Contains(strings.ToLower(s.Opis), q) {
+			res = append(res, s)
+		}
+	}
+	sort.Slice(res, func(x, y int) bool { return res[x].Views > res[y].Views })
+	if len(res) > limit {
+		res = res[:limit]
+	}
+	out := make([]map[string]any, 0, len(res))
+	for _, s := range res {
+		out = append(out, shortView(a, s, nil))
+	}
+	return out
+}
+
 func Register(a *core.App) {
 	shortsT = store.NewTable[Short](a.DB, "shorts").
 		Index("user", func(s *Short) string { return i(s.IDUser) }).

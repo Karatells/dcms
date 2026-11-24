@@ -325,14 +325,20 @@ function renderBubbleAttach(att) {
     h('div.main', h('div.title', att.title || 'Файл'), att.text ? h('div.small.muted.clip', att.text) : null));
 }
 
-// ───────── контекстное меню сообщения
-function openMsgMenu(m, { onReply, onPin, onDelete, onSpam }) {
+// ───────── контекстное меню сообщения (с быстрой панелью реакций)
+const MSG_EMOJIS = ['👍', '❤️', '😂', '🔥', '😱', '👎'];
+function openMsgMenu(m, { onReact, onReply, onPin, onDelete, onSpam }) {
   const close = () => back.remove();
   const item = (ic, label, fn, danger = false) => h('button.msg-ctx-item' + (danger ? '.danger' : ''), {
     type: 'button',
     onclick: () => { close(); fn(); },
   }, icon(ic, 18), label);
+  const reactBar = onReact ? h('div.msg-react-bar', ...MSG_EMOJIS.map(em => h('button.msg-react-btn', {
+    type: 'button',
+    onclick: () => { close(); onReact(em); },
+  }, em))) : null;
   const menu = h('div.msg-ctx',
+    reactBar,
     item('corner-up-left', 'Ответить', onReply),
     item('pin', m.pinned ? 'Открепить' : 'Закрепить', onPin),
     m.raw ? item('copy', 'Копировать текст', () => navigator.clipboard?.writeText(m.raw).then(() => ui.ok('Скопировано'))) : null,
@@ -426,10 +432,16 @@ router.add('/mail/:id', async ctx => {
       items.forEach(m => {
         const dl = dayLabel(m.time);
         if (dl !== lastDay) { lastDay = dl; nodes.push(h('div.msg-day', dl)); }
+        const doReact = async em => {
+          const r = await api.post(`/api/mail/msg/${m.id}/react`, { emoji: em }, { silent: true });
+          m.reactions = r.reactions || [];
+          renderMessages(false);
+        };
         const openMenu = e => {
-          if (e.target.closest('a, .bubble-reply')) return;
+          if (e.target.closest('a, .bubble-reply, .bubble-react-pill')) return;
           e.preventDefault();
           openMsgMenu(m, {
+            onReact: doReact,
             onReply: () => { replyTo = { id: m.id, nick: m.mine ? state.user.nick : d.user.nick, text: (m.raw || '').slice(0, 80) || (m.attach ? m.attach.title : 'Сообщение') }; renderChips(); },
             onPin: async () => {
               const r = await api.post(`/api/mail/msg/${m.id}/pin`);
@@ -451,6 +463,12 @@ router.add('/mail/:id', async ctx => {
             },
           });
         };
+        const reactPills = m.reactions && m.reactions.length
+          ? h('div.bubble-reacts', ...m.reactions.map(rx => h('button.bubble-react-pill' + (rx.mine ? '.mine' : ''), {
+            type: 'button',
+            onclick: e => { e.stopPropagation(); doReact(rx.emoji); },
+          }, rx.emoji, rx.count > 1 ? h('span', String(rx.count)) : null)))
+          : null;
         const bubble = h('div.bubble' + (m.mine ? '.mine' : ''), {
           dataset: { mid: String(m.id) },
           onclick: openMenu,
@@ -465,7 +483,8 @@ router.add('/mail/:id', async ctx => {
             m.mine ? icon(m.read ? 'check-all' : 'check', 14) : null));
         const isNew = !seenIds.has(m.id);
         if (isNew) seenIds.add(m.id);
-        nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : '') + (isNew ? '.new-msg' : ''), bubble));
+        nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : '') + (isNew ? '.new-msg' : ''),
+          reactPills ? h('div.msg-bubble-col', bubble, reactPills) : bubble));
       });
     }
     scrollEl.replaceChildren(...nodes);
@@ -476,13 +495,16 @@ router.add('/mail/:id', async ctx => {
     }
   };
 
-  // Шапка диалога
+  // Шапка диалога (с живым статусом «печатает…»)
+  const statusEl = h('div.msg-status' + (d.user.online ? '.on' : ''), d.user.online ? 'в сети' : 'не в сети');
+  const setStatusNormal = () => {
+    statusEl.className = 'msg-status' + (d.user.online ? ' on' : '');
+    statusEl.textContent = d.user.online ? 'в сети' : 'не в сети';
+  };
   const head = h('div.msg-head',
     h('a.icon-btn', { href: '/mail', title: 'Назад к почте', 'aria-label': 'Назад' }, icon('arrow-left', 20)),
     ui.avatar(d.user, 38),
-    h('div.msg-head-info',
-      ui.userLink(d.user, { badges: true }),
-      h('div.msg-status' + (d.user.online ? '.on' : ''), d.user.online ? 'в сети' : 'не в сети')),
+    h('div.msg-head-info', ui.userLink(d.user, { badges: true }), statusEl),
     !d.contact ? ui.btn('', { ic: 'user-plus', small: true, title: 'В контакты', onclick: async () => { await api.post('/api/konts/' + d.user.id); ui.ok('Добавлено в контакты'); reload(); } }) : null,
     ui.dropdown(h('button.icon-btn', { title: 'Меню' }, icon('more', 20)), [
       { label: 'Профиль', icon: 'user', href: '/id' + d.user.id },
@@ -618,8 +640,16 @@ router.add('/mail/:id', async ctx => {
       } finally { syncTa(); }
     };
 
+    let lastTypingSent = 0;
     sendBtn.onclick = doSend;
-    ta.oninput = syncTa;
+    ta.oninput = () => {
+      syncTa();
+      const now = Date.now();
+      if (ta.value.trim() && now - lastTypingSent > 2500) {
+        lastTypingSent = now;
+        api.post(`/api/mail/${d.user.id}/typing`, {}, { silent: true }).catch(() => {});
+      }
+    };
     ta.onkeydown = e => {
       if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) {
         e.preventDefault();
@@ -632,8 +662,31 @@ router.add('/mail/:id', async ctx => {
     foot.append(h('div.pad.small.muted.center', 'Вы не можете писать этому пользователю.'));
   }
 
+  let typingTimer = null;
+  const onTyping = bus.on('sse:typing', ev => {
+    if (ev && ev.from === d.user.id) {
+      statusEl.className = 'msg-status typing';
+      statusEl.textContent = 'печатает…';
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(setStatusNormal, 3500);
+    }
+  });
+  const onRead = bus.on('sse:mail_read', ev => {
+    if (ev && ev.by === d.user.id) {
+      let changed = false;
+      items.forEach(x => { if (x.mine && !x.read) { x.read = true; changed = true; } });
+      if (changed) renderMessages(false);
+    }
+  });
+  const onReact = bus.on('sse:mail_react', ev => {
+    if (!ev) return;
+    const m = items.find(x => x.id === ev.id);
+    if (m) { m.reactions = ev.reactions || []; renderMessages(false); }
+  });
   const onMsg = bus.on('sse:message', async m => {
     if (m.from && m.from.id === d.user.id) {
+      clearTimeout(typingTimer);
+      setStatusNormal();
       const fresh = await api.get('/api/mail/' + uid, { page: 1 }, { silent: true });
       curPage = 1;
       items = [...(fresh.items || [])].reverse();
@@ -645,7 +698,11 @@ router.add('/mail/:id', async ctx => {
   });
   ctx.onLeave(() => {
     document.body.classList.remove('msg-page');
+    clearTimeout(typingTimer);
     onMsg && onMsg();
+    onTyping && onTyping();
+    onRead && onRead();
+    onReact && onReact();
   });
 
   renderPinned();
@@ -1049,3 +1106,44 @@ router.add('/mail/group/:id', async ctx => {
     }),
   });
 }, { auth: true });
+
+// ───────── ГЛОБАЛЬНЫЙ ПОИСК ПО САЙТУ (/search)
+router.add('/search', async ctx => {
+  const q = (ctx.query.q || '').trim();
+  ctx.title(q ? `Поиск: ${q}` : 'Поиск по сайту');
+  const inp = h('input.input', { value: q, placeholder: 'Искать людей, сообщества, клипы…', autofocus: !q });
+  const go = () => router.go('/search' + (inp.value.trim() ? '?q=' + encodeURIComponent(inp.value.trim()) : ''));
+  inp.onkeydown = e => e.key === 'Enter' && go();
+
+  const out = [
+    ui.pageHead('Поиск по сайту'),
+    h('div.card.pad', h('div.row.nowrap', inp, ui.btn('Найти', { ic: 'search', kind: 'primary', onclick: go }))),
+  ];
+  if (!q) {
+    out.push(ui.card(ui.empty('Введите имя, ник, название сообщества или клипа', 'search')));
+    return out;
+  }
+  const d = await api.get('/api/search', { q });
+  const total = (d.users?.length || 0) + (d.groups?.length || 0) + (d.shorts?.length || 0);
+  if (!total) {
+    out.push(ui.card(ui.empty(`По запросу «${q}» ничего не найдено`, 'search')));
+    return out;
+  }
+  if (d.users && d.users.length) {
+    out.push(ui.section(`Пользователи (${d.users.length})`, h('div.list', ...d.users.map(u => h('a.list-item', { href: '/id' + u.id },
+      ui.avatar(u, 40), h('div.main', h('div.title', u.nick, u.online ? h('span.badge.ok', { style: { marginLeft: '6px' } }, 'онлайн') : null), h('div.small.muted', u.group || 'Пользователь')))))));
+  }
+  if (d.groups && d.groups.length) {
+    const ini = s => (Array.from((s || 'С').trim())[0] || 'С').toUpperCase();
+    out.push(ui.section(`Сообщества (${d.groups.length})`, h('div.list', ...d.groups.map(g => h('a.list-item', { href: '/groups/' + g.id },
+      h('div.grp-ava-sm', { style: { width: '40px', height: '40px', borderRadius: '10px', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,var(--accent),#ec4899)', color: '#fff', fontWeight: '800', overflow: 'hidden', flexShrink: '0' } },
+        g.avatar ? h('img', { src: g.avatar, alt: g.name, style: { width: '100%', height: '100%', objectFit: 'cover' } }) : ini(g.name)),
+      h('div.main', h('div.title', g.name, h('span.badge', { style: { marginLeft: '6px' } }, g.category)), h('div.small.muted', `Участников: ${fmt.num(g.members)}`)))))));
+  }
+  if (d.shorts && d.shorts.length) {
+    out.push(ui.section(`Клипы (${d.shorts.length})`, h('div.list', ...d.shorts.map(s => h('a.list-item', { href: '/shorts/' + s.id },
+      h('img', { src: s.poster_url, alt: s.title, style: { width: '42px', height: '58px', objectFit: 'cover', borderRadius: '6px', flexShrink: '0' } }),
+      h('div.main', h('div.title', s.title), h('div.small.muted', s.user.nick, ' · ', fmt.num(s.views), ' просм. · ♥ ', fmt.num(s.likes))))))));
+  }
+  return out;
+});
