@@ -5,9 +5,10 @@ if (!document.querySelector('link[href="/css/shorts.css"]')) {
 }
 
 const me = () => state.user;
+const isShortsFeedPath = p => /^\/shorts(\/\d+)?\/?$/.test(p || '');
 let globalMuted = false;
 const syncMuteUI = muted => {
-  document.querySelectorAll('.short-mute').forEach(b => b.replaceChildren(icon(muted ? 'volume-x' : 'volume', 18)));
+  document.querySelectorAll('.short-mute').forEach(b => b.replaceChildren(icon(muted ? 'volume-x' : 'volume', 22)));
 };
 
 state.adminLinks.push({
@@ -420,7 +421,7 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
   });
   const progFill = h('div.short-prog-fill');
   const prog = h('div.short-prog', h('div.short-prog-bg', progFill));
-  const muteBtn = h('button.short-mute', { title: 'Звук', 'aria-label': 'Звук' }, icon(globalMuted ? 'volume-x' : 'volume', 18));
+  const muteBtn = h('button.short-mute', { title: 'Звук', 'aria-label': 'Звук' }, icon(globalMuted ? 'volume-x' : 'volume', 22));
   const viewsSpan = h('span', `${fmt.num(s.views)} просм.`);
   let viewedSent = false;
 
@@ -478,7 +479,7 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
       likeBtn.classList.toggle('liked', !!r.liked);
       likeCnt.textContent = fmt.num(r.likes);
     },
-  }, h('span.ic-wrap', icon('heart', 20)), likeCnt);
+  }, h('span.ic-wrap', icon('heart', 26)), likeCnt);
 
   const kommCnt = h('span.cnt', fmt.num(s.komms));
   const kommBtn = h('button.short-act', {
@@ -487,7 +488,7 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
       e.stopPropagation();
       openCommentsModal(s, n => { s.komms = n; kommCnt.textContent = fmt.num(n); });
     },
-  }, h('span.ic-wrap', icon('message-circle', 20)), kommCnt);
+  }, h('span.ic-wrap', icon('message-circle', 26)), kommCnt);
 
   const bmBtn = h('button.short-act' + (s.bookmarked ? '.saved' : ''), {
     title: 'В закладки',
@@ -499,12 +500,12 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
       bmBtn.classList.toggle('saved', s.bookmarked);
       ui.ok(s.bookmarked ? 'Добавлено в закладки' : 'Удалено из закладок');
     },
-  }, h('span.ic-wrap', icon('bookmark', 20)), h('span.cnt', 'Сохр.'));
+  }, h('span.ic-wrap', icon('bookmark', 26)), h('span.cnt', 'Сохр.'));
 
   const shareBtn = h('button.short-act', {
     title: 'Поделиться',
     onclick: e => { e.stopPropagation(); openShareModal(s); },
-  }, h('span.ic-wrap', icon('share', 20)), h('span.cnt', 'Подел.'));
+  }, h('span.ic-wrap', icon('share', 25)), h('span.cnt', 'Подел.'));
 
   const moreItems = [
     { label: 'Все клипы автора', href: '/shorts/user/' + s.user.id, icon: 'video' },
@@ -578,7 +579,7 @@ function buildShortSlide(s, { onDeleted, onUpdated }) {
     });
   }
   const moreBtn = ui.dropdown(
-    h('button.short-act', { title: 'Ещё', onclick: e => e.stopPropagation() }, h('span.ic-wrap', icon('more', 20))),
+    h('button.short-act', { title: 'Ещё', onclick: e => e.stopPropagation() }, h('span.ic-wrap', icon('more', 24))),
     moreItems
   );
 
@@ -630,6 +631,7 @@ async function renderShortsFeed(ctx, startID = 0) {
   const filterUID = +(ctx.query.user || 0);
   ctx.title('Клипы');
 
+  document.body.classList.remove('nav-open');
   document.body.classList.add('shorts-fs');
   let curPage = 1;
   let totalPages = 1;
@@ -660,7 +662,8 @@ async function renderShortsFeed(ctx, startID = 0) {
       'video',
       me() ? ui.btn('Перейти в мои клипы', { ic: 'video', kind: 'primary', href: `/shorts/user/${me().id}` }) : null
     )));
-    ctx.onLeave(() => document.body.classList.remove('shorts-fs'));
+    ctx.onLeave(() => { if (!isShortsFeedPath(location.pathname)) document.body.classList.remove('shorts-fs'); });
+    requestAnimationFrame(() => { if (isShortsFeedPath(location.pathname)) document.body.classList.add('shorts-fs'); });
     return wrap;
   }
 
@@ -729,16 +732,17 @@ async function renderShortsFeed(ctx, startID = 0) {
     } else if (e.key.toLowerCase() === 'm') {
       globalMuted = !globalMuted;
       slides.forEach(c => { c.video.muted = globalMuted; });
-      document.querySelectorAll('.short-mute').forEach(b => b.replaceChildren(icon(globalMuted ? 'volume-x' : 'volume', 18)));
+      syncMuteUI(globalMuted);
     }
   };
   document.addEventListener('keydown', onKey);
   ctx.onLeave(() => {
-    document.body.classList.remove('shorts-fs');
+    if (!isShortsFeedPath(location.pathname)) document.body.classList.remove('shorts-fs');
     io.disconnect();
     document.removeEventListener('keydown', onKey);
     slides.forEach(c => c.video.pause());
   });
+  requestAnimationFrame(() => { if (isShortsFeedPath(location.pathname)) document.body.classList.add('shorts-fs'); });
 
   return wrap;
 }

@@ -273,11 +273,12 @@ function swapView(view, nodes, isSamePage) {
   else if (Array.isArray(nodes)) view.replaceChildren(...nodes.filter(Boolean));
   else return;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!reduced) {
+  if (!reduced && !document.body.classList.contains('shorts-fs')) {
     // Для мессенджера и перерисовки той же страницы — только мягкий fade без сдвига (чтобы не дёргать fixed-элементы)
     const cls = (isSamePage || document.body.classList.contains('msg-page')) ? 'view-fade' : 'view-enter';
     void view.offsetWidth;
     view.classList.add(cls);
+    view.addEventListener('animationend', () => view.classList.remove('view-enter', 'view-fade'), { once: true });
   }
 }
 
