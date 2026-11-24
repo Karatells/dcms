@@ -232,7 +232,15 @@ func Register(a *core.App) {
 					}
 					list = append(list, s)
 				} else if me != nil && me.ID == uid {
-					pending = append(pending, shortView(a, s, me))
+					pv := shortView(a, s, me)
+					if s.Status == "processing" {
+						st, prog, qPos, qTot := shortProcInfo(s.ID)
+						pv["proc_state"] = st
+						pv["progress"] = prog
+						pv["queue_pos"] = qPos
+						pv["queue_total"] = qTot
+					}
+					pending = append(pending, pv)
 				}
 			}
 		} else {
@@ -398,19 +406,23 @@ func Register(a *core.App) {
 			return core.Err(500, "Не удалось сохранить файл")
 		}
 
-		// Быстрая проверка длительности до постановки в очередь ffmpeg
+		// Быстрая проверка длительности до постановки в очередь обработки
 		maxSec := a.Cfg.Int("shorts_max_sec")
 		if maxSec <= 0 {
 			maxSec = 60
 		}
-		if info, err := probeVideo(raw); err == nil && info.Duration > float64(maxSec)+2 {
-			_ = os.Remove(raw)
-			shortsT.Delete(id)
-			return core.ErrBad("Видео слишком длинное — допустимо до " + store.I(int64(maxSec)) + " секунд")
+		var rawDur float64
+		if info, err := probeVideo(raw); err == nil {
+			rawDur = info.Duration
+			if info.Duration > float64(maxSec)+2 {
+				_ = os.Remove(raw)
+				shortsT.Delete(id)
+				return core.ErrBad("Видео слишком длинное — допустимо до " + store.I(int64(maxSec)) + " секунд")
+			}
 		}
 
-		go processShort(a, id, raw)
-		return c.OK("id", id, "status", "processing")
+		qPos, qTot := enqueueShort(a, id, me.ID, raw, rawDur)
+		return c.OK("id", id, "status", "processing", "queue_pos", qPos, "queue_total", qTot)
 	}, core.Auth)
 
 	// ── Редактирование описания/названия

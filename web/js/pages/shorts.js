@@ -98,7 +98,7 @@ export function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
       if (xhr.status >= 200 && xhr.status < 300) {
         if (previewURL) URL.revokeObjectURL(previewURL);
         modal && modal.close();
-        ui.ok('Видео загружено и отправлено в обработку (ffmpeg)');
+        ui.ok('Видео загружено и отправлено в обработку');
         onDone && onDone(res.id);
       } else {
         progWrap.style.display = 'none';
@@ -679,21 +679,68 @@ router.add('/shorts/user/:uid', async ctx => {
       isMe ? ui.btn('Загрузить клип', { ic: 'upload', kind: 'primary', small: true, onclick: () => openUploadModal(d.max_sec || 60, d.max_mb || 100, reload) }) : null),
   ];
 
-  // Показываем статус обработки ffmpeg только владельцу на его странице
+  // Показываем статус и прогресс обработки только владельцу на его странице
   if (isMe && d.pending && d.pending.length) {
-    const pCard = h('div.card.pad.stack-s');
+    const pCard = h('div.card.pad.stack');
+    const progMap = new Map();
     d.pending.forEach(p => {
-      pCard.append(h('div.row',
-        p.status === 'processing' ? h('span.badge.primary', 'Обработка ffmpeg…') : h('span.badge.danger', 'Ошибка'),
-        h('b', p.title),
-        p.err_msg ? h('span.small.err', p.err_msg) : h('span.small.muted', 'Видео сжимается и скоро появится здесь и в общей ленте'),
-        h('span.grow'),
-        p.status === 'failed' ? ui.btn('Убрать', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/shorts/' + p.id); reload(); } }) : null));
+      const badgeEl = h('span.badge' + (p.status === 'failed' ? '.danger' : '.primary'));
+      const pctEl = h('span.small.muted');
+      const fillEl = h('div.short-proc-fill');
+      const barEl = p.status === 'processing' ? h('div.short-proc-bar', fillEl) : null;
+      const hintEl = h('div.small' + (p.err_msg ? '.err' : '.muted'));
+
+      const applyState = (st, pct, qPos, errMsg) => {
+        if (st === 'failed' || errMsg) {
+          badgeEl.className = 'badge danger';
+          badgeEl.textContent = 'Ошибка';
+          pctEl.textContent = '';
+          if (barEl) barEl.style.display = 'none';
+          hintEl.className = 'small err';
+          hintEl.textContent = errMsg || 'Не удалось обработать видео';
+          return;
+        }
+        if (st === 'queued' && qPos > 0) {
+          badgeEl.className = 'badge';
+          badgeEl.textContent = `В очереди (#${qPos})`;
+          pctEl.textContent = 'Ожидание…';
+          fillEl.style.width = '8%';
+          fillEl.classList.add('queued');
+          hintEl.textContent = qPos === 1 ? 'Ваше видео следующее в очереди на обработку' : `Перед вами в очереди: ${qPos - 1}`;
+        } else {
+          const val = Math.max(1, Math.min(99, pct || 0));
+          badgeEl.className = 'badge primary';
+          badgeEl.textContent = 'Обработка';
+          pctEl.textContent = val + '%';
+          fillEl.classList.remove('queued');
+          fillEl.style.width = val + '%';
+          hintEl.textContent = 'Видео обрабатывается и скоро появится в ленте';
+        }
+      };
+
+      applyState(p.status === 'failed' ? 'failed' : (p.proc_state || 'processing'), p.progress || 0, p.queue_pos || 0, p.err_msg);
+      progMap.set(p.id, applyState);
+
+      pCard.append(h('div.stack-s',
+        h('div.row',
+          badgeEl,
+          h('b', p.title),
+          h('span.grow'),
+          pctEl,
+          p.status === 'failed' ? ui.btn('Убрать', { ic: 'trash', small: true, onclick: async () => { await api.del('/api/shorts/' + p.id); reload(); } }) : null),
+        barEl,
+        hintEl));
     });
     out.push(pCard);
+
     if (d.pending.some(p => p.status === 'processing')) {
-      const tm = setTimeout(() => router.render(), 4000);
-      ctx.onLeave(() => clearTimeout(tm));
+      const offProg = bus.on('sse:shorts_progress', ev => {
+        if (!ev || !ev.id) return;
+        const fn = progMap.get(ev.id);
+        if (fn) fn(ev.state, ev.progress, ev.queue_pos, ev.err);
+      });
+      const tm = setTimeout(() => router.render(), 10000);
+      ctx.onLeave(() => { offProg(); clearTimeout(tm); });
     }
   }
 

@@ -511,3 +511,8 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 
 @keyframes vipShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 @media (prefers-reduced-motion:reduce){.vip-profile .profile-cover{animation:none!important}}
+
+/* ── Прогресс-бар обработки клипов ── */
+.short-proc-bar{width:100%;height:7px;border-radius:999px;background:var(--bg-sunken);overflow:hidden}
+.short-proc-fill{height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 55%,#ec4899));transition:width .35s cubic-bezier(.22,1,.36,1)}
+.short-proc-fill.queued{opacity:.55;animation:navProg 1.4s linear infinite;background-size:200% 100%}
