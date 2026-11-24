@@ -6,8 +6,19 @@ if (!document.querySelector('link[href="/css/developers.css"]')) {
 
 const me = () => state.user;
 const copyText = async (txt, label = 'Скопировано') => {
-  try { await navigator.clipboard.writeText(txt); ui.ok(label); }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(txt);
+      ui.ok(label);
+      return;
+    }
+  } catch {}
+  const ta = h('textarea', { style: { position: 'fixed', opacity: '0' } }, txt);
+  document.body.append(ta);
+  ta.select();
+  try { document.execCommand('copy'); ui.ok(label); }
   catch { ui.toast(txt, 'info'); }
+  ta.remove();
 };
 
 function codeBlock(title, code) {
@@ -505,24 +516,105 @@ function buildDocsSection(scopes) {
     h('div.card.pad.stack',
       h('h2', 'Боты сообществ (Bot API · Long Polling)'),
       h('p.small.muted', 'Вместо пользовательского OAuth-токена создатель или администратор сообщества может выпустить отдельный ', h('b', 'токен сообщества'), ' (', h('code', 'dcms_grp_...'), ') в разделе ', h('b', 'Сообщество → Настройки → Боты и API-токены'), '. Токен работает только со своим сообществом и выбранными разрешениями (', h('code', 'messages'), ', ', h('code', 'chat'), ', ', h('code', 'forum'), ', ', h('code', 'blog'), ', ', h('code', 'members'), ', ', h('code', 'files'), ').'),
-      h('div.small.muted', h('b', 'События Long Poll (getUpdates): '), ' ',
+      h('div.small.muted', h('b', 'Типы событий Long Poll (getUpdates): '), ' ',
         h('code', 'message_new'), ', ', h('code', 'chat_message_new'), ', ', h('code', 'forum_topic_new'), ', ', h('code', 'forum_post_new'), ', ', h('code', 'blog_post_new'), ', ', h('code', 'join_request'), ', ', h('code', 'member_join'), ', ', h('code', 'member_leave'), '.'),
       h('div.stack-s',
         ...[
-          ['GET', '/api/v1/bot/me', 'Информация о сообществе и выданных разрешениях токена'],
-          ['GET', '/api/v1/bot/getUpdates?offset=0&limit=50&timeout=25', 'Long Polling: ждёт до timeout секунд и возвращает новые события (update_id, type, data)'],
-          ['POST', '/api/v1/bot/sendMessage', 'Ответить пользователю в ЛС от лица сообщества: {"user_id": 2, "text": "Привет!"} (требует messages)'],
-          ['GET', '/api/v1/bot/inbox', 'Список входящих диалогов сообщества (требует messages)'],
-          ['GET', '/api/v1/bot/requests', 'Список заявок на вступление в приватное сообщество (требует members)'],
-          ['POST', '/api/v1/bot/approveRequest', 'Одобрить заявку на вступление: {"user_id": 2} (требует members)'],
-          ['POST', '/api/v1/bot/rejectRequest', 'Отклонить заявку: {"user_id": 2} (требует members)'],
-          ['POST', '/api/v1/bot/sendChat', 'Отправить сообщение в чат сообщества: {"text": "..."} (требует chat)'],
-          ['POST', '/api/v1/bot/createPost', 'Опубликовать запись в блоге: {"title": "...", "text": "..."} (требует blog)'],
-          ['POST', '/api/v1/bot/createTopic', 'Создать тему на форуме: {"sub": 0, "name": "...", "text": "..."} (требует forum)'],
-          ['POST', '/api/v1/bot/replyTopic', 'Ответить в теме форума: {"topic_id": 8, "text": "..."} (требует forum)'],
-          ['GET', '/api/v1/bot/files', 'Список файлов сообщества (требует files)'],
-        ].map(([m, p, desc]) => h('div.row', { style: { padding: '6px 0', borderBottom: '1px solid var(--border)' } },
-          h('span.dev-method.' + m, m), h('span.dev-path', p), h('span.small.muted', desc)))),
+          {
+            method: 'GET', path: '/api/v1/bot/me', scope: 'Любой токен сообщества',
+            summary: 'Информация о сообществе, названии токена и выданных разрешениях',
+            params: [],
+            response: JSON.stringify({ ok: true, token_name: 'Бот поддержки', scopes: ['messages', 'members'], group: { id: 1, name: 'Разработчики', members: 42 } }, null, 2),
+          },
+          {
+            method: 'GET', path: '/api/v1/bot/getUpdates', scope: 'По правам токена',
+            summary: 'Long Polling: получение новых событий сообщества (ждёт до timeout сек и мгновенно отвечает при событии)',
+            params: [
+              ['offset', 'int', 'ID первого нужного события (передавайте last_update_id + 1)'],
+              ['limit', 'int', 'Максимум событий за запрос (1–100, по умолчанию 50)'],
+              ['timeout', 'int', 'Время ожидания новых событий в секундах (0–30, рекомендуется 25)'],
+            ],
+            response: JSON.stringify({
+              ok: true,
+              result: [{ update_id: 15, type: 'message_new', time: 1795460000, data: { id: 42, from: { id: 2, nick: 'Elena' }, text: '/start', time: 1795460000 } }],
+            }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/sendMessage', scope: 'messages',
+            summary: 'Ответить пользователю в личные сообщения от лица сообщества (строго если пользователь писал первым)',
+            params: [
+              ['user_id', 'int (JSON body)', 'ID пользователя-получателя'],
+              ['text', 'string (JSON body)', 'Текст ответа (1–2000 символов, поддерживается BBCode)'],
+            ],
+            response: JSON.stringify({ ok: true, message: { id: 43, group_id: 1, user_id: 2, text: 'Здравствуйте! Чем помочь?', time: 1795460005 } }, null, 2),
+          },
+          {
+            method: 'GET', path: '/api/v1/bot/inbox', scope: 'messages',
+            summary: 'Список входящих личных диалогов сообщества',
+            params: [],
+            response: JSON.stringify({ ok: true, items: [{ user: { id: 2, nick: 'Elena' }, last_msg: '/start', unread: 1, last_time: 1795460000 }] }, null, 2),
+          },
+          {
+            method: 'GET', path: '/api/v1/bot/requests', scope: 'members',
+            summary: 'Список ожидающих заявок на вступление в приватное сообщество',
+            params: [],
+            response: JSON.stringify({ ok: true, items: [{ user: { id: 5, nick: 'Max' }, time: 1795460100 }] }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/approveRequest', scope: 'members',
+            summary: 'Автоматически одобрить заявку пользователя на вступление в приватное сообщество',
+            params: [['user_id', 'int (JSON body)', 'ID пользователя, подавшего заявку']],
+            response: JSON.stringify({ ok: true }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/rejectRequest', scope: 'members',
+            summary: 'Отклонить заявку пользователя на вступление',
+            params: [['user_id', 'int (JSON body)', 'ID пользователя, подавшего заявку']],
+            response: JSON.stringify({ ok: true }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/sendChat', scope: 'chat',
+            summary: 'Отправить сообщение в чат сообщества',
+            params: [['text', 'string (JSON body)', 'Текст сообщения (1–1024 символа)']],
+            response: JSON.stringify({ ok: true, message: { id: 88, group_id: 1, text: 'Бот на связи!', time: 1795460200 } }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/createPost', scope: 'blog',
+            summary: 'Опубликовать новую запись в блоге сообщества',
+            params: [['title', 'string (JSON body)', 'Заголовок (необязательно)'], ['text', 'string (JSON body)', 'Текст записи (1–4096 символов)']],
+            response: JSON.stringify({ ok: true, post: { id: 12, title: 'Ежедневный дайджест', text: 'Новости дня…', time: 1795460300 } }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/createTopic', scope: 'forum',
+            summary: 'Создать новую тему на форуме сообщества',
+            params: [['sub', 'int (JSON body)', 'ID подфорума (0 — первый доступный)'], ['name', 'string (JSON body)', 'Название темы'], ['text', 'string (JSON body)', 'Текст первого сообщения']],
+            response: JSON.stringify({ ok: true, topic: { id: 19, group_id: 1, sub_id: 1, name: 'Обсуждение', text: 'Текст темы', time: 1795460400 } }, null, 2),
+          },
+          {
+            method: 'POST', path: '/api/v1/bot/replyTopic', scope: 'forum',
+            summary: 'Ответить в существующей теме форума сообщества',
+            params: [['topic_id', 'int (JSON body)', 'ID темы форума'], ['text', 'string (JSON body)', 'Текст ответа (1–4096 символов)']],
+            response: JSON.stringify({ ok: true, post: { id: 54, topic_id: 19, text: 'Принято!', time: 1795460500 } }, null, 2),
+          },
+          {
+            method: 'GET', path: '/api/v1/bot/files', scope: 'files',
+            summary: 'Список файлов сообщества со ссылками на скачивание',
+            params: [['page', 'int', 'Страница'], ['per', 'int', 'Количество на странице (до 100)']],
+            response: JSON.stringify({ items: [{ id: 5, name: 'rules', ext: 'pdf', size: 124000, download_url: '/api/group-files/5/download' }], total: 1, page: 1, per: 20, pages: 1 }, null, 2),
+          },
+        ].map(ep => h('details.dev-ep',
+          h('summary',
+            h('span.dev-method.' + ep.method, ep.method),
+            h('span.dev-path', ep.path),
+            h('span.badge', ep.scope),
+            h('span.small.muted.grow', ep.summary)),
+          h('div.dev-ep-body',
+            ep.params.length ? h('div',
+              h('div.small.muted', { style: { marginBottom: '6px' } }, 'Параметры:'),
+              h('table.dev-table',
+                h('thead', h('tr', h('th', 'Параметр'), h('th', 'Тип'), h('th', 'Описание'))),
+                h('tbody', ...ep.params.map(([n, t, d]) => h('tr', h('td', h('code', n)), h('td', t), h('td', d)))))) : null,
+            codeBlock('Пример ответа JSON', ep.response))))),
       multiLangCode({
         'Готовый бот (CLI)': `# После sudo dcms-update команда dcms-bot доступна сразу:\ndcms-bot -url ${origin} -token ВАШ_ТОКЕН_СООБЩЕСТВА\n\n# С автоматическим одобрением заявок в приватное сообщество:\ndcms-bot -url ${origin} -token ВАШ_ТОКЕН_СООБЩЕСТВА -auto-approve`,
         'Python (Long Poll)': `import requests\n\nURL = '${origin}'\nHEADERS = {'Authorization': 'Bearer dcms_grp_ВАШ_ТОКЕН'}\noffset = 0\n\nwhile True:\n    r = requests.get(f'{URL}/api/v1/bot/getUpdates', params={'offset': offset, 'timeout': 25}, headers=HEADERS).json()\n    for upd in r.get('result', []):\n        offset = upd['update_id'] + 1\n        if upd['type'] == 'message_new':\n            uid = upd['data']['from']['id']\n            txt = upd['data']['text']\n            requests.post(f'{URL}/api/v1/bot/sendMessage', json={'user_id': uid, 'text': f'Вы написали: {txt}'}, headers=HEADERS)`,

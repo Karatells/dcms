@@ -650,6 +650,22 @@ router.add('/groups/:id/settings', async ctx => {
   const avaIn = h('input', { type: 'file', accept: 'image/*' });
   const banIn = h('input', { type: 'file', accept: 'image/*' });
 
+  const copyFallback = (text, okMsg) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => ui.ok(okMsg)).catch(() => {
+        const ta = h('textarea', { style: { position: 'fixed', opacity: '0' } }, text);
+        document.body.append(ta); ta.select();
+        try { document.execCommand('copy'); ui.ok(okMsg); } catch { ui.toast('Выделите и скопируйте вручную', 'info'); }
+        ta.remove();
+      });
+    } else {
+      const ta = h('textarea', { style: { position: 'fixed', opacity: '0' } }, text);
+      document.body.append(ta); ta.select();
+      try { document.execCommand('copy'); ui.ok(okMsg); } catch { ui.toast('Выделите и скопируйте вручную', 'info'); }
+      ta.remove();
+    }
+  };
+
   // API-токены (боты сообщества)
   const tokData = await api.get(`/api/groups/${id}/tokens`).catch(() => ({ items: [], available_scopes: [] }));
   const tokName = h('input.input', { placeholder: 'Название бота (например: Бот поддержки)', maxlength: 64 });
@@ -661,16 +677,22 @@ router.add('/groups/:id/settings', async ctx => {
   });
   const tokList = (tokData.items || []).map(t => {
     let revealed = false;
-    const tokSpan = h('code', { style: { wordBreak: 'break-all', fontSize: '.82rem' } }, 'dcms_grp_••••••••••••••••••••');
+    const tokIn = h('input.input', { value: 'dcms_grp_••••••••••••••••••••', readOnly: true, style: { fontFamily: 'ui-monospace,monospace', fontSize: '.82rem' }, onclick: e => { if (revealed) e.target.select(); } });
     const revBtn = ui.btn('Показать', {
       small: true,
       onclick: () => {
         revealed = !revealed;
-        tokSpan.textContent = revealed ? t.token : 'dcms_grp_••••••••••••••••••••';
+        tokIn.value = revealed ? t.token : 'dcms_grp_••••••••••••••••••••';
         revBtn.textContent = revealed ? 'Скрыть' : 'Показать';
       },
     });
     const runCmd = `dcms-bot -url ${location.origin} -token ${t.token}`;
+    const cmdIn = h('input.input', {
+      value: runCmd,
+      readOnly: true,
+      style: { fontFamily: 'ui-monospace,monospace', fontSize: '.82rem' },
+      onclick: e => e.target.select(),
+    });
     return h('div.card.pad.stack-s', { style: { background: 'var(--bg)' } },
       h('div.row',
         h('b.grow', t.name),
@@ -679,9 +701,10 @@ router.add('/groups/:id/settings', async ctx => {
           ic: 'trash', small: true, kind: 'danger', title: 'Отозвать токен',
           onclick: async () => { if (await ui.confirm(`Отозвать токен «${t.name}»?`, { danger: true })) { await api.del('/api/group-tokens/' + t.id); ui.ok('Токен отозван'); reload(); } },
         })),
-      h('div.row', tokSpan, revBtn,
-        ui.btn('Копировать токен', { ic: 'copy', small: true, onclick: () => navigator.clipboard?.writeText(t.token).then(() => ui.ok('Токен скопирован')) }),
-        ui.btn('Команда бота', { ic: 'code', small: true, title: 'Скопировать команду запуска dcms-bot', onclick: () => navigator.clipboard?.writeText(runCmd).then(() => ui.ok('Команда dcms-bot скопирована')) })));
+      h('div.field', h('label', 'Токен сообщества'),
+        h('div.row.nowrap', tokIn, revBtn, ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => copyFallback(t.token, 'Токен скопирован') }))),
+      h('div.field', h('label', 'Команда запуска тестового бота (нажмите, чтобы выделить)'),
+        h('div.row.nowrap', cmdIn, ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => copyFallback(runCmd, 'Команда скопирована') }))));
   });
 
   // Ссылки для автовступления
