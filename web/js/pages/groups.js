@@ -1,4 +1,4 @@
-import { h, api, ui, router, state, icon, fmt, events } from '../core.js';
+import { h, api, ui, router, state, icon, fmt, events, bus } from '../core.js';
 
 if (!document.querySelector('link[href="/css/groups.css"]')) {
   document.head.append(h('link', { rel: 'stylesheet', href: '/css/groups.css' }));
@@ -26,6 +26,7 @@ function roleBadges(m) {
     if (m.mod_forum) b.push(h('span.badge.ok', 'Мод. форума'));
     if (m.mod_chat) b.push(h('span.badge.ok', 'Мод. чата'));
     if (m.mod_files) b.push(h('span.badge.ok', 'Мод. файлов'));
+    if (m.mod_messages) b.push(h('span.badge.ok', 'Мод. сообщений'));
   }
   return b.length ? h('div.grp-role-badges', ...b) : null;
 }
@@ -42,6 +43,7 @@ function openCreateGroupModal() {
   const cForum = h('input', { type: 'checkbox', checked: true });
   const cChat = h('input', { type: 'checkbox', checked: true });
   const cFiles = h('input', { type: 'checkbox', checked: true });
+  const cMsgs = h('input', { type: 'checkbox', checked: true });
   const cPriv = h('input', { type: 'checkbox' });
   const err = h('div.form-err');
 
@@ -57,7 +59,8 @@ function openCreateGroupModal() {
           h('label.check', cBlog, ' Блог'),
           h('label.check', cForum, ' Форум'),
           h('label.check', cChat, ' Чат'),
-          h('label.check', cFiles, ' Файлы'))),
+          h('label.check', cFiles, ' Файлы'),
+          h('label.check', cMsgs, ' Личные сообщения'))),
       err),
     actions: [
       { label: 'Отмена' },
@@ -67,7 +70,7 @@ function openCreateGroupModal() {
           err.textContent = '';
           api.post('/api/groups', {
             name: name.value, category: cat.value, opis: opis.value, private: cPriv.checked,
-            enable_blog: cBlog.checked, enable_forum: cForum.checked, enable_chat: cChat.checked, enable_files: cFiles.checked,
+            enable_blog: cBlog.checked, enable_forum: cForum.checked, enable_chat: cChat.checked, enable_files: cFiles.checked, enable_messages: cMsgs.checked,
           }).then(r => { modal.close(); ui.ok('Сообщество создано'); router.go('/groups/' + r.id); })
             .catch(e => { err.textContent = e.message || 'Ошибка'; });
           return false;
@@ -194,6 +197,9 @@ router.add('/groups/:id', async ctx => {
           });
 
   const inviteBtn = me() && p.is_member ? ui.btn('Пригласить друга', { ic: 'user-plus', small: true, onclick: () => openInviteFriendModal(g) }) : null;
+  const dmBtn = me() && g.enable_messages && !g.blocked
+    ? ui.btn(g.user_msg_unread > 0 ? `Написать (+${g.user_msg_unread})` : 'Написать сообществу', { ic: 'mail', small: true, href: `/groups/${id}/message` })
+    : null;
 
   const headerCard = h('div.card.grp-head',
     banner,
@@ -205,7 +211,7 @@ router.add('/groups/:id', async ctx => {
           g.hidden ? h('span.badge.warn', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Скрыто') : null,
           g.blocked ? h('span.badge.danger', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Заблокировано') : null),
         h('div.small.muted', g.category, ' · участников: ', fmt.num(g.members), ' · создатель: ', ui.userLink(g.creator))),
-      h('div.grp-actions', inviteBtn, joinBtn)),
+      h('div.grp-actions', dmBtn, inviteBtn, joinBtn)),
     g.opis_html ? h('div.grp-opis.text', { html: g.opis_html }) : null);
 
   const modBar = p.can_block ? h('div.card.pad.row',
@@ -256,6 +262,9 @@ router.add('/groups/:id', async ctx => {
   if (g.enable_forum) tiles.push({ title: 'Форум', icon: 'forum', href: `/groups/${id}/forum`, count: g.counts.forum });
   if (g.enable_chat) tiles.push({ title: 'Чат', icon: 'message-circle', href: `/groups/${id}/chat`, count: g.counts.chat });
   if (g.enable_files) tiles.push({ title: 'Файлы', icon: 'folder', href: `/groups/${id}/files`, count: g.counts.files });
+  if (p.mod_messages && (g.enable_messages || g.inbox_unread > 0)) {
+    tiles.push({ title: 'Сообщения', icon: 'mail', href: `/groups/${id}/inbox`, count: null, badge: g.inbox_unread > 0 ? `+${g.inbox_unread}` : null });
+  }
   tiles.push({ title: 'Участники', icon: 'users', href: `/groups/${id}/members`, count: g.members, badge: g.requests_count > 0 ? `+${g.requests_count}` : null });
   if (p.manage) tiles.push({ title: 'Настройки', icon: 'settings', href: `/groups/${id}/settings`, count: null });
 
@@ -561,12 +570,14 @@ router.add('/groups/:id/members', async ctx => {
     const mf = h('input', { type: 'checkbox', checked: !!m.mod_forum });
     const mc = h('input', { type: 'checkbox', checked: !!m.mod_chat });
     const mfl = h('input', { type: 'checkbox', checked: !!m.mod_files });
+    const mmsg = h('input', { type: 'checkbox', checked: !!m.mod_messages });
     const modBox = h('div.field', h('label', 'Права модератора по разделам'),
       h('div.checks',
         h('label.check', mb, ' Модератор блога'),
         h('label.check', mf, ' Модератор форума'),
         h('label.check', mc, ' Модератор чата'),
-        h('label.check', mfl, ' Модератор файлов')));
+        h('label.check', mfl, ' Модератор файлов'),
+        h('label.check', mmsg, ' Модератор личных сообщений')));
     const syncVis = () => { modBox.style.display = roleSel.value === 'admin' ? 'none' : ''; };
     roleSel.onchange = syncVis;
     syncVis();
@@ -580,7 +591,7 @@ router.add('/groups/:id/members', async ctx => {
           label: 'Сохранить', kind: 'primary',
           onclick: () => {
             api.put(`/api/groups/${id}/members/${m.user.id}`, {
-              role: roleSel.value, mod_blog: mb.checked, mod_forum: mf.checked, mod_chat: mc.checked, mod_files: mfl.checked,
+              role: roleSel.value, mod_blog: mb.checked, mod_forum: mf.checked, mod_chat: mc.checked, mod_files: mfl.checked, mod_messages: mmsg.checked,
             }).then(() => { modal.close(); ui.ok('Права обновлены'); reload(); });
             return false;
           },
@@ -631,6 +642,7 @@ router.add('/groups/:id/settings', async ctx => {
   const cForum = h('input', { type: 'checkbox', checked: g.enable_forum });
   const cChat = h('input', { type: 'checkbox', checked: g.enable_chat });
   const cFiles = h('input', { type: 'checkbox', checked: g.enable_files });
+  const cMsgs = h('input', { type: 'checkbox', checked: !!g.enable_messages });
   const cOpenBlog = h('input', { type: 'checkbox', checked: g.open_blog });
   const cPriv = h('input', { type: 'checkbox', checked: !!g.private });
   const avaIn = h('input', { type: 'file', accept: 'image/*' });
@@ -675,14 +687,15 @@ router.add('/groups/:id/settings', async ctx => {
           h('label.check', cBlog, ' Блог'),
           h('label.check', cForum, ' Форум'),
           h('label.check', cChat, ' Чат'),
-          h('label.check', cFiles, ' Файлы'))),
+          h('label.check', cFiles, ' Файлы'),
+          h('label.check', cMsgs, ' Личные сообщения (пользователи могут писать сообществу)'))),
       h('label.check', cOpenBlog, ' Разрешить обычным участникам публиковать посты в блог'),
       ui.btn('Сохранить настройки', {
         ic: 'check', kind: 'primary',
         onclick: async () => {
           await api.put('/api/groups/' + id, {
             name: name.value, category: cat.value, opis: opis.value, private: cPriv.checked,
-            enable_blog: cBlog.checked, enable_forum: cForum.checked, enable_chat: cChat.checked, enable_files: cFiles.checked, open_blog: cOpenBlog.checked,
+            enable_blog: cBlog.checked, enable_forum: cForum.checked, enable_chat: cChat.checked, enable_files: cFiles.checked, enable_messages: cMsgs.checked, open_blog: cOpenBlog.checked,
           });
           ui.ok('Настройки сохранены'); reload();
         },
@@ -789,3 +802,170 @@ router.add('/admin/communities', async ctx => {
     ui.pager(d),
   ];
 }, { auth: true, access: 'groups_block' });
+
+// ───────── ЛИЧНАЯ ПЕРЕПИСКА ПОЛЬЗОВАТЕЛЯ С СООБЩЕСТВОМ (/groups/:id/message)
+router.add('/groups/:id/message', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/dm`)]);
+  ctx.title(`Сообщения · ${g.name}`);
+  document.body.classList.add('msg-page');
+
+  const scrollEl = h('div.msg-scroll');
+  let items = d.items || [];
+
+  const draw = () => {
+    if (!items.length) {
+      scrollEl.replaceChildren(ui.empty('Напишите первое сообщение сообществу — администрация сможет ответить вам здесь.', 'mail'));
+      return;
+    }
+    scrollEl.replaceChildren(...items.map(m => {
+      const mine = !m.from_group;
+      return h('div.bubble-row' + (mine ? '.mine' : ''),
+        !mine ? h('div.grp-ava-sm', { style: { width: '28px', height: '28px', borderRadius: '8px', fontSize: '.8rem', flexShrink: '0' } }, g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)) : null,
+        h('div.bubble' + (mine ? '.mine' : ''),
+          !mine ? h('div', { style: { fontWeight: '700', fontSize: '.78rem', marginBottom: '2px' } }, g.name) : null,
+          ui.html(m.msg, 'text'),
+          h('div.bubble-meta', h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })))));
+    }));
+    requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
+  };
+
+  const off = bus.on('sse:group_dm', data => {
+    if (data && data.group_id === id && data.user_id === me()?.id && !items.some(x => x.id === data.id)) {
+      items.push(data);
+      draw();
+    }
+  });
+  ctx.onLeave(() => {
+    document.body.classList.remove('msg-page');
+    off && off();
+  });
+
+  const head = h('div.msg-head',
+    h('a.icon-btn', { href: '/groups/' + id, title: 'К сообществу' }, icon('arrow-left', 20)),
+    h('div.grp-ava-sm', { style: { width: '36px', height: '36px', borderRadius: '10px', fontSize: '.95rem' } }, g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
+    h('div.msg-head-info', h('b', g.name), h('div.msg-status', 'Личные сообщения сообщества')));
+
+  const foot = h('div.msg-foot');
+  if (d.can_write) {
+    const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Написать сообществу…', maxlength: 2000 });
+    const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', disabled: true }, icon('send', 18));
+    const sync = () => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(110, Math.max(38, ta.scrollHeight)) + 'px';
+      sendBtn.disabled = !ta.value.trim();
+    };
+    const send = async () => {
+      const msg = ta.value.trim();
+      if (!msg || sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      try {
+        ta.value = ''; sync();
+        const r = await api.post(`/api/groups/${id}/dm`, { msg });
+        if (!items.some(x => x.id === r.id)) { items.push(r); draw(); }
+      } finally { sync(); }
+    };
+    sendBtn.onclick = send;
+    ta.oninput = sync;
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); send(); } };
+    foot.append(h('div.msg-compose', h('div.msg-input-wrap', ta), sendBtn));
+  } else {
+    foot.append(h('div.pad.small.muted.center', 'Отправка новых сообщений в это сообщество отключена.'));
+  }
+
+  draw();
+  return h('div.msg-shell', head, scrollEl, foot);
+}, { auth: true });
+
+// ───────── ВХОДЯЩИЕ СООБЩЕНИЯ СООБЩЕСТВА (для создателя / админа / модератора сообщений) (/groups/:id/inbox)
+router.add('/groups/:id/inbox', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/inbox`)]);
+  ctx.title(`Сообщения · ${g.name}`);
+  const items = d.items || [];
+
+  return [
+    grpCrumbs(g, { title: 'Сообщения сообщества' }),
+    ui.pageHead(`Сообщения · ${g.name}`),
+    h('div.card.pad.small.muted', icon('info', 14), ' Сообщество не может писать пользователям первым. Здесь появляются диалоги только с теми пользователями, которые сами написали сообществу.'),
+    ui.card(items.length ? h('div.list', ...items.map(it => h('a.list-item', { href: `/groups/${id}/inbox/${it.user.id}` },
+      ui.avatar(it.user, 40),
+      h('div.main',
+        h('div.title', it.user.nick, it.unread > 0 ? h('span.badge.danger', { style: { marginLeft: '6px' } }, `+${it.unread}`) : null),
+        h('div.small.muted.clip', (it.from_group ? 'Сообщество: ' : '') + it.last_msg),
+        h('div.small.muted', fmt.ago(it.last_time))))))
+      : ui.empty('Входящих сообщений пока нет', 'mail')),
+  ];
+}, { auth: true });
+
+// ───────── ДИАЛОГ С ПОЛЬЗОВАТЕЛЕМ ОТ ИМЕНИ СООБЩЕСТВА (/groups/:id/inbox/:uid)
+router.add('/groups/:id/inbox/:uid', async ctx => {
+  const id = +ctx.params.id, uid = +ctx.params.uid;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/inbox/${uid}`)]);
+  const peer = d.peer;
+  ctx.title(`${peer.nick} · Сообщения ${g.name}`);
+  document.body.classList.add('msg-page');
+
+  const scrollEl = h('div.msg-scroll');
+  let items = d.items || [];
+
+  const draw = () => {
+    if (!items.length) { scrollEl.replaceChildren(ui.empty('Сообщений нет', 'mail')); return; }
+    scrollEl.replaceChildren(...items.map(m => {
+      const mine = !!m.from_group;
+      return h('div.bubble-row' + (mine ? '.mine' : ''),
+        !mine ? ui.avatar(peer, 28) : null,
+        h('div.bubble' + (mine ? '.mine' : ''),
+          mine && m.staff ? h('div', { style: { fontSize: '.74rem', opacity: '.75', marginBottom: '2px' } }, `От имени сообщества · ${m.staff.nick}`) : null,
+          ui.html(m.msg, 'text'),
+          h('div.bubble-meta', h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })))));
+    }));
+    requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
+  };
+
+  const leaveSSE = events.join('group_dm:' + id, (ev, data) => {
+    if (ev === 'group_dm' && data && data.group_id === id && data.user_id === uid && !items.some(x => x.id === data.id)) {
+      items.push(data);
+      draw();
+    }
+  });
+  ctx.onLeave(() => {
+    document.body.classList.remove('msg-page');
+    leaveSSE && leaveSSE();
+  });
+
+  const head = h('div.msg-head',
+    h('a.icon-btn', { href: `/groups/${id}/inbox`, title: 'К диалогам' }, icon('arrow-left', 20)),
+    ui.avatar(peer, 36),
+    h('div.msg-head-info', ui.userLink(peer), h('div.msg-status', `Ответ от имени «${g.name}»`)));
+
+  const foot = h('div.msg-foot');
+  if (d.can_write) {
+    const ta = h('textarea.msg-input', { rows: 1, placeholder: `Ответить от имени «${g.name}»…`, maxlength: 2000 });
+    const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', disabled: true }, icon('send', 18));
+    const sync = () => {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(110, Math.max(38, ta.scrollHeight)) + 'px';
+      sendBtn.disabled = !ta.value.trim();
+    };
+    const send = async () => {
+      const msg = ta.value.trim();
+      if (!msg || sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      try {
+        ta.value = ''; sync();
+        const r = await api.post(`/api/groups/${id}/inbox/${uid}`, { msg });
+        if (!items.some(x => x.id === r.id)) { items.push(r); draw(); }
+      } finally { sync(); }
+    };
+    sendBtn.onclick = send;
+    ta.oninput = sync;
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); send(); } };
+    foot.append(h('div.msg-compose', h('div.msg-input-wrap', ta), sendBtn));
+  } else {
+    foot.append(h('div.pad.small.muted.center', 'Отправка ответов недоступна.'));
+  }
+
+  draw();
+  return h('div.msg-shell', head, scrollEl, foot);
+}, { auth: true });

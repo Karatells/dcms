@@ -77,6 +77,7 @@ const NOTIF_TEXT = {
   group_invite: a => `приглашает вас вступить в сообщество`,
   group_req: a => `подал${verb(a, '', 'а')} заявку на вступление в ваше сообщество`,
   group_req_ok: a => `одобрил${verb(a, '', 'а')} вашу заявку на вступление в сообщество`,
+  group_dm: () => `ответили вам от имени сообщества`,
 };
 router.add('/user/notification', async ctx => {
   ctx.title('Уведомления');

@@ -24,28 +24,30 @@ type Group struct {
 	Time        int64  `json:"time"`
 	AvatarExt   string `json:"avatar_ext"`
 	BannerExt   string `json:"banner_ext"`
-	EnableBlog  bool   `json:"enable_blog"`
-	EnableForum bool   `json:"enable_forum"`
-	EnableChat  bool   `json:"enable_chat"`
-	EnableFiles bool   `json:"enable_files"`
-	OpenBlog    bool   `json:"open_blog"` // могут ли обычные участники публиковать посты в блог
-	Private     bool   `json:"private"`   // приватное сообщество (вступление по одобрению или ссылке)
-	Hidden      bool   `json:"hidden"`
-	Blocked     bool   `json:"blocked"`
-	BlockReason string `json:"block_reason"`
+	EnableBlog     bool   `json:"enable_blog"`
+	EnableForum    bool   `json:"enable_forum"`
+	EnableChat     bool   `json:"enable_chat"`
+	EnableFiles    bool   `json:"enable_files"`
+	EnableMessages bool   `json:"enable_messages"` // личные переписки пользователей с сообществом
+	OpenBlog       bool   `json:"open_blog"`       // могут ли обычные участники публиковать посты в блог
+	Private        bool   `json:"private"`         // приватное сообщество (вступление по одобрению или ссылке)
+	Hidden         bool   `json:"hidden"`
+	Blocked        bool   `json:"blocked"`
+	BlockReason    string `json:"block_reason"`
 }
 
 // GroupMember — участник сообщества и его роль / права модератора по разделам.
 type GroupMember struct {
 	store.Base
-	IDGroup  int64  `json:"id_group"`
-	IDUser   int64  `json:"id_user"`
-	Role     string `json:"role"` // creator | admin | member
-	ModBlog  bool   `json:"mod_blog"`
-	ModForum bool   `json:"mod_forum"`
-	ModChat  bool   `json:"mod_chat"`
-	ModFiles bool   `json:"mod_files"`
-	Time     int64  `json:"time"`
+	IDGroup     int64  `json:"id_group"`
+	IDUser      int64  `json:"id_user"`
+	Role        string `json:"role"` // creator | admin | member
+	ModBlog     bool   `json:"mod_blog"`
+	ModForum    bool   `json:"mod_forum"`
+	ModChat     bool   `json:"mod_chat"`
+	ModFiles    bool   `json:"mod_files"`
+	ModMessages bool   `json:"mod_messages"`
+	Time        int64  `json:"time"`
 }
 
 // GroupPost — запись в блоге сообщества.
@@ -158,6 +160,7 @@ type perms struct {
 	ModForum       bool   `json:"mod_forum"`
 	ModChat        bool   `json:"mod_chat"`
 	ModFiles       bool   `json:"mod_files"`
+	ModMessages    bool   `json:"mod_messages"`
 	Role           string `json:"role"`
 }
 
@@ -198,6 +201,7 @@ func permsOf(u *model.User, g Group) perms {
 		ModForum:       manage || (ok && m.ModForum),
 		ModChat:        manage || (ok && m.ModChat),
 		ModFiles:       manage || (ok && m.ModFiles),
+		ModMessages:    manage || (ok && m.ModMessages),
 		Role:           role,
 	}
 }
@@ -230,6 +234,14 @@ func groupCard(a *core.App, g Group, viewer *model.User) map[string]any {
 	if p.Manage {
 		reqCnt = requestsT.CountBy("group", i(g.ID))
 	}
+	inboxUnread := 0
+	if p.ModMessages {
+		inboxUnread = unreadGroupMsgs(g.ID)
+	}
+	userMsgUnread := 0
+	if viewer != nil {
+		userMsgUnread = unreadUserGroupMsgs(g.ID, viewer.ID)
+	}
 	return map[string]any{
 		"id":              g.ID,
 		"name":            g.Name,
@@ -245,6 +257,7 @@ func groupCard(a *core.App, g Group, viewer *model.User) map[string]any {
 		"enable_forum":    g.EnableForum,
 		"enable_chat":     g.EnableChat,
 		"enable_files":    g.EnableFiles,
+		"enable_messages": g.EnableMessages,
 		"open_blog":       g.OpenBlog,
 		"private":         g.Private,
 		"hidden":          g.Hidden,
@@ -253,6 +266,8 @@ func groupCard(a *core.App, g Group, viewer *model.User) map[string]any {
 		"can_view":        canViewGroup(viewer, g),
 		"pending_request": pendingReq,
 		"requests_count":  reqCnt,
+		"inbox_unread":    inboxUnread,
+		"user_msg_unread": userMsgUnread,
 		"perms":           p,
 	}
 }
@@ -268,6 +283,9 @@ func deleteGroupAll(a *core.App, g Group) {
 		_ = os.Remove(gfilePath(a, f.ID))
 	}
 	filesT.DeleteBy("group", i(g.ID))
+	if dmT != nil {
+		dmT.DeleteBy("group", i(g.ID))
+	}
 	for _, p := range blogT.By("group", i(g.ID)) {
 		a.T.Likes.DeleteWhere(func(l *model.LikeObject) bool { return l.Type == "gpost" && l.IDObject == p.ID })
 	}
@@ -418,14 +436,15 @@ func Register(a *core.App) {
 			return core.ErrForbidden("Вы заблокированы: " + b.Prich)
 		}
 		var in struct {
-			Name        string `json:"name"`
-			Opis        string `json:"opis"`
-			Category    string `json:"category"`
-			EnableBlog  *bool  `json:"enable_blog"`
-			EnableForum *bool  `json:"enable_forum"`
-			EnableChat  *bool  `json:"enable_chat"`
-			EnableFiles *bool  `json:"enable_files"`
-			Private     bool   `json:"private"`
+			Name           string `json:"name"`
+			Opis           string `json:"opis"`
+			Category       string `json:"category"`
+			EnableBlog     *bool  `json:"enable_blog"`
+			EnableForum    *bool  `json:"enable_forum"`
+			EnableChat     *bool  `json:"enable_chat"`
+			EnableFiles    *bool  `json:"enable_files"`
+			EnableMessages *bool  `json:"enable_messages"`
+			Private        bool   `json:"private"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -445,16 +464,17 @@ func Register(a *core.App) {
 		bVal := func(p *bool) bool { return p == nil || *p }
 		now := core.Now()
 		g := Group{
-			IDCreator:   me.ID,
-			Name:        name,
-			Opis:        opis,
-			Category:    cat,
-			Time:        now,
-			EnableBlog:  bVal(in.EnableBlog),
-			EnableForum: bVal(in.EnableForum),
-			EnableChat:  bVal(in.EnableChat),
-			EnableFiles: bVal(in.EnableFiles),
-			Private:     in.Private,
+			IDCreator:      me.ID,
+			Name:           name,
+			Opis:           opis,
+			Category:       cat,
+			Time:           now,
+			EnableBlog:     bVal(in.EnableBlog),
+			EnableForum:    bVal(in.EnableForum),
+			EnableChat:     bVal(in.EnableChat),
+			EnableFiles:    bVal(in.EnableFiles),
+			EnableMessages: bVal(in.EnableMessages),
+			Private:        in.Private,
 		}
 		id := groupsT.Insert(&g)
 		membersT.Insert(&GroupMember{IDGroup: id, IDUser: me.ID, Role: "creator", Time: now})
@@ -492,15 +512,16 @@ func Register(a *core.App) {
 			return core.ErrForbidden("Недостаточно прав")
 		}
 		var in struct {
-			Name        string `json:"name"`
-			Opis        string `json:"opis"`
-			Category    string `json:"category"`
-			EnableBlog  bool   `json:"enable_blog"`
-			EnableForum bool   `json:"enable_forum"`
-			EnableChat  bool   `json:"enable_chat"`
-			EnableFiles bool   `json:"enable_files"`
-			OpenBlog    bool   `json:"open_blog"`
-			Private     bool   `json:"private"`
+			Name           string `json:"name"`
+			Opis           string `json:"opis"`
+			Category       string `json:"category"`
+			EnableBlog     bool   `json:"enable_blog"`
+			EnableForum    bool   `json:"enable_forum"`
+			EnableChat     bool   `json:"enable_chat"`
+			EnableFiles    bool   `json:"enable_files"`
+			EnableMessages bool   `json:"enable_messages"`
+			OpenBlog       bool   `json:"open_blog"`
+			Private        bool   `json:"private"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -519,7 +540,7 @@ func Register(a *core.App) {
 		}
 		upd, _ := groupsT.Update(g.ID, func(x *Group) {
 			x.Name, x.Opis, x.Category = name, opis, cat
-			x.EnableBlog, x.EnableForum, x.EnableChat, x.EnableFiles, x.OpenBlog, x.Private = in.EnableBlog, in.EnableForum, in.EnableChat, in.EnableFiles, in.OpenBlog, in.Private
+			x.EnableBlog, x.EnableForum, x.EnableChat, x.EnableFiles, x.EnableMessages, x.OpenBlog, x.Private = in.EnableBlog, in.EnableForum, in.EnableChat, in.EnableFiles, in.EnableMessages, in.OpenBlog, in.Private
 		})
 		return c.JSON(groupCard(a, upd, me))
 	}, core.Auth)
@@ -769,7 +790,7 @@ func Register(a *core.App) {
 			if m.Role == "admin" {
 				return 1
 			}
-			if m.ModBlog || m.ModForum || m.ModChat || m.ModFiles {
+			if m.ModBlog || m.ModForum || m.ModChat || m.ModFiles || m.ModMessages {
 				return 2
 			}
 			return 3
@@ -795,11 +816,12 @@ func Register(a *core.App) {
 			items = append(items, map[string]any{
 				"user":      a.Ref(m.IDUser),
 				"role":      m.Role,
-				"mod_blog":  m.ModBlog,
-				"mod_forum": m.ModForum,
-				"mod_chat":  m.ModChat,
-				"mod_files": m.ModFiles,
-				"time":      m.Time,
+				"mod_blog":     m.ModBlog,
+				"mod_forum":    m.ModForum,
+				"mod_chat":     m.ModChat,
+				"mod_files":    m.ModFiles,
+				"mod_messages": m.ModMessages,
+				"time":         m.Time,
 			})
 		}
 		return c.List(items, total, p)
@@ -827,11 +849,12 @@ func Register(a *core.App) {
 			return core.ErrNotFound("Пользователь не состоит в сообществе")
 		}
 		var in struct {
-			Role     string `json:"role"` // admin | member
-			ModBlog  bool   `json:"mod_blog"`
-			ModForum bool   `json:"mod_forum"`
-			ModChat  bool   `json:"mod_chat"`
-			ModFiles bool   `json:"mod_files"`
+			Role        string `json:"role"` // admin | member
+			ModBlog     bool   `json:"mod_blog"`
+			ModForum    bool   `json:"mod_forum"`
+			ModChat     bool   `json:"mod_chat"`
+			ModFiles    bool   `json:"mod_files"`
+			ModMessages bool   `json:"mod_messages"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -846,9 +869,9 @@ func Register(a *core.App) {
 		membersT.Update(m.ID, func(x *GroupMember) {
 			x.Role = in.Role
 			if in.Role == "admin" {
-				x.ModBlog, x.ModForum, x.ModChat, x.ModFiles = false, false, false, false
+				x.ModBlog, x.ModForum, x.ModChat, x.ModFiles, x.ModMessages = false, false, false, false, false
 			} else {
-				x.ModBlog, x.ModForum, x.ModChat, x.ModFiles = in.ModBlog, in.ModForum, in.ModChat, in.ModFiles
+				x.ModBlog, x.ModForum, x.ModChat, x.ModFiles, x.ModMessages = in.ModBlog, in.ModForum, in.ModChat, in.ModFiles, in.ModMessages
 			}
 		})
 		return c.OK()
@@ -884,4 +907,5 @@ func Register(a *core.App) {
 
 	registerInvites(a)
 	registerSections(a)
+	registerMessages(a)
 }

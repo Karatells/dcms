@@ -271,7 +271,7 @@ var notifDescribe = map[string]string{
 	"files_komm": "obmen", "obmen_komm": "obmen", "news_komm": "news", "status_komm": "status",
 	"foto_komm": "foto", "notes_komm": "notes", "them_komm": "them", "stena_komm2": "stena",
 	"shorts_komm": "shorts", "shorts_like": "shorts",
-	"group_invite": "group_invite", "group_req": "group", "group_req_ok": "group",
+	"group_invite": "group_invite", "group_req": "group", "group_req_ok": "group", "group_dm": "group_dm",
 }
 
 func notifLink(a *core.App, me int64, n model.Notification) (string, map[string]any) {
