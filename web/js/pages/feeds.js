@@ -161,15 +161,17 @@ router.add('/mail', async ctx => {
   ctx.title('Почта');
   const type = ctx.query.type || 'common';
   const reload = () => router.render();
-  const [d, gd] = await Promise.all([
+  const [d, gd, gc] = await Promise.all([
     api.get('/api/konts', { page: ctx.page, type }),
     ctx.page === 1 ? api.get('/api/my-group-dialogs', { type }, { silent: true }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
+    ctx.page === 1 ? api.get('/api/chats', { type }, { silent: true }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
   ]);
   const selUsers = new Set();
   const selGroups = new Set();
+  const selChats = new Set();
   const rowRefs = [];
 
-  const totalSel = () => selUsers.size + selGroups.size;
+  const totalSel = () => selUsers.size + selGroups.size + selChats.size;
   const selBar = h('div.card.pad.mail-sel-bar', { style: { display: 'none' } });
   const selCount = h('b');
 
@@ -178,6 +180,7 @@ router.add('/mail', async ctx => {
     const reqs = [];
     if (selUsers.size) reqs.push(api.post('/api/konts/move', { ids: [...selUsers], type: targetType }));
     if (selGroups.size) reqs.push(api.post('/api/my-group-dialogs/move', { ids: [...selGroups], type: targetType }));
+    if (selChats.size) reqs.push(api.post('/api/chats/move', { ids: [...selChats], type: targetType }));
     await Promise.all(reqs);
     reload();
   };
@@ -185,6 +188,7 @@ router.add('/mail', async ctx => {
   const clearSel = () => {
     selUsers.clear();
     selGroups.clear();
+    selChats.clear();
     syncSelUI();
   };
 
@@ -193,14 +197,14 @@ router.add('/mail', async ctx => {
     selBar.style.display = cnt > 0 ? '' : 'none';
     selCount.textContent = `Выбрано: ${cnt}`;
     for (const r of rowRefs) {
-      const on = r.kind === 'group' ? selGroups.has(r.id) : selUsers.has(r.id);
+      const on = r.kind === 'group' ? selGroups.has(r.id) : r.kind === 'chat' ? selChats.has(r.id) : selUsers.has(r.id);
       r.el.classList.toggle('mail-row-sel', on);
       r.el.classList.toggle('mail-sel-mode', cnt > 0);
     }
   };
 
   const toggleItem = (kind, id) => {
-    const set = kind === 'group' ? selGroups : selUsers;
+    const set = kind === 'group' ? selGroups : kind === 'chat' ? selChats : selUsers;
     if (set.has(id)) set.delete(id);
     else set.add(id);
     syncSelUI();
@@ -271,10 +275,26 @@ router.add('/mail', async ctx => {
   const merged = [
     ...d.items.map(k => ({ kind: 'user', time: (k.last && k.last.time) || k.time || 0, data: k })),
     ...(gd.items || []).map(g => ({ kind: 'group', time: g.time || 0, data: g })),
+    ...(gc.items || []).map(c => ({ kind: 'chat', time: c.last_time || 0, data: c })),
   ].sort((a, b) => b.time - a.time);
 
   const rows = merged.map(entry => {
     const checkMark = h('span.mail-sel-chk', icon('check', 13));
+    if (entry.kind === 'chat') {
+      const c = entry.data;
+      const href = '/chats/' + c.id;
+      const el = h('a.list-item.mail-chat-row', { href },
+        checkMark,
+        h('div.grp-ava-sm', { style: { width: '44px', height: '44px', borderRadius: '12px', fontSize: '1.05rem', flexShrink: '0', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,var(--accent),#06b6d4)', color: '#fff', fontWeight: '800' } },
+          initialOf(c.title)),
+        h('div.main',
+          h('div.title', c.title,
+            h('span.badge', { style: { marginLeft: '6px' } }, `Беседа · ${c.members}`)),
+          c.last_text ? h('div.small.muted.clip', c.last_nick ? `${c.last_nick}: ${c.last_text}` : c.last_text) : h('div.small.muted', 'Сообщений пока нет')),
+        c.last_time ? ui.time(c.last_time) : null);
+      bindSelectable(el, 'chat', c.id, href);
+      return el;
+    }
     if (entry.kind === 'group') {
       const item = entry.data;
       const g = item.group;
@@ -310,7 +330,7 @@ router.add('/mail', async ctx => {
   const msg = h('textarea.input', { rows: 3, placeholder: 'Сообщение (2–1024 символа)', maxlength: 1024 });
   const compose = h('details.card.pad', h('summary', icon('edit', 16), ' Написать по логину'), h('div.stack', { style: { marginTop: '12px' } }, to, msg,
     ui.btn('Отправить', { kind: 'primary', ic: 'send', onclick: async () => { const r = await api.post('/api/mail/send', { to: to.value, msg: msg.value }); ui.ok('Сообщение отправлено'); router.go('/mail/' + r.id); } })));
-  return [ui.pageHead('Почта', ui.btn('Беседы', { ic: 'users', small: true, kind: 'primary', href: '/chats' })), mailTabs(type), selBar, compose,
+  return [ui.pageHead('Почта', ui.btn('Создать беседу', { ic: 'users', small: true, kind: 'primary', onclick: async () => { const m = await import('./chats.js'); m.openCreateChatModal(); } })), mailTabs(type), selBar, compose,
     ui.card(rows.length ? h('div.list', rows) : ui.empty(type === 'common' ? 'Контактов пока нет' : 'Список пуст', 'mail')),
     rows.length ? h('div.muted.small', 'Удерживайте диалог (или нажмите правой кнопкой), чтобы выбрать, переместить или удалить.') : null,
     type === 'deleted' ? h('div.muted.small', 'Удалённые контакты очищаются через 30 дней вместе с перепиской.') : null, ui.pager(d)];
@@ -319,7 +339,7 @@ router.add('/mail', async ctx => {
 router.add('/mail/new', async () => { router.go('/mail'); }, { auth: true });
 
 let _smilesCache = null;
-async function getSmiles() {
+export async function getSmiles() {
   if (_smilesCache) return _smilesCache;
   try {
     const list = await api.get('/api/smiles/all', null, { silent: true });
@@ -328,7 +348,7 @@ async function getSmiles() {
   return _smilesCache;
 }
 
-function dayLabel(ts) {
+export function dayLabel(ts) {
   const d = new Date(ts * 1000), now = new Date();
   const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   if (same(d, now)) return 'Сегодня';
@@ -338,7 +358,7 @@ function dayLabel(ts) {
 }
 
 // ───────── выбор личного вложения (Фото / Файлы / Клипы)
-function openAttachPicker(onPick) {
+export function openAttachPicker(onPick) {
   const myId = state.user.id;
   let tab = 'foto';
   const bodyWrap = h('div.stack');
@@ -419,7 +439,7 @@ function openAttachPicker(onPick) {
 }
 
 // ───────── рендер вложения внутри пузыря
-function renderBubbleAttach(att) {
+export function renderBubbleAttach(att) {
   if (!att) return null;
   if (att.type === 'foto' && att.image) {
     return h('a.bubble-att', { href: att.link || '#' }, h('img.bubble-att-img', { src: att.image, alt: att.title || 'Фото', loading: 'lazy' }));
@@ -436,7 +456,7 @@ function renderBubbleAttach(att) {
 }
 
 // ───────── плеер голосового сообщения (1x / 1.5x / 2x)
-function renderVoicePlayer(v) {
+export function renderVoicePlayer(v) {
   if (!v || !v.url) return null;
   const audio = new Audio(v.url);
   audio.preload = 'metadata';
@@ -489,7 +509,7 @@ function renderVoicePlayer(v) {
 }
 
 // ───────── пересылка сообщения в другой диалог
-async function openForwardModal(m, fromUser) {
+export async function openForwardModal(m, fromUser) {
   const box = h('div.stack', ui.loading());
   const modal = ui.modal({ title: 'Переслать сообщение', body: box, actions: [{ label: 'Закрыть' }] });
   try {
@@ -521,7 +541,7 @@ async function openForwardModal(m, fromUser) {
 
 // ───────── контекстное меню сообщения (с быстрой панелью реакций)
 const MSG_EMOJIS = ['👍', '❤️', '😂', '🔥', '😱', '👎'];
-function openMsgMenu(m, { onReact, onReply, onEdit, onForward, onPin, onDelete, onSpam }) {
+export function openMsgMenu(m, { onReact, onReply, onEdit, onForward, onPin, onDelete, onSpam }) {
   const close = () => back.remove();
   const item = (ic, label, fn, danger = false) => h('button.msg-ctx-item' + (danger ? '.danger' : ''), {
     type: 'button',
