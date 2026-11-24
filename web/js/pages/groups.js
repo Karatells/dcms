@@ -198,7 +198,7 @@ router.add('/groups/:id', async ctx => {
 
   const inviteBtn = me() && p.is_member ? ui.btn('Пригласить друга', { ic: 'user-plus', small: true, onclick: () => openInviteFriendModal(g) }) : null;
   const dmBtn = me() && g.enable_messages && !g.blocked
-    ? ui.btn(g.user_msg_unread > 0 ? `Написать (+${g.user_msg_unread})` : 'Написать сообществу', { ic: 'mail', small: true, href: `/groups/${id}/message` })
+    ? ui.btn(g.user_msg_unread > 0 ? `Написать (+${g.user_msg_unread})` : 'Написать сообществу', { ic: 'mail', kind: p.is_member ? 'primary' : '', small: true, href: `/groups/${id}/message` })
     : null;
 
   const headerCard = h('div.card.grp-head',
@@ -263,7 +263,9 @@ router.add('/groups/:id', async ctx => {
   if (g.enable_chat) tiles.push({ title: 'Чат', icon: 'message-circle', href: `/groups/${id}/chat`, count: g.counts.chat });
   if (g.enable_files) tiles.push({ title: 'Файлы', icon: 'folder', href: `/groups/${id}/files`, count: g.counts.files });
   if (p.mod_messages && (g.enable_messages || g.inbox_unread > 0)) {
-    tiles.push({ title: 'Сообщения', icon: 'mail', href: `/groups/${id}/inbox`, count: null, badge: g.inbox_unread > 0 ? `+${g.inbox_unread}` : null });
+    tiles.push({ title: 'Входящие (ЛС)', icon: 'mail', href: `/groups/${id}/inbox`, count: null, badge: g.inbox_unread > 0 ? `+${g.inbox_unread}` : null });
+  } else if (me() && g.enable_messages && !g.blocked) {
+    tiles.push({ title: 'Написать', icon: 'mail', href: `/groups/${id}/message`, count: null, badge: g.user_msg_unread > 0 ? `+${g.user_msg_unread}` : null });
   }
   tiles.push({ title: 'Участники', icon: 'users', href: `/groups/${id}/members`, count: g.members, badge: g.requests_count > 0 ? `+${g.requests_count}` : null });
   if (p.manage) tiles.push({ title: 'Настройки', icon: 'settings', href: `/groups/${id}/settings`, count: null });
@@ -687,8 +689,10 @@ router.add('/groups/:id/settings', async ctx => {
           h('label.check', cBlog, ' Блог'),
           h('label.check', cForum, ' Форум'),
           h('label.check', cChat, ' Чат'),
-          h('label.check', cFiles, ' Файлы'),
-          h('label.check', cMsgs, ' Личные сообщения (пользователи могут писать сообществу)'))),
+          h('label.check', cFiles, ' Файлы'))),
+      h('div.card.pad', { style: { background: 'var(--bg)' } },
+        h('label.check', cMsgs, h('b', ' Включить личные сообщения сообщества')),
+        h('div.small.muted', { style: { marginTop: '4px' } }, 'Любой пользователь сможет нажать «Написать сообществу» и начать диалог. Отвечать могут создатель, администратор и модератор личных сообщений (первым сообщество написать не может).')),
       h('label.check', cOpenBlog, ' Разрешить обычным участникам публиковать посты в блог'),
       ui.btn('Сохранить настройки', {
         ic: 'check', kind: 'primary',
