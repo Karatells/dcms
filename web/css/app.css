@@ -59,6 +59,13 @@ img { max-width: 100%; }
 @media (max-width: 720px) { .grid.c2, .grid.c3, .grid.c4 { grid-template-columns: 1fr 1fr; } }
 .ok { color: var(--ok); } .err { color: var(--danger); } .warn { color: var(--warn); }
 
+/* Плавная волновая анимация переключения темы (View Transitions API + fallback) */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-old(root) { z-index: 1; }
+::view-transition-new(root) { z-index: 9999; }
+html.theme-fade, html.theme-fade * { transition: background-color .35s ease, color .35s ease, border-color .35s ease !important; }
+
 /* ───── layout */
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar { position: sticky; top: 0; z-index: 40; height: var(--top); display: flex; align-items: center; gap: 10px; padding: 0 16px; background: color-mix(in srgb, var(--bg-card) 86%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border-s); }

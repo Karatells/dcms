@@ -16,7 +16,47 @@ function applyTheme() {
   const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#0b0d1a' : (acc || '#6366f1');
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { applyTheme(); });
-export function setTheme(t) { localStorage.setItem('theme', t); if (state.user) state.user.theme = t; applyTheme(); if (state.user) api.post('/api/settings/theme', { theme: t, accent: (state.user.accent || '') }, { silent: true }).catch(() => {}); }
+function isDarkActive() {
+  const t = document.documentElement.dataset.theme;
+  return t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+}
+export function setTheme(t, ev) {
+  const applyNow = () => {
+    localStorage.setItem('theme', t);
+    if (state.user) state.user.theme = t;
+    applyTheme();
+    drawTop();
+  };
+  const save = () => {
+    if (state.user) api.post('/api/settings/theme', { theme: t, accent: (state.user.accent || '') }, { silent: true }).catch(() => {});
+  };
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || reduce) {
+    document.documentElement.classList.add('theme-fade');
+    applyNow();
+    setTimeout(() => document.documentElement.classList.remove('theme-fade'), 380);
+    save();
+    return;
+  }
+  let x = window.innerWidth - 36, y = 28;
+  if (ev && ev.currentTarget && ev.currentTarget.getBoundingClientRect) {
+    const r = ev.currentTarget.getBoundingClientRect();
+    x = Math.round(r.left + r.width / 2);
+    y = Math.round(r.top + r.height / 2);
+  } else if (ev && typeof ev.clientX === 'number') {
+    x = ev.clientX;
+    y = ev.clientY;
+  }
+  const endR = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+  const vt = document.startViewTransition(() => applyNow());
+  vt.ready.then(() => {
+    document.documentElement.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${endR}px at ${x}px ${y}px)`] },
+      { duration: 480, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' }
+    );
+  }).catch(() => {});
+  save();
+}
 bus.on('user', applyTheme);
 
 // ── каркас
@@ -54,8 +94,8 @@ function topButton(href, ic, key, title) {
 function drawTop() {
   const top = $('.top-actions');
   top.replaceChildren();
-  const th = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-  const themeBtn = h('button.icon-btn', { title: 'Тема', onclick: () => { const cur = document.documentElement.dataset.theme; setTheme(cur === 'dark' || (cur === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches) ? 'light' : 'dark'); drawTop(); } }, icon(th === 'dark' ? 'sun' : 'moon', 20));
+  const dark = isDarkActive();
+  const themeBtn = h('button.icon-btn', { title: dark ? 'Светлая тема' : 'Тёмная тема', onclick: e => setTheme(isDarkActive() ? 'light' : 'dark', e) }, icon(dark ? 'sun' : 'moon', 20));
   if (!state.user) { top.append(themeBtn, link('/login', h('span.btn.sm', 'Войти')), link('/reg', h('span.btn.sm.primary', 'Регистрация'))); return; }
   const u = state.user;
   const menu = ui.dropdown(h('button.icon-btn', { title: u.nick }, ui.avatar({ ...u, online: true }, 32)), [
