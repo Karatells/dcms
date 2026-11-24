@@ -464,3 +464,50 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
 .vip-style-btn{padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg-sunken);cursor:pointer;font:inherit;font-size:.88rem}
 .vip-cov-btn{padding:8px 14px;border-radius:10px;border:2px solid transparent;color:#fff;font:inherit;font-size:.8rem;font-weight:700;cursor:pointer;background:linear-gradient(120deg,var(--accent),color-mix(in srgb,var(--accent) 45%,#ec4899));text-shadow:0 1px 3px rgba(0,0,0,.5)}
 .vip-cov-btn.active{border-color:#fff;box-shadow:0 0 0 2px var(--accent)}
+
+/* ── Полноценные VIP-дизайны всего профиля ── */
+.vip-cover-tag{position:absolute;top:12px;right:14px;padding:4px 11px;border-radius:999px;background:rgba(0,0,0,.42);backdrop-filter:blur(8px);color:#fff;font-size:.76rem;font-weight:800;letter-spacing:.06em;border:1px solid rgba(255,255,255,.28);box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.vip-profile .profile-cover{position:relative;height:142px;overflow:hidden}
+.vip-profile .profile-head{border-width:1.5px}
+
+/* Общие правила для VIP-тем (работают через --vip-a, --vip-b, --vip-glow) */
+.vip-profile[class*="vip-theme-"]{--accent:var(--vip-a);--accent-soft:color-mix(in srgb,var(--vip-a) 15%,transparent)}
+.vip-profile[class*="vip-theme-"] .card{border-color:color-mix(in srgb,var(--vip-a) 34%,var(--border-s));background:linear-gradient(180deg,color-mix(in srgb,var(--vip-a) 5%,var(--bg-card)),var(--bg-card));box-shadow:0 8px 28px -12px var(--vip-glow),var(--shadow)}
+.vip-profile[class*="vip-theme-"] .card-title{background:linear-gradient(90deg,color-mix(in srgb,var(--vip-a) 14%,var(--bg-sunken)),color-mix(in srgb,var(--vip-b) 8%,var(--bg-sunken)));border-bottom-color:color-mix(in srgb,var(--vip-a) 26%,var(--border-s))}
+.vip-profile[class*="vip-theme-"] .stat{border:1px solid color-mix(in srgb,var(--vip-a) 28%,var(--border-s));background:linear-gradient(135deg,color-mix(in srgb,var(--vip-a) 10%,var(--bg-card)),var(--bg-card))}
+.vip-profile[class*="vip-theme-"] .ptile{border-color:color-mix(in srgb,var(--vip-a) 30%,var(--border-s));background:linear-gradient(145deg,color-mix(in srgb,var(--vip-a) 9%,var(--bg-card)),var(--bg-card))}
+.vip-profile[class*="vip-theme-"] .ptile:hover{border-color:var(--vip-a);box-shadow:0 8px 22px -8px var(--vip-glow)}
+.vip-profile[class*="vip-theme-"] .profile-ava.vip-ava .avatar{border:3px solid var(--vip-a);box-shadow:0 0 0 4px color-mix(in srgb,var(--vip-a) 26%,transparent),0 8px 24px var(--vip-glow)}
+.vip-profile[class*="vip-theme-"] .profile-status{background:linear-gradient(90deg,color-mix(in srgb,var(--vip-a) 18%,transparent),color-mix(in srgb,var(--vip-b) 14%,transparent));border:1px solid color-mix(in srgb,var(--vip-a) 32%,transparent)}
+.vip-profile[class*="vip-theme-"] .ach-pill{background:linear-gradient(135deg,color-mix(in srgb,var(--vip-a) 16%,var(--bg)),color-mix(in srgb,var(--vip-b) 12%,var(--bg)));border-color:color-mix(in srgb,var(--vip-a) 42%,transparent)}
+.vip-profile[class*="vip-theme-"] .btn.primary{background:linear-gradient(135deg,var(--vip-a),var(--vip-b));border-color:transparent;box-shadow:0 4px 14px -4px var(--vip-glow)}
+
+/* 1. Аврора (северное сияние) */
+.vip-theme-aurora{--vip-a:#0ea5e9;--vip-b:#10b981;--vip-glow:rgba(14,165,233,.45)}
+.vip-theme-aurora .profile-cover{background:linear-gradient(125deg,#0f172a,#312e81,#0284c7,#10b981,#06b6d4)!important;background-size:240% 240%!important;animation:vipShift 9s ease infinite}
+
+/* 2. Королевский (роскошное золото) */
+.vip-theme-royal{--vip-a:#d97706;--vip-b:#f59e0b;--vip-glow:rgba(245,158,11,.5)}
+.vip-theme-royal .profile-cover{background:linear-gradient(125deg,#1c1917,#78350f,#d97706,#fbbf24,#92400e)!important;background-size:240% 240%!important;animation:vipShift 8s ease infinite}
+.vip-theme-royal .profile-cover::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 20% 30%,rgba(254,243,199,.35),transparent 45%),radial-gradient(circle at 80% 70%,rgba(251,191,36,.3),transparent 50%)}
+
+/* 3. Киберпанк (неон + техно-сетка) */
+.vip-theme-cyber{--vip-a:#d946ef;--vip-b:#06b6d4;--vip-glow:rgba(217,70,239,.5)}
+.vip-theme-cyber .profile-cover{background:linear-gradient(125deg,#1e1b4b,#7e22ce,#ec4899,#06b6d4)!important;background-size:220% 220%!important;animation:vipShift 7s ease infinite}
+.vip-theme-cyber .profile-cover::after{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);background-size:24px 24px}
+
+/* 4. Закат (огненно-коралловый) */
+.vip-theme-sunset{--vip-a:#f43f5e;--vip-b:#f97316;--vip-glow:rgba(244,63,94,.45)}
+.vip-theme-sunset .profile-cover{background:linear-gradient(125deg,#4c0519,#e11d48,#f97316,#facc15)!important;background-size:220% 220%!important;animation:vipShift 9s ease infinite}
+
+/* 5. Изумруд (кристально-зелёный) */
+.vip-theme-emerald{--vip-a:#10b981;--vip-b:#059669;--vip-glow:rgba(16,185,129,.45)}
+.vip-theme-emerald .profile-cover{background:linear-gradient(125deg,#022c22,#065f46,#10b981,#34d399)!important;background-size:220% 220%!important;animation:vipShift 10s ease infinite}
+
+/* 6. Космос / Полночь (звёздное небо) */
+.vip-theme-midnight{--vip-a:#6366f1;--vip-b:#8b5cf6;--vip-glow:rgba(99,102,241,.5)}
+.vip-theme-midnight .profile-cover{background:linear-gradient(135deg,#020617,#0f172a,#1e1b4b,#4f46e5)!important}
+.vip-theme-midnight .profile-cover::after{content:"";position:absolute;inset:0;background-image:radial-gradient(2px 2px at 14% 28%,#fff,transparent),radial-gradient(1.5px 1.5px at 32% 68%,rgba(255,255,255,.85),transparent),radial-gradient(2px 2px at 54% 22%,#e0e7ff,transparent),radial-gradient(1.5px 1.5px at 72% 62%,#fff,transparent),radial-gradient(2px 2px at 88% 34%,#c7d2fe,transparent),radial-gradient(1px 1px at 42% 44%,#fff,transparent),radial-gradient(1.5px 1.5px at 64% 82%,rgba(255,255,255,.7),transparent)}
+
+@keyframes vipShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@media (prefers-reduced-motion:reduce){.vip-profile .profile-cover{animation:none!important}}

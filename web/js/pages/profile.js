@@ -34,7 +34,8 @@ router.add('/id:id', async ctx => {
       onclick: async () => { const r = await api.post(`/api/admin/user/${u.id}/verify`); ui.ok(r.verified ? 'Аккаунт верифицирован' : 'Верификация снята'); render(); },
     }) : null;
     const head = h('div.card.profile-head',
-      h('div.profile-cover' + (d.vip_cover ? '.vip-cov-' + d.vip_cover : '')),
+      h('div.profile-cover' + (d.vip_cover ? '.vip-cov-' + d.vip_cover : ''),
+        u.vip ? h('span.vip-cover-tag', u.vip_badge || '👑', ' VIP') : null),
       h('div.profile-main',
         h('div.profile-ava' + (u.vip ? '.vip-ava' : ''), ui.avatar(u, 112)),
         h('div.profile-name',
@@ -101,6 +102,7 @@ router.add('/id:id', async ctx => {
 
     // стена
     out.push(await wallBlock(d, render));
+    root.className = 'stack' + (u.vip ? ' vip-profile' : '') + (d.vip_cover ? ' vip-theme-' + d.vip_cover : '');
     return swap(out);
   };
   const root = h('div.stack');
