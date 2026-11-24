@@ -925,6 +925,7 @@ router.add('/groups/:id/inbox/:uid', async ctx => {
     onSend: payload => api.post(`/api/groups/${id}/inbox/${uid}`, payload),
     onPin: m => api.post(`/api/group-dm/${m.id}/pin`),
     onDelete: m => api.del(`/api/group-dm/${m.id}`),
+    onMarkRead: () => api.post(`/api/groups/${id}/inbox/${uid}/read`, {}, { silent: true }),
     onSubscribe: cb => events.join('group_dm:' + id, (ev, data) => {
       if (ev === 'group_dm' && data && data.group_id === id && data.user_id === uid) cb(data);
     }),

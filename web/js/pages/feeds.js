@@ -503,7 +503,9 @@ router.add('/mail/:id', async ctx => {
 
     syncTa = () => {
       ta.style.height = 'auto';
-      ta.style.height = Math.min(120, Math.max(38, ta.scrollHeight)) + 'px';
+      const sh = ta.scrollHeight;
+      ta.style.height = Math.min(120, Math.max(36, sh)) + 'px';
+      ta.style.overflowY = sh > 120 ? 'auto' : 'hidden';
       const n = ta.value.trim().length;
       sendBtn.disabled = n < 1 && !attach;
       if (ta.value.length > 850) {
@@ -523,20 +525,19 @@ router.add('/mail/:id', async ctx => {
       syncTa();
     };
 
-    const attBtn = h('button.msg-tool', {
-      type: 'button', title: 'Прикрепить фото, файл или клип', 'aria-label': 'Прикрепить',
-      onclick: () => openAttachPicker(a => { attach = a; renderChips(); syncTa(); }),
-    }, icon('paperclip', 20));
-    const bbBtn = h('button.msg-tool', { type: 'button', title: 'Форматирование (BBCode)', 'aria-label': 'Форматирование' }, h('b', { style: { fontSize: '.9rem' } }, 'Aa'));
-    const smBtn = h('button.msg-tool', { type: 'button', title: 'Смайлы', 'aria-label': 'Смайлы' }, icon('smile', 20));
+    const plusBtn = h('button.msg-tool', { type: 'button', title: 'Вложения, форматирование и смайлы', 'aria-label': 'Меню ввода' }, icon('plus', 20));
+    let subTab = 'bb';
 
-    const toggleDrawer = async which => {
-      activeDrawer = activeDrawer === which ? '' : which;
-      bbBtn.classList.toggle('active', activeDrawer === 'bb');
-      smBtn.classList.toggle('active', activeDrawer === 'smiles');
-      if (!activeDrawer) { drawerHost.replaceChildren(); return; }
+    const drawToolsDrawer = async () => {
+      if (activeDrawer !== 'tools') { drawerHost.replaceChildren(); return; }
+      const body = h('div');
+      const tabsRow = h('div.msg-tools-tabs',
+        h('button.msg-tools-tab', { type: 'button', onclick: () => { activeDrawer = ''; plusBtn.classList.remove('active'); drawerHost.replaceChildren(); openAttachPicker(a => { attach = a; renderChips(); syncTa(); }); } }, icon('paperclip', 15), 'Прикрепить'),
+        h('button.msg-tools-tab' + (subTab === 'bb' ? '.active' : ''), { type: 'button', onclick: () => { subTab = 'bb'; drawToolsDrawer(); } }, h('b', 'Aa'), 'Формат'),
+        h('button.msg-tools-tab' + (subTab === 'smiles' ? '.active' : ''), { type: 'button', onclick: () => { subTab = 'smiles'; drawToolsDrawer(); } }, icon('smile', 15), 'Смайлы'));
+      drawerHost.replaceChildren(h('div.msg-drawer', tabsRow, body));
 
-      if (activeDrawer === 'bb') {
+      if (subTab === 'bb') {
         const bb = state.config.bb || {};
         const ribbon = h('div.msg-bb-ribbon');
         const addBtn = (lbl, title, fn, key) => {
@@ -564,21 +565,21 @@ router.add('/mail/:id', async ctx => {
           if (bb[tag] === false) return;
           ribbon.append(h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${tag}]`, `[/${tag}]`) }));
         });
-        drawerHost.replaceChildren(h('div.msg-drawer', ribbon));
-      } else if (activeDrawer === 'smiles') {
+        body.replaceChildren(ribbon);
+      } else {
         const box = h('div.msg-smiles-drawer', ui.loading());
-        drawerHost.replaceChildren(h('div.msg-drawer', box));
+        body.replaceChildren(box);
         const list = await getSmiles();
-        if (!list.length) {
-          box.replaceChildren(h('span.small.muted', 'Смайлов нет'));
-        } else {
-          box.replaceChildren(...list.map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => wrap(' ' + s.code + ' ') }, h('img', { src: s.url, alt: s.code }))));
-        }
+        if (!list.length) box.replaceChildren(h('span.small.muted', 'Смайлов нет'));
+        else box.replaceChildren(...list.map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => wrap(' ' + s.code + ' ') }, h('img', { src: s.url, alt: s.code }))));
       }
     };
 
-    bbBtn.onclick = () => toggleDrawer('bb');
-    smBtn.onclick = () => toggleDrawer('smiles');
+    plusBtn.onclick = () => {
+      activeDrawer = activeDrawer === 'tools' ? '' : 'tools';
+      plusBtn.classList.toggle('active', activeDrawer === 'tools');
+      drawToolsDrawer();
+    };
 
     const doSend = async () => {
       const msg = ta.value.trim();
@@ -614,7 +615,7 @@ router.add('/mail/:id', async ctx => {
       }
     };
 
-    foot.append(chipHost, drawerHost, h('div.msg-compose', attBtn, smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
+    foot.append(chipHost, drawerHost, h('div.msg-compose', plusBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
   } else {
     foot.append(h('div.pad.small.muted.center', 'Вы не можете писать этому пользователю.'));
   }
@@ -641,7 +642,7 @@ router.add('/mail/:id', async ctx => {
 }, { auth: true });
 
 // ───────── УНИВЕРСАЛЬНЫЙ ПОЛНОФУНКЦИОНАЛЬНЫЙ МЕССЕНДЖЕР ДЛЯ ПЕРЕПИСОК С СООБЩЕСТВАМИ
-function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initialKeyboard, botCommands, canWrite, emptyText, disabledText, placeholder, isMine, senderLabel, showStaff, canDeleteMsg, onSend, onPin, onDelete, onInlineClick, onKeyboardClick, onSubscribe }) {
+function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initialKeyboard, botCommands, canWrite, emptyText, disabledText, placeholder, isMine, senderLabel, showStaff, canDeleteMsg, onSend, onPin, onDelete, onInlineClick, onKeyboardClick, onMarkRead, onSubscribe }) {
   document.body.classList.add('msg-page');
   let items = [...(initialItems || [])];
   const seenIds = new Set(items.map(x => x.id));
@@ -819,7 +820,9 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initial
 
     syncTa = () => {
       ta.style.height = 'auto';
-      ta.style.height = Math.min(120, Math.max(38, ta.scrollHeight)) + 'px';
+      const sh = ta.scrollHeight;
+      ta.style.height = Math.min(120, Math.max(36, sh)) + 'px';
+      ta.style.overflowY = sh > 120 ? 'auto' : 'hidden';
       const n = ta.value.trim().length;
       sendBtn.disabled = n < 1 && !attach;
       if (ta.value.length > 1700) {
@@ -847,17 +850,12 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initial
       style: { display: replyKB && replyKB.length ? '' : 'none' },
       onclick: () => { kbVisible = !kbVisible; renderReplyKB(); },
     }, icon('grid', 19));
-    const attBtn = h('button.msg-tool', {
-      type: 'button', title: 'Прикрепить фото, файл или клип', 'aria-label': 'Прикрепить',
-      onclick: () => openAttachPicker(a => { attach = a; renderChips(); syncTa(); }),
-    }, icon('paperclip', 20));
-    const bbBtn = h('button.msg-tool', { type: 'button', title: 'Форматирование (BBCode)', 'aria-label': 'Форматирование' }, h('b', { style: { fontSize: '.9rem' } }, 'Aa'));
-    const smBtn = h('button.msg-tool', { type: 'button', title: 'Смайлы', 'aria-label': 'Смайлы' }, icon('smile', 20));
+    const plusBtn = h('button.msg-tool', { type: 'button', title: 'Вложения, форматирование и смайлы', 'aria-label': 'Меню ввода' }, icon('plus', 20));
+    let subTab = 'bb';
 
     const toggleDrawer = async which => {
       activeDrawer = activeDrawer === which ? '' : which;
-      bbBtn.classList.toggle('active', activeDrawer === 'bb');
-      smBtn.classList.toggle('active', activeDrawer === 'smiles');
+      plusBtn.classList.toggle('active', activeDrawer === 'tools');
       cmdBtn && cmdBtn.classList.toggle('active', activeDrawer === 'cmds');
       if (!activeDrawer) { drawerHost.replaceChildren(); return; }
 
@@ -874,47 +872,55 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initial
               }
             },
           }, h('span.msg-cmd-name', '/' + c.command), h('span.msg-cmd-desc', c.description || ''))))));
-      } else if (activeDrawer === 'bb') {
-        const bb = state.config.bb || {};
-        const ribbon = h('div.msg-bb-ribbon');
-        const addBtn = (lbl, title, fn, key) => {
-          if (key && bb[key] === false) return;
-          ribbon.append(h('button.msg-bb-btn', { type: 'button', title, onclick: fn }, lbl));
-        };
-        addBtn(h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b');
-        addBtn(h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i');
-        addBtn(h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u');
-        addBtn(icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]'));
-        addBtn(icon('hash', 14), 'Код', () => wrap('[code]', '[/code]'), 'code');
-        addBtn(icon('link', 14), 'Вставить ссылку', async () => {
-          const u = await ui.prompt('Адрес ссылки (https://...)', 'https://', { title: 'Вставить ссылку' });
-          if (u && u.trim()) {
-            const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-            wrap(`[url=${u.trim()}]`, sel ? '[/url]' : `${u.trim()}[/url]`);
-          }
-        }, 'url');
-        addBtn(icon('image', 14), 'Вставить картинку', async () => {
-          const u = await ui.prompt('Ссылка на картинку (https://...)', 'https://', { title: 'Вставить картинку' });
-          if (u && u.trim()) wrap(`[img]${u.trim()}[/img]`);
-        }, 'img');
-        ribbon.append(h('span.msg-bb-sep'));
-        [['red', '#e11d48', 'Красный'], ['yellow', '#eab308', 'Жёлтый'], ['green', '#16a34a', 'Зелёный'], ['blue', '#2563eb', 'Синий']].forEach(([tag, col, title]) => {
-          if (bb[tag] === false) return;
-          ribbon.append(h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${tag}]`, `[/${tag}]`) }));
-        });
-        drawerHost.replaceChildren(h('div.msg-drawer', ribbon));
-      } else if (activeDrawer === 'smiles') {
-        const box = h('div.msg-smiles-drawer', ui.loading());
-        drawerHost.replaceChildren(h('div.msg-drawer', box));
-        const list = await getSmiles();
-        if (!list.length) box.replaceChildren(h('span.small.muted', 'Смайлов нет'));
-        else box.replaceChildren(...list.map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => wrap(' ' + s.code + ' ') }, h('img', { src: s.url, alt: s.code }))));
+      } else if (activeDrawer === 'tools') {
+        const body = h('div');
+        const tabsRow = h('div.msg-tools-tabs',
+          h('button.msg-tools-tab', { type: 'button', onclick: () => { toggleDrawer(''); openAttachPicker(a => { attach = a; renderChips(); syncTa(); }); } }, icon('paperclip', 15), 'Прикрепить'),
+          h('button.msg-tools-tab' + (subTab === 'bb' ? '.active' : ''), { type: 'button', onclick: () => { subTab = 'bb'; activeDrawer = ''; toggleDrawer('tools'); } }, h('b', 'Aa'), 'Формат'),
+          h('button.msg-tools-tab' + (subTab === 'smiles' ? '.active' : ''), { type: 'button', onclick: () => { subTab = 'smiles'; activeDrawer = ''; toggleDrawer('tools'); } }, icon('smile', 15), 'Смайлы'));
+        drawerHost.replaceChildren(h('div.msg-drawer', tabsRow, body));
+
+        if (subTab === 'bb') {
+          const bb = state.config.bb || {};
+          const ribbon = h('div.msg-bb-ribbon');
+          const addBtn = (lbl, title, fn, key) => {
+            if (key && bb[key] === false) return;
+            ribbon.append(h('button.msg-bb-btn', { type: 'button', title, onclick: fn }, lbl));
+          };
+          addBtn(h('b', 'B'), 'Жирный', () => wrap('[b]', '[/b]'), 'b');
+          addBtn(h('i', 'I'), 'Курсив', () => wrap('[i]', '[/i]'), 'i');
+          addBtn(h('u', 'U'), 'Подчёркнутый', () => wrap('[u]', '[/u]'), 'u');
+          addBtn(icon('quote', 14), 'Цитата', () => wrap('[quote]', '[/quote]'));
+          addBtn(icon('hash', 14), 'Код', () => wrap('[code]', '[/code]'), 'code');
+          addBtn(icon('link', 14), 'Вставить ссылку', async () => {
+            const u = await ui.prompt('Адрес ссылки (https://...)', 'https://', { title: 'Вставить ссылку' });
+            if (u && u.trim()) {
+              const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+              wrap(`[url=${u.trim()}]`, sel ? '[/url]' : `${u.trim()}[/url]`);
+            }
+          }, 'url');
+          addBtn(icon('image', 14), 'Вставить картинку', async () => {
+            const u = await ui.prompt('Ссылка на картинку (https://...)', 'https://', { title: 'Вставить картинку' });
+            if (u && u.trim()) wrap(`[img]${u.trim()}[/img]`);
+          }, 'img');
+          ribbon.append(h('span.msg-bb-sep'));
+          [['red', '#e11d48', 'Красный'], ['yellow', '#eab308', 'Жёлтый'], ['green', '#16a34a', 'Зелёный'], ['blue', '#2563eb', 'Синий']].forEach(([tag, col, title]) => {
+            if (bb[tag] === false) return;
+            ribbon.append(h('button.msg-color-dot', { type: 'button', title, style: { background: col }, onclick: () => wrap(`[${tag}]`, `[/${tag}]`) }));
+          });
+          body.replaceChildren(ribbon);
+        } else {
+          const box = h('div.msg-smiles-drawer', ui.loading());
+          body.replaceChildren(box);
+          const list = await getSmiles();
+          if (!list.length) box.replaceChildren(h('span.small.muted', 'Смайлов нет'));
+          else box.replaceChildren(...list.map(s => h('button.smile-btn', { type: 'button', title: s.code, onclick: () => wrap(' ' + s.code + ' ') }, h('img', { src: s.url, alt: s.code }))));
+        }
       }
     };
 
     cmdBtn && (cmdBtn.onclick = () => toggleDrawer('cmds'));
-    bbBtn.onclick = () => toggleDrawer('bb');
-    smBtn.onclick = () => toggleDrawer('smiles');
+    plusBtn.onclick = () => toggleDrawer('tools');
 
     const doSend = async () => {
       const msg = ta.value.trim();
@@ -942,12 +948,12 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initial
     sendBtn.onclick = doSend;
     ta.oninput = syncTa;
     ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); doSend(); } };
-    foot.append(chipHost, drawerHost, h('div.msg-compose', cmdBtn, attBtn, smBtn, bbBtn, h('div.msg-input-wrap', ta, charEl), kbToggleBtn, sendBtn), kbHost);
+    foot.append(chipHost, drawerHost, h('div.msg-compose', plusBtn, cmdBtn, h('div.msg-input-wrap', ta, charEl), kbToggleBtn, sendBtn), kbHost);
   } else {
     foot.append(h('div.pad.small.muted.center', disabledText || 'Отправка сообщений отключена.'));
   }
 
-  const unsub = onSubscribe ? onSubscribe(incoming => {
+  const unsub = onSubscribe ? onSubscribe(async incoming => {
     if (incoming) {
       if (incoming.keyboard_update) {
         replyKB = (incoming.keyboard && incoming.keyboard.length) ? incoming.keyboard : null;
@@ -957,6 +963,9 @@ function renderRichGroupDialog({ ctx, head, initialItems, initialPinned, initial
       if (!items.some(x => x.id === incoming.id)) {
         items.push(incoming);
         renderMessages(true);
+        if (!isMine(incoming) && onMarkRead) {
+          await onMarkRead().catch(() => {});
+        }
         refreshCounters();
       }
     }
@@ -1010,6 +1019,7 @@ router.add('/mail/group/:id', async ctx => {
     onDelete: m => api.del(`/api/group-dm/${m.id}`),
     onInlineClick: (m, btn) => api.post(`/api/groups/${id}/dm/callback`, { message_id: m.id, callback_data: btn.callback_data || btn.text, text: btn.text }),
     onKeyboardClick: btn => api.post(`/api/groups/${id}/dm/keyboard-click`, { callback_data: btn.callback_data || btn.text, text: btn.text }),
+    onMarkRead: () => api.post(`/api/groups/${id}/dm/read`, {}, { silent: true }),
     onSubscribe: cb => bus.on('sse:group_dm', data => {
       if (data && data.group_id === id && data.user_id === state.user?.id) cb(data);
     }),

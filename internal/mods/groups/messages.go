@@ -366,6 +366,43 @@ func registerMessages(a *core.App) {
 		return c.OK("keyboard_removed", removed)
 	}, core.Auth)
 
+	// ── Пометить входящие от сообщества прочитанными (вызывается при живом SSE-сообщении в открытом диалоге)
+	a.POST("/api/groups/{id}/dm/read", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		gid := c.PathInt("id")
+		for _, m := range dmT.By("pair", store.Key(gid, me.ID)) {
+			if m.FromGroup && !m.ReadByUsr {
+				dmT.Update(m.ID, func(x *GroupMessage) { x.ReadByUsr = true })
+			}
+		}
+		return c.OK()
+	}, core.Auth)
+
+	// ── Пометить входящие от пользователя прочитанными (для сотрудников сообщества в открытом диалоге)
+	a.POST("/api/groups/{id}/inbox/{uid}/read", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		if !permsOf(me, g).ModMessages {
+			return core.ErrForbidden()
+		}
+		uid := c.PathInt("uid")
+		for _, m := range dmT.By("pair", store.Key(g.ID, uid)) {
+			if !m.FromGroup && !m.ReadByGrp {
+				dmT.Update(m.ID, func(x *GroupMessage) { x.ReadByGrp = true })
+			}
+		}
+		return c.OK()
+	}, core.Auth)
+
 	// ── Пользователь: написать сообщение сообществу (пользователь всегда начинает диалог первым)
 	a.POST("/api/groups/{id}/dm", func(c *core.Ctx) error {
 		me, err := c.Need()
