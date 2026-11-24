@@ -25,17 +25,19 @@ type GroupChat struct {
 	OwnerID     int64  `json:"owner_id"`
 	InviteCode  string `json:"invite_code"`
 	PinnedMsgID int64  `json:"pinned_msg_id"`
+	DenyBots    bool   `json:"deny_bots,omitempty"` // запретить приглашать ботов (настраивает создатель)
 	Created     int64  `json:"created"`
 }
 
 // GroupChatMember — участник групповой беседы.
 type GroupChatMember struct {
 	store.Base
-	ChatID   int64  `json:"chat_id"`
-	UserID   int64  `json:"user_id"`
-	Role     string `json:"role"`   // owner | admin | member
-	Folder   string `json:"folder"` // common | favorite | ignor | deleted ("" == common)
-	JoinedAt int64  `json:"joined_at"`
+	ChatID     int64  `json:"chat_id"`
+	UserID     int64  `json:"user_id"`
+	Role       string `json:"role"`   // owner | admin | member
+	Folder     string `json:"folder"` // common | favorite | ignor | deleted ("" == common)
+	MutedUntil int64  `json:"muted_until,omitempty"`
+	JoinedAt   int64  `json:"joined_at"`
 }
 
 // GroupChatBot — приглашённый в беседу бот сообщества.
@@ -54,6 +56,7 @@ type GroupChatMsg struct {
 	ChatID     int64  `json:"chat_id"`
 	UserID     int64  `json:"user_id"`
 	BotGroupID int64  `json:"bot_group_id,omitempty"` // >0 если отправлено ботом сообщества
+	System     bool   `json:"system,omitempty"`       // системное событие (вход/выход/мут/бот)
 	Msg        string `json:"msg"`
 	ReplyID    int64  `json:"reply_id"`
 	AttType    string `json:"att_type,omitempty"`
@@ -165,12 +168,17 @@ func msgView(a *core.App, m GroupChatMsg, me int64, pinnedID int64) map[string]a
 	out := map[string]any{
 		"id":        m.ID,
 		"chat":      m.ChatID,
-		"mine":      m.BotGroupID == 0 && m.UserID == me,
+		"mine":      !m.System && m.BotGroupID == 0 && m.UserID == me,
+		"system":    m.System,
 		"msg":       a.Text.Render(m.Msg),
 		"raw":       m.Msg,
 		"time":      m.Time,
 		"pinned":    pinnedID > 0 && pinnedID == m.ID,
 		"edited_at": m.EditedAt,
+	}
+	if m.System {
+		out["user"] = map[string]any{"id": 0, "nick": "Система"}
+		return out
 	}
 	if m.BotGroupID > 0 {
 		if bInfo, ok := groups.GetGroupBotInfo(m.BotGroupID); ok {
@@ -324,6 +332,26 @@ func dispatchChatBots(a *core.App, ch GroupChat, m GroupChatMsg, rawText string)
 			"time":        m.Time,
 		})
 	}
+}
+
+func emitSystemMsg(a *core.App, ch GroupChat, text string) {
+	if msgsT == nil || membersT == nil {
+		return
+	}
+	m := GroupChatMsg{ChatID: ch.ID, System: true, Msg: text, Time: core.Now()}
+	msgsT.Insert(&m)
+	for _, mem := range membersT.By("chat", i(ch.ID)) {
+		a.Hub.ToUser(mem.UserID, "gchat_msg", msgView(a, m, mem.UserID, ch.PinnedMsgID))
+	}
+}
+
+func checkMuteErr(mem GroupChatMember) error {
+	now := core.Now()
+	if mem.MutedUntil > now {
+		rem := (mem.MutedUntil - now + 59) / 60
+		return core.ErrForbidden("Вам временно запрещено писать в этой беседе (осталось " + strconv.FormatInt(rem, 10) + " мин.)")
+	}
+	return nil
 }
 
 // BotSendToChat позволяет боту сообщества отправить ответ в групповую беседу, в которую он приглашён.
@@ -520,13 +548,14 @@ func Register(a *core.App) {
 		}
 		if m, exists := memberOf(ch.ID, me.ID); !exists {
 			membersT.Insert(&GroupChatMember{ChatID: ch.ID, UserID: me.ID, Role: "member", Folder: "common", JoinedAt: core.Now()})
+			emitSystemMsg(a, ch, me.Nick+" вступил(а) в беседу по ссылке")
 		} else if normFolder(m.Folder) == "deleted" {
 			membersT.Update(m.ID, func(x *GroupChatMember) { x.Folder = "common" })
 		}
 		return c.OK("id", ch.ID)
 	}, core.Auth)
 
-	// Детали и сообщения беседы
+	// Детали и сообщения беседы (поддерживает ?after=ID для лёгкого дозапроса новых сообщений)
 	a.GET("/api/chats/{id}", func(c *core.Ctx) error {
 		me, err := c.Need()
 		if err != nil {
@@ -539,6 +568,21 @@ func Register(a *core.App) {
 		myMem, ok := memberOf(ch.ID, me.ID)
 		if !ok && me.Level < 7 {
 			return core.ErrForbidden("Вы не состоите в этой беседе")
+		}
+		if rawAfter := c.Q("after"); rawAfter != "" {
+			afterID, _ := strconv.ParseInt(rawAfter, 10, 64)
+			var newer []GroupChatMsg
+			for _, m := range msgsT.By("chat", i(ch.ID)) {
+				if m.ID > afterID {
+					newer = append(newer, m)
+				}
+			}
+			sort.Slice(newer, func(x, y int) bool { return newer[x].ID < newer[y].ID })
+			out := make([]map[string]any, 0, len(newer))
+			for _, m := range newer {
+				out = append(out, msgView(a, m, me.ID, ch.PinnedMsgID))
+			}
+			return c.JSON(map[string]any{"items": out, "my_muted_until": myMem.MutedUntil, "deny_bots": ch.DenyBots})
 		}
 		p := c.Page()
 		list, total := msgsT.Select(store.Opts[GroupChatMsg]{Index: "chat", Key: i(ch.ID), Desc: true, Offset: p.Offset, Limit: p.Per})
@@ -555,7 +599,7 @@ func Register(a *core.App) {
 		mems := membersT.By("chat", i(ch.ID))
 		memOut := make([]map[string]any, 0, len(mems))
 		for _, m := range mems {
-			memOut = append(memOut, map[string]any{"user": a.Ref(m.UserID), "role": m.Role, "joined": m.JoinedAt})
+			memOut = append(memOut, map[string]any{"user": a.Ref(m.UserID), "role": m.Role, "joined": m.JoinedAt, "muted_until": m.MutedUntil})
 		}
 		chatBots := botsT.By("chat", i(ch.ID))
 		botOut := make([]map[string]any, 0, len(chatBots))
@@ -573,19 +617,94 @@ func Register(a *core.App) {
 			})
 		}
 		return c.JSON(map[string]any{
-			"id":          ch.ID,
-			"title":       ch.Title,
-			"owner_id":    ch.OwnerID,
-			"invite_code": ch.InviteCode,
-			"my_role":     myMem.Role,
-			"pinned":      pinned,
-			"members":     memOut,
-			"bots":        botOut,
-			"items":       items,
-			"total":       total,
-			"page":        p.Page,
-			"pages":       max(1, (total+p.Per-1)/p.Per),
+			"id":             ch.ID,
+			"title":          ch.Title,
+			"owner_id":       ch.OwnerID,
+			"invite_code":    ch.InviteCode,
+			"deny_bots":      ch.DenyBots,
+			"my_role":        myMem.Role,
+			"my_muted_until": myMem.MutedUntil,
+			"pinned":         pinned,
+			"members":        memOut,
+			"bots":           botOut,
+			"items":          items,
+			"total":          total,
+			"page":           p.Page,
+			"pages":          max(1, (total+p.Per-1)/p.Per),
 		})
+	}, core.Auth)
+
+	// Настройки беседы (только создатель: разрешить/запретить ботов)
+	a.POST("/api/chats/{id}/settings", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		ch, ok := chatsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		if ch.OwnerID != me.ID {
+			return core.ErrForbidden("Настройки беседы меняет только создатель")
+		}
+		var in struct {
+			DenyBots bool `json:"deny_bots"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		chatsT.Update(ch.ID, func(x *GroupChat) { x.DenyBots = in.DenyBots })
+		if in.DenyBots {
+			emitSystemMsg(a, ch, me.Nick+" запретил(а) приглашать ботов в беседу")
+		} else {
+			emitSystemMsg(a, ch, me.Nick+" разрешил(а) приглашать ботов в беседу")
+		}
+		return c.OK("deny_bots", in.DenyBots)
+	}, core.Auth)
+
+	// Временный запрет писать (мут) / снятие мута
+	a.POST("/api/chats/{id}/mute", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		ch, ok := chatsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		myMem, ok := memberOf(ch.ID, me.ID)
+		if !ok || !isAdmin(myMem) {
+			return core.ErrForbidden("Недостаточно прав")
+		}
+		var in struct {
+			UserID  int64 `json:"user_id"`
+			Minutes int64 `json:"minutes"` // 0 = снять мут
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		if in.Minutes < 0 || in.Minutes > 1440 {
+			return core.ErrBad("Длительность мута от 0 до 1440 минут")
+		}
+		tMem, ok := memberOf(ch.ID, in.UserID)
+		if !ok {
+			return core.ErrNotFound("Участник не найден")
+		}
+		if tMem.Role == "owner" || (tMem.Role == "admin" && myMem.Role != "owner") {
+			return core.ErrForbidden("Нельзя выдать мут этому участнику")
+		}
+		var until int64
+		if in.Minutes > 0 {
+			until = core.Now() + in.Minutes*60
+		}
+		membersT.Update(tMem.ID, func(x *GroupChatMember) { x.MutedUntil = until })
+		tNick := a.Ref(in.UserID).Nick
+		if in.Minutes > 0 {
+			emitSystemMsg(a, ch, me.Nick+" запретил(а) "+tNick+" писать на "+strconv.FormatInt(in.Minutes, 10)+" мин.")
+		} else {
+			emitSystemMsg(a, ch, me.Nick+" снял(а) ограничение на сообщения с "+tNick)
+		}
+		return c.OK("muted_until", until)
 	}, core.Auth)
 
 	// Поиск доступных ботов сообществ по названию или ID (максимум 10)
@@ -607,6 +726,9 @@ func Register(a *core.App) {
 		if !ok || !isAdmin(mem) {
 			return core.ErrForbidden("Приглашать ботов могут только администраторы беседы")
 		}
+		if ch.DenyBots {
+			return core.ErrForbidden("Создатель беседы запретил приглашать ботов")
+		}
 		var in struct {
 			GroupID int64  `json:"group_id"`
 			Alias   string `json:"alias"`
@@ -614,7 +736,8 @@ func Register(a *core.App) {
 		if err := c.Bind(&in); err != nil {
 			return err
 		}
-		if _, ok := groups.GetGroupBotInfo(in.GroupID); !ok {
+		bInfo, ok := groups.GetGroupBotInfo(in.GroupID)
+		if !ok {
 			return core.ErrNotFound("Сообщество не найдено или заблокировано")
 		}
 		if _, exists := botsT.OneBy("pair", store.Key(ch.ID, in.GroupID)); exists {
@@ -633,6 +756,8 @@ func Register(a *core.App) {
 			}
 		}
 		botsT.Insert(&GroupChatBot{ChatID: ch.ID, GroupID: in.GroupID, Alias: alias, AddedBy: me.ID, AddedAt: core.Now()})
+		bName, _ := bInfo["name"].(string)
+		emitSystemMsg(a, ch, me.Nick+" пригласил(а) бота «"+bName+"» (@"+alias+")")
 		return c.OK("alias", alias)
 	}, core.Auth)
 
@@ -655,6 +780,7 @@ func Register(a *core.App) {
 			return core.ErrNotFound()
 		}
 		botsT.Delete(b.ID)
+		emitSystemMsg(a, ch, me.Nick+" убрал(а) бота @"+b.Alias+" из беседы")
 		return c.OK()
 	}, core.Auth)
 
@@ -705,8 +831,12 @@ func Register(a *core.App) {
 		if !ok {
 			return core.ErrNotFound("Беседа не найдена")
 		}
-		if _, ok := memberOf(ch.ID, me.ID); !ok {
+		mem, ok := memberOf(ch.ID, me.ID)
+		if !ok {
 			return core.ErrForbidden("Вы не состоите в этой беседе")
+		}
+		if err := checkMuteErr(mem); err != nil {
+			return err
 		}
 		var in struct {
 			Msg     string `json:"msg"`
@@ -803,8 +933,12 @@ func Register(a *core.App) {
 		if !ok {
 			return core.ErrNotFound("Беседа не найдена")
 		}
-		if _, ok := memberOf(ch.ID, me.ID); !ok {
+		mem, ok := memberOf(ch.ID, me.ID)
+		if !ok {
 			return core.ErrForbidden()
+		}
+		if err := checkMuteErr(mem); err != nil {
+			return err
 		}
 		if err := c.R.ParseMultipartForm(12 << 20); err != nil {
 			return core.ErrBad("Не удалось прочитать аудиофайл")
@@ -962,6 +1096,9 @@ func Register(a *core.App) {
 			_ = os.Remove(filepath.Join(voiceDir, i(m.ID)+"."+m.VoiceExt))
 		}
 		msgsT.Delete(m.ID)
+		for _, mm := range membersT.By("chat", i(m.ChatID)) {
+			a.Hub.ToUser(mm.UserID, "gchat_del", map[string]any{"chat": m.ChatID, "id": m.ID})
+		}
 		return c.OK()
 	}, core.Auth)
 
@@ -1031,6 +1168,7 @@ func Register(a *core.App) {
 			return core.ErrBad("Пользователь уже в беседе")
 		}
 		membersT.Insert(&GroupChatMember{ChatID: ch.ID, UserID: uid, Role: "member", Folder: "common", JoinedAt: core.Now()})
+		emitSystemMsg(a, ch, me.Nick+" добавил(а) "+a.Ref(uid).Nick+" в беседу")
 		return c.OK()
 	}, core.Auth)
 
@@ -1059,7 +1197,15 @@ func Register(a *core.App) {
 		if tMem.Role == "owner" && targetUID != me.ID {
 			return core.ErrForbidden("Нельзя исключить создателя беседы")
 		}
+		if tMem.Role == "admin" && targetUID != me.ID && myMem.Role != "owner" {
+			return core.ErrForbidden("Исключать администраторов может только создатель беседы")
+		}
 		membersT.Delete(tMem.ID)
+		if targetUID == me.ID {
+			emitSystemMsg(a, ch, me.Nick+" покинул(а) беседу")
+		} else {
+			emitSystemMsg(a, ch, me.Nick+" исключил(а) "+a.Ref(targetUID).Nick+" из беседы")
+		}
 		return c.OK()
 	}, core.Auth)
 

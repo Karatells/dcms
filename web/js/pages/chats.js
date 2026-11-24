@@ -87,6 +87,8 @@ router.add('/chats/:id', async ctx => {
   let editMsg = null;
   let attach = null;
   let inputTa = null;
+  let myMutedUntil = d.my_muted_until || 0;
+  let denyBots = !!d.deny_bots;
   const isAdm = d.my_role === 'owner' || d.my_role === 'admin';
   const isOwner = d.my_role === 'owner';
 
@@ -94,7 +96,27 @@ router.add('/chats/:id', async ctx => {
   const pinnedHost = h('div');
   const searchHost = h('div');
   const chipHost = h('div');
+  const muteBannerHost = h('div');
   const reload = () => router.render();
+
+  const renderMuteBanner = () => {
+    const now = Math.floor(Date.now() / 1000);
+    if (myMutedUntil > now) {
+      const rem = Math.max(1, Math.ceil((myMutedUntil - now) / 60));
+      muteBannerHost.replaceChildren(h('div.pad.small.err.center', { style: { background: 'color-mix(in srgb,var(--danger) 10%,var(--bg-card))', borderTop: '1px solid var(--border-s)' } },
+        `Вам временно запрещено писать в этой беседе (осталось ~${rem} мин.)`));
+    } else {
+      muteBannerHost.replaceChildren();
+    }
+  };
+
+  const upsertMsg = m => {
+    if (!m || !m.id) return false;
+    const idx = items.findIndex(x => x.id === m.id);
+    if (idx >= 0) { items[idx] = m; return false; }
+    items.push(m);
+    return true;
+  };
 
   const jumpToMsg = id => {
     const el = scrollEl.querySelector(`.bubble[data-mid="${id}"]`);
@@ -171,6 +193,11 @@ router.add('/chats/:id', async ctx => {
       items.forEach(m => {
         const dl = dayLabel(m.time);
         if (dl !== lastDay) { lastDay = dl; nodes.push(h('div.msg-day', dl)); }
+        if (m.system) {
+          seenIds.add(m.id);
+          nodes.push(h('div.msg-sys', m.raw || ''));
+          return;
+        }
         const doReact = async em => {
           const r = await api.post(`/api/chats/msg/${m.id}/react`, { emoji: em }, { silent: true });
           m.reactions = r.reactions || [];
@@ -266,8 +293,20 @@ router.add('/chats/:id', async ctx => {
     const botPickerWrap = h('div.stack-s');
     const botsList = d.bots || [];
 
+    const denyChk = isOwner ? h('input', {
+      type: 'checkbox', checked: denyBots,
+      onchange: async () => {
+        const r = await api.post(`/api/chats/${cid}/settings`, { deny_bots: denyChk.checked });
+        denyBots = !!r.deny_bots;
+        ui.ok(denyBots ? 'Приглашение ботов запрещено' : 'Приглашение ботов разрешено');
+        modal.close(); reload();
+      },
+    }) : null;
+
     const botsSection = h('div.stack-s',
       h('b', `Боты сообществ (${botsList.length})`),
+      isOwner ? h('label.check', denyChk, ' Запретить приглашать ботов в беседу') : null,
+      denyBots ? h('div.small.warn', 'Создатель беседы запретил приглашать новых ботов.') : null,
       h('div.small.muted', 'Боты реагируют ТОЛЬКО когда к ним обращаются: @тег, /команда@тег или ответ на сообщение бота.'),
       botsList.length ? h('div.list', ...botsList.map(b => h('div.list-item',
         h('div.grp-ava-sm', { style: { width: '34px', height: '34px', borderRadius: '10px', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg,var(--accent),#ec4899)', color: '#fff', fontWeight: '800', overflow: 'hidden', flexShrink: '0' } },
@@ -282,8 +321,32 @@ router.add('/chats/:id', async ctx => {
             ui.ok('Бот удалён из беседы'); modal.close(); reload();
           },
         }) : null))) : h('div.small.muted', 'В беседе пока нет ботов.'),
-      isAdm ? botPickerWrap : null);
+      isAdm && !denyBots ? botPickerWrap : null);
 
+    const openMutePicker = mem => {
+      const now = Math.floor(Date.now() / 1000);
+      const isMuted = mem.muted_until && mem.muted_until > now;
+      const setMute = async mins => {
+        await api.post(`/api/chats/${cid}/mute`, { user_id: mem.user.id, minutes: mins });
+        ui.ok(mins > 0 ? `${mem.user.nick} получил(а) мут на ${mins} мин.` : `Мут с ${mem.user.nick} снят`);
+        mMod.close(); modal.close(); reload();
+      };
+      const mMod = ui.modal({
+        title: `Ограничить: ${mem.user.nick}`,
+        body: h('div.stack',
+          h('div.small.muted', 'Выберите, на сколько запретить участнику писать в этой беседе:'),
+          h('div.row',
+            ui.btn('5 мин', { small: true, onclick: () => setMute(5) }),
+            ui.btn('10 мин', { small: true, onclick: () => setMute(10) }),
+            ui.btn('30 мин', { small: true, onclick: () => setMute(30) }),
+            ui.btn('1 час', { small: true, onclick: () => setMute(60) }),
+            ui.btn('24 часа', { small: true, onclick: () => setMute(1440) })),
+          isMuted ? ui.btn('Снять мут', { ic: 'check', kind: 'primary', small: true, onclick: () => setMute(0) }) : null),
+        actions: [{ label: 'Отмена' }],
+      });
+    };
+
+    const nowSec = Math.floor(Date.now() / 1000);
     const body = h('div.stack',
       h('div.field', h('label', 'Ссылка-приглашение'),
         h('div.row.nowrap',
@@ -299,24 +362,36 @@ router.add('/chats/:id', async ctx => {
         }))) : null,
       botsSection,
       h('b', `Участники (${(d.members || []).length})`),
-      h('div.list', ...(d.members || []).map(mem => h('div.list-item',
-        ui.avatar(mem.user, 34),
-        h('div.main',
-          h('div.title', ui.userLink(mem.user), mem.role !== 'member' ? h('span.badge.primary', { style: { marginLeft: '6px' } }, mem.role === 'owner' ? 'Создатель' : 'Админ') : null)),
-        isOwner && mem.role !== 'owner' ? ui.btn(mem.role === 'admin' ? 'Снять' : 'Админ', {
-          small: true,
-          onclick: async () => {
-            await api.post(`/api/chats/${cid}/role`, { user_id: mem.user.id, role: mem.role === 'admin' ? 'member' : 'admin' });
-            ui.ok('Роль обновлена'); modal.close(); reload();
-          },
-        }) : null,
-        (isAdm && mem.role !== 'owner' && mem.user.id !== me().id) ? ui.btn('', {
-          ic: 'x', small: true, kind: 'danger', title: 'Исключить',
-          onclick: async () => {
-            await api.del(`/api/chats/${cid}/members/${mem.user.id}`);
-            ui.ok('Участник исключён'); modal.close(); reload();
-          },
-        }) : null))));
+      h('div.list', ...(d.members || []).map(mem => {
+        const isMuted = mem.muted_until && mem.muted_until > nowSec;
+        const canModTarget = isAdm && mem.role !== 'owner' && mem.user.id !== me().id && (isOwner || mem.role !== 'admin');
+        return h('div.list-item',
+          ui.avatar(mem.user, 34),
+          h('div.main',
+            h('div.title', ui.userLink(mem.user),
+              mem.role !== 'member' ? h('span.badge.primary', { style: { marginLeft: '6px' } }, mem.role === 'owner' ? 'Создатель' : 'Админ') : null,
+              isMuted ? h('span.badge.danger', { style: { marginLeft: '6px' } }, 'Мут') : null)),
+          isOwner && mem.role !== 'owner' ? ui.btn(mem.role === 'admin' ? 'Снять' : 'Админ', {
+            small: true,
+            onclick: async () => {
+              await api.post(`/api/chats/${cid}/role`, { user_id: mem.user.id, role: mem.role === 'admin' ? 'member' : 'admin' });
+              ui.ok('Роль обновлена'); modal.close(); reload();
+            },
+          }) : null,
+          canModTarget ? ui.btn(isMuted ? 'Мут✓' : 'Мут', {
+            ic: 'volume-x', small: true, title: 'Запретить писать временно',
+            onclick: () => openMutePicker(mem),
+          }) : null,
+          canModTarget ? ui.btn('', {
+            ic: 'x', small: true, kind: 'danger', title: 'Выгнать из беседы',
+            onclick: async () => {
+              if (await ui.confirm(`Выгнать ${mem.user.nick} из беседы?`, { danger: true })) {
+                await api.del(`/api/chats/${cid}/members/${mem.user.id}`);
+                ui.ok('Участник исключён'); modal.close(); reload();
+              }
+            },
+          }) : null);
+      })));
     const modal = ui.modal({
       title: `Участники и боты`,
       body,
@@ -492,7 +567,8 @@ router.add('/chats/:id', async ctx => {
           title: locked ? 'Доступно только для VIP' : 'Отправить стикер',
           onclick: async () => {
             if (locked) { ui.toast('Этот набор стикеров доступен только для VIP-подписчиков', 'warn'); return; }
-            await api.post(`/api/chats/${cid}/msg`, { sticker: st, reply_id: replyTo ? replyTo.id : 0 });
+            const sent = await api.post(`/api/chats/${cid}/msg`, { sticker: st, reply_id: replyTo ? replyTo.id : 0 });
+            if (upsertMsg(sent)) renderMessages(true);
             replyTo = null; renderChips();
             activeDrawer = ''; plusBtn.classList.remove('active'); drawerHost.replaceChildren();
           },
@@ -541,12 +617,13 @@ router.add('/chats/:id', async ctx => {
         editMsg = null; ta.value = ''; renderChips(); syncTa(); renderMessages(false);
         return;
       }
-      await api.post(`/api/chats/${cid}/msg`, {
+      const sent = await api.post(`/api/chats/${cid}/msg`, {
         msg,
         reply_id: replyTo ? replyTo.id : 0,
         att_type: attach ? attach.type : '',
         att_id: attach ? attach.id : 0,
       });
+      if (upsertMsg(sent)) renderMessages(true);
       ta.value = ''; replyTo = null; attach = null;
       renderChips(); syncTa();
     } finally { syncTa(); }
@@ -569,6 +646,8 @@ router.add('/chats/:id', async ctx => {
         try {
           const res = await fetch(`/api/chats/${cid}/voice`, { method: 'POST', body: fd, headers: { 'X-DCMS': '1' } });
           if (!res.ok) throw new Error();
+          const sent = await res.json();
+          if (upsertMsg(sent)) renderMessages(true);
         } catch { ui.toast('Не удалось отправить голосовое', 'err'); }
       };
       recorder.stop();
@@ -606,7 +685,7 @@ router.add('/chats/:id', async ctx => {
     }
   };
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); doSend(); } };
-  const foot = h('div.msg-foot', chipHost, recHost, drawerHost, h('div.msg-compose', plusBtn, cmdBtn, h('div.msg-input-wrap', ta, charEl), micBtn, sendBtn));
+  const foot = h('div.msg-foot', muteBannerHost, chipHost, recHost, drawerHost, h('div.msg-compose', plusBtn, cmdBtn, h('div.msg-input-wrap', ta, charEl), micBtn, sendBtn));
 
   let typingTimer = null;
   const onTyping = bus.on('sse:gchat_typing', ev => {
@@ -618,8 +697,7 @@ router.add('/chats/:id', async ctx => {
     }
   });
   const onMsg = bus.on('sse:gchat_msg', m => {
-    if (m && m.chat === cid && !items.some(x => x.id === m.id)) {
-      items.push(m);
+    if (m && m.chat === cid && upsertMsg(m)) {
       renderMessages(true);
     }
   });
@@ -635,15 +713,45 @@ router.add('/chats/:id', async ctx => {
       if (m) { m.reactions = ev.reactions || []; renderMessages(false); }
     }
   });
+  const onDel = bus.on('sse:gchat_del', ev => {
+    if (ev && ev.chat === cid) {
+      const prevLen = items.length;
+      items = items.filter(x => x.id !== ev.id);
+      if (items.length !== prevLen) renderMessages(false);
+    }
+  });
+
+  // Лёгкий фоновый дозапрос новых сообщений каждые 3.5 сек на случай буферизации SSE
+  let syncing = false;
+  const syncTimer = setInterval(async () => {
+    if (syncing || document.visibilityState !== 'visible') return;
+    syncing = true;
+    try {
+      const lastId = items.length ? items[items.length - 1].id : 0;
+      const res = await api.get(`/api/chats/${cid}`, { after: lastId }, { silent: true });
+      if (res.my_muted_until !== undefined && res.my_muted_until !== myMutedUntil) {
+        myMutedUntil = res.my_muted_until;
+        renderMuteBanner();
+      }
+      if (res.deny_bots !== undefined) denyBots = !!res.deny_bots;
+      let added = false;
+      (res.items || []).forEach(nm => { if (upsertMsg(nm)) added = true; });
+      if (added) renderMessages(true);
+    } catch {} finally { syncing = false; }
+  }, 3500);
+
   ctx.onLeave(() => {
     document.body.classList.remove('msg-page');
     clearTimeout(typingTimer);
+    clearInterval(syncTimer);
     onMsg && onMsg();
     onEdit && onEdit();
     onReact && onReact();
+    onDel && onDel();
     onTyping && onTyping();
   });
 
+  renderMuteBanner();
   renderPinned();
   renderMessages(true);
   return h('div.msg-shell', head, searchHost, pinnedHost, scrollEl, foot);
