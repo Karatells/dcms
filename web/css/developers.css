@@ -48,3 +48,22 @@
 .dev-scope-pill input { margin: 0; accent-color: var(--accent, #6366f1); cursor: pointer; }
 .dev-scope-pill.danger input { accent-color: #ef4444; }
 .dev-url-box { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; word-break: break-all; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); }
+
+/* Навигация и двухколоночная сетка документации */
+.dev-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; align-items: start; }
+.dev-sidenav { position: sticky; top: calc(var(--top, 56px) + 14px); display: flex; flex-direction: column; gap: 4px; background: var(--bg-card, var(--card)); border: 1px solid var(--border-s, var(--border)); border-radius: 12px; padding: 10px; }
+.dev-sidenav-title { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 4px 8px 6px; }
+.dev-nav-link { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--text); text-decoration: none; font-size: .88rem; font-weight: 500; transition: background .12s, color .12s; }
+.dev-nav-link:hover { background: var(--bg-hover); text-decoration: none; }
+.dev-nav-link.active { background: var(--accent-soft, rgba(99,102,241,.14)); color: var(--accent, #6366f1); font-weight: 700; }
+.dev-nav-cnt { margin-left: auto; font-size: .74rem; opacity: .7; }
+.dev-content { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.dev-group-h { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 8px 0 2px; }
+.dev-pager { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 6px; }
+
+@media (max-width: 860px) {
+  .dev-layout { grid-template-columns: 1fr; }
+  .dev-sidenav { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding: 8px; -webkit-overflow-scrolling: touch; }
+  .dev-sidenav-title { display: none; }
+  .dev-nav-link { white-space: nowrap; flex: none; padding: 6px 11px; }
+}
