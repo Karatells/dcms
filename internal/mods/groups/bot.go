@@ -1,8 +1,14 @@
 package groups
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -86,16 +92,55 @@ type GroupBotKeyboard struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
+// GroupWebhook — настройки Callback API (вебхука) сообщества.
+type GroupWebhook struct {
+	store.Base
+	IDGroup    int64  `json:"id_group"`
+	URL        string `json:"url"`
+	Secret     string `json:"secret"`
+	Enabled    bool   `json:"enabled"`
+	LastStatus int    `json:"last_status"`
+	LastError  string `json:"last_error"`
+	LastAt     int64  `json:"last_at"`
+}
+
 var (
-	botTokensT  *store.Table[GroupToken, *GroupToken]
-	botUpdatesT *store.Table[GroupUpdate, *GroupUpdate]
-	botKBT      *store.Table[GroupBotKeyboard, *GroupBotKeyboard]
+	botTokensT   *store.Table[GroupToken, *GroupToken]
+	botUpdatesT  *store.Table[GroupUpdate, *GroupUpdate]
+	botKBT       *store.Table[GroupBotKeyboard, *GroupBotKeyboard]
+	botWebhooksT *store.Table[GroupWebhook, *GroupWebhook]
+
+	webhookHTTP = &http.Client{Timeout: 5 * time.Second}
 
 	lpMu      sync.Mutex
 	lpWaiters = map[int64][]chan struct{}{}
 )
 
-// EmitUpdate записывает событие в очередь Long Poll сообщества и мгновенно будит ожидающих ботов.
+func deliverWebhook(wh GroupWebhook, body []byte, eventType string) (int, string) {
+	req, err := http.NewRequest(http.MethodPost, wh.URL, bytes.NewReader(body))
+	if err != nil {
+		return 0, err.Error()
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "DCMS-Webhook/1.0")
+	req.Header.Set("X-DCMS-Event", eventType)
+	if wh.Secret != "" {
+		mac := hmac.New(sha256.New, []byte(wh.Secret))
+		mac.Write(body)
+		req.Header.Set("X-DCMS-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	}
+	resp, err := webhookHTTP.Do(req)
+	if err != nil {
+		return 0, err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return resp.StatusCode, ""
+	}
+	return resp.StatusCode, resp.Status
+}
+
+// EmitUpdate записывает событие в очередь Long Poll сообщества, будит ожидающих ботов и отправляет Webhook (если включён).
 func EmitUpdate(gid int64, typ, scope string, data any) {
 	if botUpdatesT == nil || gid == 0 {
 		return
@@ -104,12 +149,13 @@ func EmitUpdate(gid int64, typ, scope string, data any) {
 	if err != nil {
 		return
 	}
-	botUpdatesT.Insert(&GroupUpdate{
+	now := core.Now()
+	updID := botUpdatesT.Insert(&GroupUpdate{
 		IDGroup: gid,
 		Type:    typ,
 		Scope:   scope,
 		Payload: string(b),
-		Time:    core.Now(),
+		Time:    now,
 	})
 	// Оставляем не более 1000 последних событий на сообщество, чтобы таблица не разрасталась
 	all := botUpdatesT.By("group", i(gid))
@@ -125,6 +171,28 @@ func EmitUpdate(gid int64, typ, scope string, data any) {
 	lpMu.Unlock()
 	for _, ch := range chans {
 		close(ch)
+	}
+	if botWebhooksT != nil {
+		if wh, ok := botWebhooksT.OneBy("group", i(gid)); ok && wh.Enabled && wh.URL != "" {
+			envelope, err := json.Marshal(map[string]any{
+				"update_id": updID,
+				"group_id":  gid,
+				"type":      typ,
+				"scope":     scope,
+				"time":      now,
+				"data":      data,
+			})
+			if err == nil {
+				go func(w GroupWebhook, payload []byte, ev string) {
+					code, errMsg := deliverWebhook(w, payload, ev)
+					botWebhooksT.Update(w.ID, func(x *GroupWebhook) {
+						x.LastStatus = code
+						x.LastError = errMsg
+						x.LastAt = core.Now()
+					})
+				}(wh, envelope, typ)
+			}
+		}
 	}
 }
 
@@ -428,6 +496,116 @@ func registerBot(a *core.App) {
 	botKBT = store.NewTable[GroupBotKeyboard](a.DB, "group_bot_keyboards").
 		Index("group", func(x *GroupBotKeyboard) string { return i(x.IDGroup) }).
 		Index("pair", func(x *GroupBotKeyboard) string { return store.Key(x.IDGroup, x.IDUser) })
+	botWebhooksT = store.NewTable[GroupWebhook](a.DB, "group_webhooks").
+		Index("group", func(x *GroupWebhook) string { return i(x.IDGroup) })
+
+	// ── Вебхук (Callback API) сообщества
+	a.GET("/api/groups/{id}/webhook", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		if !permsOf(me, g).Manage {
+			return core.ErrForbidden()
+		}
+		wh, ok := botWebhooksT.OneBy("group", i(g.ID))
+		if !ok {
+			return c.JSON(map[string]any{"url": "", "secret": "", "enabled": false, "last_status": 0, "last_error": "", "last_at": 0})
+		}
+		return c.JSON(map[string]any{
+			"url":         wh.URL,
+			"secret":      wh.Secret,
+			"enabled":     wh.Enabled,
+			"last_status": wh.LastStatus,
+			"last_error":  wh.LastError,
+			"last_at":     wh.LastAt,
+		})
+	}, core.Auth)
+
+	a.PUT("/api/groups/{id}/webhook", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		if !permsOf(me, g).Manage {
+			return core.ErrForbidden()
+		}
+		var in struct {
+			URL     string `json:"url"`
+			Secret  string `json:"secret"`
+			Enabled bool   `json:"enabled"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		rawURL := strings.TrimSpace(in.URL)
+		if rawURL != "" {
+			u, err := url.Parse(rawURL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return core.ErrBad("URL вебхука должен начинаться с http:// или https://")
+			}
+		}
+		secret := strings.TrimSpace(in.Secret)
+		if len(secret) > 128 {
+			return core.ErrBad("Секретный ключ: не более 128 символов")
+		}
+		if wh, ok := botWebhooksT.OneBy("group", i(g.ID)); ok {
+			botWebhooksT.Update(wh.ID, func(x *GroupWebhook) {
+				x.URL = rawURL
+				x.Secret = secret
+				x.Enabled = in.Enabled && rawURL != ""
+			})
+		} else {
+			botWebhooksT.Insert(&GroupWebhook{
+				IDGroup: g.ID,
+				URL:     rawURL,
+				Secret:  secret,
+				Enabled: in.Enabled && rawURL != "",
+			})
+		}
+		return c.OK()
+	}, core.Auth)
+
+	a.POST("/api/groups/{id}/webhook/test", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		g, ok := groupsT.Get(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound()
+		}
+		if !permsOf(me, g).Manage {
+			return core.ErrForbidden()
+		}
+		wh, ok := botWebhooksT.OneBy("group", i(g.ID))
+		if !ok || wh.URL == "" {
+			return core.ErrBad("Сначала укажите и сохраните URL вебхука")
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"update_id": 0,
+			"group_id":  g.ID,
+			"type":      "ping",
+			"scope":     "",
+			"time":      core.Now(),
+			"data":      map[string]any{"message": "Тестовое событие от DCMS Callback API"},
+		})
+		code, errMsg := deliverWebhook(wh, payload, "ping")
+		botWebhooksT.Update(wh.ID, func(x *GroupWebhook) {
+			x.LastStatus = code
+			x.LastError = errMsg
+			x.LastAt = core.Now()
+		})
+		return c.JSON(map[string]any{"ok": code >= 200 && code < 300, "status": code, "error": errMsg})
+	}, core.Auth)
 
 	// Список токенов сообщества (создатель/админ)
 	a.GET("/api/groups/{id}/tokens", func(c *core.Ctx) error {

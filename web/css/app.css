@@ -353,3 +353,6 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0}input[type=color]::-we
   .topbar .icon-btn{width:36px;height:36px}
   .top-actions{gap:4px}
 }
+
+.bb-tag{color:var(--accent);font-weight:600;text-decoration:none;border-radius:4px;padding:0 2px}
+.bb-tag:hover{text-decoration:underline;background:color-mix(in srgb,var(--accent) 12%,transparent)}

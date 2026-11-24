@@ -2,6 +2,7 @@ package core
 
 import (
 	"html"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ func (t *Text) SetSmiles(fn func() []Smile) { t.smiles = fn }
 
 var (
 	reURL     = regexp.MustCompile(`(^|[\s>(])((?:https?)://[^\s<>"']+)`)
+	reHash    = regexp.MustCompile(`(^|[\s(])#([a-zA-Zа-яА-ЯёЁ][a-zA-Zа-яА-ЯёЁ0-9_]{1,31})`)
 	reTag     = regexp.MustCompile(`(?is)\[(i|b|u|s|big|small|red|yellow|green|blue|white|mono|spoiler|rainbow|center|right)\](.*?)\[/(?:i|b|u|s|big|small|red|yellow|green|blue|white|mono|spoiler|rainbow|center|right)\]`)
 	reColor   = regexp.MustCompile(`(?is)\[color=(#[0-9a-f]{3}(?:[0-9a-f]{3})?)\](.*?)\[/color\]`)
 	reBg      = regexp.MustCompile(`(?is)\[bg=(#[0-9a-f]{3}(?:[0-9a-f]{3})?)\](.*?)\[/bg\]`)
@@ -101,6 +103,13 @@ func (t *Text) RenderOpts(raw string, bb, smiles, links bool) string {
 		s = reURL.ReplaceAllStringFunc(s, func(m string) string {
 			sm := reURL.FindStringSubmatch(m)
 			return sm[1] + hold(`<a href="`+sm[2]+`" target="_blank" rel="noopener nofollow ugc">`+sm[2]+`</a>`)
+		})
+	}
+	if links {
+		s = reHash.ReplaceAllStringFunc(s, func(m string) string {
+			sm := reHash.FindStringSubmatch(m)
+			tag := sm[2]
+			return sm[1] + hold(`<a class="bb-tag" href="/search?q=`+url.QueryEscape("#"+tag)+`">#`+tag+`</a>`)
 		})
 	}
 	if smiles {

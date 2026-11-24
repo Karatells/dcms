@@ -713,6 +713,15 @@ router.add('/groups/:id/settings', async ctx => {
         h('div.row.nowrap', tokIn, revBtn, ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => copyFallback(t.token, 'Токен скопирован') }))));
   });
 
+  // Вебхук (Callback API)
+  const whData = await api.get(`/api/groups/${id}/webhook`).catch(() => ({ url: '', secret: '', enabled: false, last_status: 0, last_error: '', last_at: 0 }));
+  const whURL = h('input.input', { value: whData.url || '', placeholder: 'https://bot.example.com/webhook', maxlength: 512 });
+  const whSecret = h('input.input', { value: whData.secret || '', placeholder: 'Секретный ключ для HMAC-SHA256 (необязательно)', maxlength: 128 });
+  const whEnabled = h('input', { type: 'checkbox', checked: !!whData.enabled });
+  const whStatusEl = h('div.small.muted', whData.last_at
+    ? `Последняя доставка (${fmt.ago(whData.last_at)}): HTTP ${whData.last_status || '—'}${whData.last_error ? ' · ' + whData.last_error : ' · OK'}`
+    : 'Доставок ещё не было');
+
   // Ссылки для автовступления
   const linksData = await api.get(`/api/groups/${id}/links`).catch(() => ({ items: [] }));
   const linkNote = h('input.input', { placeholder: 'Пометка (необязательно)', maxlength: 64 });
@@ -780,6 +789,30 @@ router.add('/groups/:id/settings', async ctx => {
         },
       }),
       tokList.length ? h('div.stack-s', ...tokList) : h('div.small.muted', 'Активных токенов сообщества пока нет')),
+    h('div.card.pad.stack',
+      h('h3', 'Вебхуки (Callback API)'),
+      h('div.small.muted', 'Мгновенная доставка событий сообщества на ваш сервер методом ', h('code', 'POST'), ' с подписью ', h('code', 'X-DCMS-Signature: sha256=...'), '. Работает параллельно с Long Poll.'),
+      h('div.field', h('label', 'URL обработчика (http:// или https://)'), whURL),
+      h('div.field', h('label', 'Секретный ключ (HMAC-SHA256)'), whSecret),
+      h('label.check', whEnabled, ' Включить отправку событий на вебхук'),
+      whStatusEl,
+      h('div.row',
+        ui.btn('Сохранить вебхук', {
+          ic: 'check', kind: 'primary', small: true,
+          onclick: async () => {
+            await api.put(`/api/groups/${id}/webhook`, { url: whURL.value, secret: whSecret.value, enabled: whEnabled.checked });
+            ui.ok('Вебхук сохранён'); reload();
+          },
+        }),
+        ui.btn('Отправить тест (ping)', {
+          ic: 'send', small: true,
+          onclick: async () => {
+            const r = await api.post(`/api/groups/${id}/webhook/test`, {});
+            if (r.ok) ui.ok(`Вебхук ответил HTTP ${r.status}`);
+            else ui.toast(`Ошибка доставки: HTTP ${r.status || '—'} ${r.error || ''}`, 'err');
+            reload();
+          },
+        }))),
     h('div.card.pad.stack',
       h('h3', 'Ссылки для автовступления'),
       h('div.small.muted', 'Переходя по такой ссылке, пользователь автоматически принимается в сообщество без ожидания одобрения.'),
