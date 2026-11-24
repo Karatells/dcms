@@ -8,7 +8,7 @@ const GRADIENTS = [
   'linear-gradient(135deg,#1e293b,#475569)',
 ];
 
-function openCreateStoryModal(onDone) {
+export function openCreateStoryModal(onDone) {
   let file = null;
   let bg = GRADIENTS[0];
   const fileIn = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', style: { display: 'none' } });

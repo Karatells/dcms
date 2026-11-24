@@ -25,7 +25,7 @@ const fmtDur = s => {
 };
 
 // ───────── загрузка клипа с прогрессом (вызывается только на своей странице клипов)
-function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
+export function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
   if (!me()) { router.go('/login'); return; }
   let pickedFile = null;
   let previewURL = '';

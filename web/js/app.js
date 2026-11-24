@@ -111,7 +111,8 @@ function drawTop() {
     can('adm_panel_show') ? { label: 'Администрирование', href: '/admin', icon: 'shield' } : null, { sep: true },
     { label: 'Выйти', icon: 'log-out', danger: true, onclick: logout },
   ]);
-  top.append(searchBtn, themeBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), topButton('/mail', 'mail', 'mail', 'Почта'), topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
+  const createBtn = h('a.icon-btn', { href: '/create', title: 'Создать публикацию', 'aria-label': 'Создать' }, icon('plus', 20));
+  top.append(searchBtn, createBtn, themeBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), topButton('/mail', 'mail', 'mail', 'Почта'), topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
 }
 async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('Выйти из аккаунта?'))) return; await api.post('/api/logout'); await refreshMe(); events.restart(); router.go('/'); }
 
@@ -127,6 +128,7 @@ async function drawSide() {
     const u = state.user, c = state.counters;
     const mk = (href, ic, label, key) => h('a', { href }, icon(ic, 19), label, key && c[key] ? h('span.cnt', c[key]) : null);
     parts.push(h('nav.nav', h('div.nav-title', 'Мой кабинет'),
+      mk('/create', 'plus', 'Создать публикацию'),
       mk('/id' + u.id, 'user', 'Моя страница'), mk('/user/tape', 'rss', 'Лента', 'tape'), mk('/user/discussions', 'message-circle', 'Обсуждения', 'discussions'),
       mk('/user/notification', 'bell', 'Уведомления', 'notification'), mk('/mail', 'mail', 'Почта', 'mail'), mk('/user/frends', 'users', 'Друзья', 'friends_new'),
       mk('/user/myguest', 'eye', 'Гости', 'myguest'), mk('/user/bookmark', 'bookmark', 'Закладки'), mk('/user/gift', 'gift', 'Подарки'),
@@ -151,7 +153,14 @@ function $$tab() { document.querySelectorAll('.tabbar a').forEach(a => { const h
 function drawTabbar() {
   const bar = $('.tabbar'); if (!bar) return;
   const mk = (href, ic, label, key) => h('a', { href }, icon(ic, 22), h('span', label), key && state.counters[key] ? h('span.dot', state.counters[key]) : null);
-  bar.replaceChildren(mk('/', 'home', 'Главная'), mk('/user/tape', 'rss', 'Лента', 'tape'), mk('/mail', 'mail', 'Почта', 'mail'), mk('/user/notification', 'bell', 'События', 'notification'), state.user ? mk('/id' + state.user.id, 'user', 'Профиль') : mk('/login', 'log-in', 'Войти'));
+  const addBtn = h('a.tabbar-add', { href: state.user ? '/create' : '/login', title: 'Создать публикацию', 'aria-label': 'Создать' },
+    h('span.tabbar-add-pill', icon('plus', 22)), h('span', 'Создать'));
+  bar.replaceChildren(
+    mk('/', 'home', 'Главная'),
+    mk('/user/tape', 'rss', 'Лента', 'tape'),
+    addBtn,
+    mk('/mail', 'mail', 'Почта', 'mail'),
+    state.user ? mk('/id' + state.user.id, 'user', 'Профиль') : mk('/login', 'log-in', 'Войти'));
   $$tab();
 }
 
