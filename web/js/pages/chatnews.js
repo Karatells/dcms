@@ -12,8 +12,10 @@ const mini = (title, ic, ...c) => h('div.card.pad.row.small', icon(ic, 14), titl
 // ───────── главная
 router.add('/', async ctx => {
   ctx.title(state.config.site_name || 'Главная');
-  const [d, menu, { menuIcon }] = await Promise.all([api.get('/api/home'), api.get('/api/menu'), import('../app.js')]);
+  const [d, menu, { menuIcon }, { renderStoriesBar }] = await Promise.all([api.get('/api/home'), api.get('/api/menu'), import('../app.js'), import('./stories.js')]);
   const out = [];
+  const storiesEl = await renderStoriesBar();
+  if (storiesEl && storiesEl.childNodes.length) out.push(storiesEl);
   if (d.news) {
     const n = d.news;
     out.push(h('div.card.pad.news-banner', h('div.row', icon('rss', 18), h('b', n.title), h('span.grow'), me() ? ui.btn('', { ic: 'x', small: true, title: 'Скрыть', onclick: async e => { await api.post('/api/news-read'); router.render(); } }) : null),
