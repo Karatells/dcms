@@ -163,6 +163,8 @@ func registerSettings(a *core.App) {
 		a.LogoutAll(u.ID, keep)
 		return c.OK()
 	}, core.Auth)
+
+	registerTOTP(a)
 }
 
 func checkTheme(theme, accent string) error {

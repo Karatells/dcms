@@ -223,4 +223,7 @@ setInterval(() => { if (state.user && document.visibilityState === 'visible') re
   events.start();
   router.add('/:rest*', async () => ui.notFound(), {}); // последний — 404 (сработает, только если ничего не подошло)
   await router.start();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
 })();

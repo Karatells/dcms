@@ -84,9 +84,13 @@ func registerProfile(a *core.App) {
 			out["status"] = sm
 		}
 		// стена
-		out["stena_count"] = stena.CountBy("wall", store.I(u.ID))
-		out["items"] = a.ProfileItems(viewer, &u)
-		out["friends_count"] = a.T.Friends.CountBy("user", store.I(u.ID))
+		stenaCnt := stena.CountBy("wall", store.I(u.ID))
+		items := a.ProfileItems(viewer, &u)
+		friendsCnt := a.T.Friends.CountBy("user", store.I(u.ID))
+		out["stena_count"] = stenaCnt
+		out["items"] = items
+		out["friends_count"] = friendsCnt
+		out["achievements"] = computeAchievements(&u, items, friendsCnt, stenaCnt)
 		// закладка
 		if viewer != nil && viewer.ID != u.ID {
 			_, fav := a.T.Bookmarks.OneBy("uobj", store.Key(viewer.ID, "people", u.ID))
@@ -349,4 +353,53 @@ func voteStats(uid int64) map[string]int {
 		}
 	}
 	return m
+}
+
+type achievement struct {
+	Key   string `json:"key"`
+	Emoji string `json:"emoji"`
+	Title string `json:"title"`
+	Desc  string `json:"desc"`
+}
+
+func computeAchievements(u *model.User, items []core.ProfileItem, friendsCnt, stenaCnt int) []achievement {
+	var out []achievement
+	add := func(key, emoji, title, desc string) {
+		out = append(out, achievement{Key: key, Emoji: emoji, Title: title, Desc: desc})
+	}
+	if u.Verified {
+		add("verified", "✅", "Верифицирован", "Подтверждённый аккаунт")
+	}
+	if u.Level >= 2 {
+		add("staff", "🛡️", "Страж порядка", "Представитель администрации или модерации сайта")
+	}
+	if u.TOTPEnabled {
+		add("2fa", "🔐", "Под защитой", "Включена двухфакторная аутентификация (2FA)")
+	}
+	if u.ID <= 100 || (u.DateReg > 0 && core.Now()-u.DateReg >= 30*86400) {
+		add("veteran", "🚀", "Первопроходец", "В числе первых участников или на сайте больше месяца")
+	}
+	if u.AvatarID > 0 {
+		add("avatar", "📸", "Фотогеничный", "Установлен собственный аватар")
+	}
+	if friendsCnt >= 20 {
+		add("popular", "🌟", "Популярный", "Более 20 друзей на сайте")
+	} else if friendsCnt >= 5 {
+		add("friendly", "🤝", "Душа компании", "5 и более друзей на сайте")
+	}
+	if u.Rating >= 20 {
+		add("rating", "🏆", "Звезда рейтинга", "Высокий рейтинг профиля")
+	}
+	if stenaCnt >= 10 || u.Balls >= 100 {
+		add("active", "💬", "Общительный", "Активное участие в жизни сайта")
+	}
+	for _, it := range items {
+		if it.Key == "shorts" && it.Count > 0 {
+			add("director", "🎬", "Кинорежиссёр", "Опубликован хотя бы один клип")
+		}
+		if it.Key == "groups" && it.Count > 0 {
+			add("community", "👥", "Активист сообществ", "Участник сообществ сайта")
+		}
+	}
+	return out
 }

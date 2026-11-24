@@ -63,6 +63,12 @@ router.add('/id:id', async ctx => {
     ];
     out.push(h('div.stat-row', stats.map(([ic, k, v]) => h('div.stat', icon(ic, 18), h('div.v', v), h('div.k', k)))));
 
+    // достижения (ачивки)
+    if (d.achievements && d.achievements.length) {
+      out.push(ui.section('Достижения', h('div.pad.ach-list', d.achievements.map(a =>
+        h('span.ach-pill', { title: a.desc }, h('span.ach-em', a.emoji), h('span', a.title))))));
+    }
+
     // анкета
     const i = d.info;
     const bday = i.day && i.month ? `${i.day} ${MONTHS[i.month - 1]}${i.year ? ' ' + i.year : ''}` : i.year ? String(i.year) : '';

@@ -83,7 +83,9 @@ type User struct {
 	MeteoCountry  int64  `json:"meteo_country"`
 	AvatarID      int64  `json:"avatar_id"` // id фото-аватара в галерее (0 — нет)
 	AvatarExt     string `json:"avatar_ext"`
-	Verified      bool   `json:"verified"` // синяя галочка верификации
+	Verified      bool   `json:"verified"`     // синяя галочка верификации
+	TOTPSecret    string `json:"totp_secret"`  // секрет 2FA (Base32)
+	TOTPEnabled   bool   `json:"totp_enabled"` // включена ли 2FA
 }
 
 // Session — сессия входа.

@@ -7,10 +7,29 @@ async function afterLogin() { await refreshMe(); events.restart(); router.go(ret
 router.add('/login', async ctx => {
   ctx.title('Вход');
   if (state.user) return router.go('/', true);
+  let need2fa = false;
+  const codeWrap = h('div.field', { style: { display: 'none' } },
+    h('label', 'Код двухфакторной аутентификации (6 цифр)'),
+    h('input.input', { name: 'code', inputMode: 'numeric', autoComplete: 'one-time-code', maxLength: 6, placeholder: '123456' }));
   const form = ui.form([
     { name: 'nick', label: 'Логин', required: true, autocomplete: 'username' },
     { name: 'pass', label: 'Пароль', type: 'password', required: true, autocomplete: 'current-password' },
-  ], { submit: 'Войти', onSubmit: async v => { await api.post('/api/login', v, { silent: true }); await afterLogin(); } });
+  ], {
+    submit: 'Войти',
+    onSubmit: async v => {
+      const codeIn = codeWrap.querySelector('input');
+      const r = await api.post('/api/login', { ...v, code: need2fa ? codeIn.value.trim() : '' }, { silent: true });
+      if (r && r.need_2fa) {
+        need2fa = true;
+        codeWrap.style.display = '';
+        codeIn.focus();
+        ui.toast('Введите 6-значный код из приложения-аутентификатора', 'info');
+        return;
+      }
+      await afterLogin();
+    },
+  });
+  form.querySelector('button[type=submit]').before(codeWrap);
   return authBox('Вход', 'Рады видеть вас снова', form,
     h('div.row.small', link('/pass', 'Забыли пароль?'), h('span.grow'), h('span.muted', 'Нет аккаунта? '), link('/reg', 'Регистрация')));
 });
@@ -145,11 +164,44 @@ router.add('/user/settings/privacy', async ctx => {
 
 router.add('/user/settings/password', async ctx => {
   ctx.title('Безопасность');
-  const sess = await api.get('/api/settings/sessions');
+  const [sess, tfa] = await Promise.all([api.get('/api/settings/sessions'), api.get('/api/settings/2fa')]);
   const form = ui.form([
     { name: 'pass', label: 'Старый пароль', type: 'password', required: true }, { name: 'pass1', label: 'Новый пароль', type: 'password', required: true }, { name: 'pass2', label: 'Подтверждение', type: 'password', required: true },
   ], { submit: 'Сменить пароль', onSubmit: async (v, f) => { await api.post('/api/settings/password', v); ui.ok('Пароль успешно изменен'); f.reset(); } });
-  return [ui.pageHead('Настройки'), setTabs('password'), ui.card(h('div.pad', form)),
+
+  let tfaBox;
+  if (tfa.enabled) {
+    const passIn = h('input.input', { type: 'password', placeholder: 'Текущий пароль для отключения 2FA' });
+    tfaBox = h('div.pad.stack',
+      h('div.row', h('span.badge.ok', icon('check', 13), ' 2FA включена'), h('span.small.muted', 'При входе запрашивается 6-значный код из приложения-аутентификатора.')),
+      h('div.row.nowrap', passIn, ui.btn('Отключить 2FA', {
+        kind: 'danger', small: true,
+        onclick: async () => {
+          await api.post('/api/settings/2fa/disable', { pass: passIn.value });
+          ui.ok('Двухфакторная аутентификация отключена');
+          router.render();
+        },
+      })));
+  } else {
+    const codeIn = h('input.input', { inputMode: 'numeric', maxLength: 6, placeholder: '6-значный код из приложения' });
+    tfaBox = h('div.pad.stack',
+      h('div.small.muted', 'Добавьте ключ вручную в Google Authenticator, Яндекс Ключ, Authy или 1Password (тип: по времени / TOTP), затем введите 6-значный код:'),
+      h('div.row.nowrap',
+        h('input.input', { value: tfa.secret || '', readOnly: true, style: { fontFamily: 'ui-monospace,monospace', letterSpacing: '.08em' }, onclick: e => e.target.select() }),
+        ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => navigator.clipboard?.writeText(tfa.secret).then(() => ui.ok('Ключ скопирован')) })),
+      h('div.row.nowrap', codeIn, ui.btn('Включить 2FA', {
+        ic: 'shield', kind: 'primary', small: true,
+        onclick: async () => {
+          await api.post('/api/settings/2fa/enable', { code: codeIn.value.trim() });
+          ui.ok('Двухфакторная аутентификация включена');
+          router.render();
+        },
+      })));
+  }
+
+  return [ui.pageHead('Настройки'), setTabs('password'),
+    ui.section('Двухфакторная аутентификация (2FA)', tfaBox),
+    ui.card(h('div.pad', form)),
     ui.section('Активные сессии', h('div.list', sess.sessions.map(s => h('div.list-item', icon(s.current ? 'check' : 'monitor', 18), h('div.main', h('div.title', s.ip, s.current ? ui.badge(' эта', 'ok') : null), h('div.meta', s.ua)), ui.time(s.last)))),
       h('div.pad', h('button.btn.sm', { onclick: async () => { await api.post('/api/settings/sessions/close-others'); ui.ok('Другие сессии закрыты'); router.render(); } }, 'Закрыть все остальные сессии'))),
     ui.section('Последние входы', h('div.list', sess.log.slice().reverse().map(l => h('div.list-item', h('div.main', h('div.meta', l.ua || '—')), ui.time(l.time)))))];

@@ -1,0 +1,18 @@
+{
+  "name": "DCMS Social",
+  "short_name": "DCMS",
+  "description": "Социальная сеть DCMS Social",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0d1a",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='44' fill='%236366f1'/%3E%3Cpath d='M60 64h48a32 32 0 0 1 0 64H60z' fill='none' stroke='white' stroke-width='18' stroke-linejoin='round'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

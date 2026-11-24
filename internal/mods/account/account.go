@@ -73,6 +73,7 @@ func Register(a *core.App) {
 		var in struct {
 			Nick string `json:"nick"`
 			Pass string `json:"pass"`
+			Code string `json:"code"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -87,6 +88,15 @@ func Register(a *core.App) {
 		}
 		if u.Activation != "" {
 			return core.ErrBad("Аккаунт не активирован. Проверьте почту и перейдите по ссылке из письма")
+		}
+		if u.TOTPEnabled {
+			if strings.TrimSpace(in.Code) == "" {
+				return c.JSON(map[string]any{"need_2fa": true})
+			}
+			if !verifyTOTP(u.TOTPSecret, in.Code) {
+				time.Sleep(300 * time.Millisecond)
+				return core.ErrBad("Неверный код двухфакторной аутентификации")
+			}
 		}
 		a.Login(c, u.ID)
 		collisions(a, c, u)
