@@ -42,6 +42,7 @@ router.add('/id:id', async ctx => {
              me() ? friendButton(u, d.friend, render) : null,
              me() ? ui.btn('', { ic: d.favorite ? 'heart' : 'bookmark', title: d.favorite ? 'Убрать из закладок' : 'В закладки', onclick: async () => { await api.post(`/api/user/${u.id}/favorite`, { on: !d.favorite }); render(); } }) : null,
              me() ? ui.btn('', { ic: 'gift', title: 'Подарить подарок', href: '/user/gift/' + u.id }) : null,
+             can('adm_set_user') ? ui.btn('', { ic: 'check', kind: u.verified ? 'primary' : '', title: u.verified ? 'Снять верификацию' : 'Выдать синюю галочку', onclick: async () => { const r = await api.post(`/api/admin/user/${u.id}/verify`); ui.ok(r.verified ? 'Галочка выдана' : 'Галочка снята'); render(); } }) : null,
              can('user_prof_edit') ? ui.btn('', { ic: 'settings', title: 'Редактировать (админ)', href: '/admin/user/' + u.id }) : null,
              can('user_ban_set') || can('user_ban_set_h') ? ui.btn('', { ic: 'gavel', title: 'Забанить', href: '/admin/ban/' + u.id }) : null])));
     const out = [head];

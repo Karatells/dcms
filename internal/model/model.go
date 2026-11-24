@@ -83,6 +83,7 @@ type User struct {
 	MeteoCountry  int64  `json:"meteo_country"`
 	AvatarID      int64  `json:"avatar_id"` // id фото-аватара в галерее (0 — нет)
 	AvatarExt     string `json:"avatar_ext"`
+	Verified      bool   `json:"verified"` // синяя галочка верификации
 }
 
 // Session — сессия входа.
@@ -114,8 +115,9 @@ type UserRef struct {
 	Group   string `json:"group"`
 	Level   int64  `json:"level"`
 	Medal   int    `json:"medal"` // 0..7 по рейтингу
-	Banned  bool   `json:"banned,omitempty"`
-	Deleted bool   `json:"deleted,omitempty"`
+	Banned   bool   `json:"banned,omitempty"`
+	Deleted  bool   `json:"deleted,omitempty"`
+	Verified bool   `json:"verified,omitempty"`
 }
 
 // UserGroup — таблица `user_group` старого движка.

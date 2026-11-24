@@ -155,6 +155,19 @@ textarea.input { resize: vertical; min-height: 80px; } input[type=file].input { 
 .avatar.online::after { content: ""; position: absolute; right: 0; bottom: 0; width: 28%; height: 28%; min-width: 9px; min-height: 9px; border-radius: 50%; background: var(--ok); border: 2px solid var(--bg-card); }
 .user-link { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; color: var(--text); } .user-link:hover { color: var(--accent); text-decoration: none; }
 .ub { display: inline-grid; place-items: center; font-size: 11px; } .ub.on { color: var(--ok); } .ub.ban { color: var(--danger); } .ub.adm { color: #d97706; } .ub.mod { color: #0ea5e9; }
+.ub.ver { width: 16px; height: 16px; border-radius: 50%; background: #2563eb; color: #fff; font-size: 10px; vertical-align: middle; margin-left: 2px; box-shadow: 0 1px 3px rgba(37,99,235,.4); }
+.poll-opt { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-sunken); color: var(--text); font: inherit; text-align: left; cursor: pointer; overflow: hidden; transition: border-color .15s; }
+.poll-opt:hover { border-color: var(--accent); }
+.poll-opt.voted { border-color: var(--accent); font-weight: 600; }
+.poll-bar { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-soft); transition: width .35s cubic-bezier(.22,1,.36,1); pointer-events: none; }
+.poll-opt > span { position: relative; z-index: 1; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.stat-card { background: var(--bg-card); border: 1px solid var(--border-s); border-radius: 12px; padding: 12px 14px; }
+.stat-val { font-size: 1.45rem; font-weight: 800; line-height: 1.15; }
+.stat-lbl { font-size: .78rem; color: var(--muted); margin-top: 3px; }
+.stat-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; height: 150px; padding-top: 12px; }
+.stat-col { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+.stat-col-bar { width: 100%; max-width: 36px; border-radius: 6px 6px 2px 2px; background: var(--accent); min-height: 4px; transition: height .3s ease; }
 .ub.medal { color: #f59e0b; } .ub.medal.m4, .ub.medal.m5 { color: #f97316; } .ub.medal.m6, .ub.medal.m7 { color: #e11d48; }
 .post { display: flex; gap: 12px; padding: 14px 16px; border-top: 1px solid var(--border-s); } .post:first-child { border-top: 0; } .post-main { flex: 1; min-width: 0; }
 .post-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; } .post-time { font-size: .82rem; }

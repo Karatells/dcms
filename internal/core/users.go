@@ -55,6 +55,9 @@ func (a *App) dropRef(id int64) {
 	a.mu.Unlock()
 }
 
+// DropUserCache сбрасывает кеш карточки пользователя (UserRef).
+func (a *App) DropUserCache(id int64) { a.dropRef(id) }
+
 // Ref возвращает краткую карточку пользователя (кешируется на 30 с). id=0 — «Система», несуществующий — «[Удален]».
 func (a *App) Ref(id int64) model.UserRef {
 	if id == 0 {
@@ -88,7 +91,7 @@ func (a *App) isOnline(id int64) bool {
 func (a *App) refOf(u *model.User) model.UserRef {
 	g, _ := a.T.Groups.Get(u.GroupAccess)
 	return model.UserRef{ID: u.ID, Nick: u.Nick, Pol: u.Pol, Online: u.DateLast > Now()-600, Mobile: u.Browser == "wap",
-		Avatar: AvatarURL(u, 50), Group: g.Name, Level: g.Level, Medal: Medal(u.Rating), Banned: a.IsBanned(u.ID)}
+		Avatar: AvatarURL(u, 50), Group: g.Name, Level: g.Level, Medal: Medal(u.Rating), Banned: a.IsBanned(u.ID), Verified: u.Verified}
 }
 
 // Refs — карточки списка id (порядок сохраняется).

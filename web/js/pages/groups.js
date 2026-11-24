@@ -149,6 +149,7 @@ router.add('/groups', async ctx => {
     h('div.grp-ava-sm', g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
     h('div.main',
       h('div.title', g.name,
+        g.verified ? h('span.ub.ver', { title: 'Подтверждённое сообщество', style: { marginLeft: '6px' } }, icon('check', 10)) : null,
         g.private ? h('span.badge.warn', { style: { marginLeft: '6px' } }, icon('lock', 11), ' Приватное') : null,
         h('span.badge', { style: { marginLeft: '6px' } }, g.category)),
       g.opis ? h('div.small.muted.clip', g.opis) : null,
@@ -207,6 +208,7 @@ router.add('/groups/:id', async ctx => {
       h('div.grp-ava', g.avatar ? h('img', { src: g.avatar, alt: g.name }) : initialOf(g.name)),
       h('div.grp-info',
         h('h1', g.name,
+          g.verified ? h('span.ub.ver', { title: 'Подтверждённое сообщество', style: { marginLeft: '6px' } }, icon('check', 10)) : null,
           g.private ? h('span.badge.warn', { style: { marginLeft: '8px', verticalAlign: 'middle' } }, icon('lock', 12), ' Приватное') : null,
           g.hidden ? h('span.badge.warn', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Скрыто') : null,
           g.blocked ? h('span.badge.danger', { style: { marginLeft: '6px', verticalAlign: 'middle' } }, 'Заблокировано') : null),
@@ -218,6 +220,14 @@ router.add('/groups/:id', async ctx => {
     h('span.small.muted', icon('shield', 14), ' Модерация:'),
     g.blocked && g.block_reason ? h('span.small.err', 'Причина: ', g.block_reason) : null,
     h('span.grow'),
+    ui.btn(g.verified ? 'Снять галочку' : 'Верифицировать', {
+      ic: 'check', small: true, kind: g.verified ? '' : 'primary',
+      onclick: async () => {
+        await api.post(`/api/groups/${id}/moderate`, { verified: !g.verified });
+        ui.ok(g.verified ? 'Галочка снята' : 'Сообщество верифицировано');
+        reload();
+      },
+    }),
     ui.btn(g.hidden ? 'Показать в каталоге' : 'Скрыть из каталога', {
       small: true,
       onclick: async () => {
@@ -262,12 +272,14 @@ router.add('/groups/:id', async ctx => {
   if (g.enable_forum) tiles.push({ title: 'Форум', icon: 'forum', href: `/groups/${id}/forum`, count: g.counts.forum });
   if (g.enable_chat) tiles.push({ title: 'Чат', icon: 'message-circle', href: `/groups/${id}/chat`, count: g.counts.chat });
   if (g.enable_files) tiles.push({ title: 'Файлы', icon: 'folder', href: `/groups/${id}/files`, count: g.counts.files });
+  tiles.push({ title: 'Опросы', icon: 'check', href: `/groups/${id}/polls`, count: null });
   if (p.mod_messages && (g.enable_messages || g.inbox_unread > 0)) {
     tiles.push({ title: 'Входящие (ЛС)', icon: 'mail', href: `/groups/${id}/inbox`, count: null, badge: g.inbox_unread > 0 ? `+${g.inbox_unread}` : null });
   } else if (me() && g.enable_messages && !g.blocked) {
     tiles.push({ title: 'Написать', icon: 'mail', href: `/mail/group/${id}`, count: null, badge: g.user_msg_unread > 0 ? `+${g.user_msg_unread}` : null });
   }
   tiles.push({ title: 'Участники', icon: 'users', href: `/groups/${id}/members`, count: g.members, badge: g.requests_count > 0 ? `+${g.requests_count}` : null });
+  if (p.manage) tiles.push({ title: 'Статистика', icon: 'chart', href: `/groups/${id}/stats`, count: null });
   if (p.manage) tiles.push({ title: 'Настройки', icon: 'settings', href: `/groups/${id}/settings`, count: null });
 
   const grid = h('div.grid-links', tiles.map(t =>
@@ -930,4 +942,95 @@ router.add('/groups/:id/inbox/:uid', async ctx => {
       if (ev === 'group_dm' && data && data.group_id === id && data.user_id === uid) cb(data);
     }),
   });
+}, { auth: true });
+
+// ───────── ОПРОСЫ СООБЩЕСТВА (/groups/:id/polls)
+router.add('/groups/:id/polls', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/polls`)]);
+  const reload = () => router.render();
+  ctx.title(`Опросы · ${g.name}`);
+  const out = [grpCrumbs(g, { title: 'Опросы' }), ui.pageHead(`Опросы · ${g.name}`)];
+
+  if (d.can_create) {
+    const qIn = h('input.input', { placeholder: 'Вопрос опроса', maxlength: 200 });
+    const optsIn = h('textarea.input', { rows: 4, placeholder: 'Варианты ответа (каждый с новой строки, от 2 до 10)' });
+    const cMulti = h('input', { type: 'checkbox' });
+    const cAnon = h('input', { type: 'checkbox', checked: true });
+    out.push(h('details.card.pad',
+      h('summary', icon('plus', 16), ' Создать опрос'),
+      h('div.stack', { style: { marginTop: '10px' } },
+        qIn, optsIn,
+        h('div.checks', h('label.check', cMulti, ' Несколько вариантов'), h('label.check', cAnon, ' Анонимное голосование')),
+        ui.btn('Опубликовать опрос', {
+          ic: 'check', kind: 'primary',
+          onclick: async () => {
+            const options = optsIn.value.split('\n').map(s => s.trim()).filter(Boolean);
+            await api.post(`/api/groups/${id}/polls`, { question: qIn.value, options, multi: cMulti.checked, anon: cAnon.checked });
+            ui.ok('Опрос создан'); reload();
+          },
+        }))));
+  }
+
+  if (!d.items.length) {
+    out.push(ui.card(ui.empty('Опросов пока нет', 'check')));
+  } else {
+    d.items.forEach(p => {
+      const card = h('div.card.pad.stack-s');
+      const drawPoll = poll => {
+        card.replaceChildren(
+          h('div.row',
+            h('h3.grow', poll.question),
+            poll.closed ? h('span.badge.warn', 'Закрыт') : null,
+            poll.multi ? h('span.badge', 'Мультивыбор') : null,
+            poll.can_mod ? ui.btn(poll.closed ? 'Открыть' : 'Закрыть', { small: true, onclick: async () => { drawPoll(await api.post(`/api/group-polls/${poll.id}/close`)); } }) : null,
+            poll.can_mod ? ui.btn('', { ic: 'trash', small: true, kind: 'danger', onclick: async () => { if (await ui.confirm('Удалить опрос?', { danger: true })) { await api.del('/api/group-polls/' + poll.id); reload(); } } }) : null),
+          h('div.stack-s', ...poll.options.map(o => h('button.poll-opt' + (o.voted ? '.voted' : ''), {
+            type: 'button',
+            disabled: !me() || poll.closed,
+            onclick: async () => { drawPoll(await api.post(`/api/group-polls/${poll.id}/vote`, { option_idx: o.idx })); },
+          },
+            h('div.poll-bar', { style: { width: o.pct + '%' } }),
+            h('span.grow', o.voted ? '✓ ' + o.text : o.text),
+            h('span.small.muted', `${o.votes} (${o.pct}%)`)))),
+          h('div.small.muted', `Проголосовало: ${fmt.num(poll.voters)} · `, ui.userLink(poll.author), ' · ', fmt.ago(poll.time)));
+      };
+      drawPoll(p);
+      out.push(card);
+    });
+  }
+  return out;
+});
+
+// ───────── СТАТИСТИКА СООБЩЕСТВА (/groups/:id/stats)
+router.add('/groups/:id/stats', async ctx => {
+  const id = +ctx.params.id;
+  const [g, d] = await Promise.all([api.get('/api/groups/' + id), api.get(`/api/groups/${id}/stats`)]);
+  ctx.title(`Статистика · ${g.name}`);
+  const s = d.summary || {};
+  const kpis = [
+    ['Участников', s.members], ['Записей блога', s.blog_posts], ['Тем форума', s.topics],
+    ['Ответов форума', s.forum_posts], ['Сообщений чата', s.chat_msgs], ['Файлов', s.files],
+    ['Скачиваний', s.file_loads], ['Личных сообщений', s.dm_msgs], ['Опросов', s.polls],
+  ];
+  const days = d.days || [];
+  const totals = days.map(x => (x.members || 0) + (x.chat || 0) + (x.forum || 0) + (x.blog || 0) + (x.dm || 0));
+  const maxV = Math.max(1, ...totals);
+
+  return [
+    grpCrumbs(g, { title: 'Статистика' }),
+    ui.pageHead(`Статистика · ${g.name}`),
+    h('div.stat-grid', ...kpis.map(([lbl, val]) => h('div.stat-card', h('div.stat-val', fmt.num(val || 0)), h('div.stat-lbl', lbl)))),
+    h('div.card.pad.stack-s',
+      h('h3', 'Активность за последние 7 дней'),
+      h('div.small.muted', 'Сумма новых участников, сообщений в чате, постов, ответов на форуме и ЛС по дням'),
+      h('div.stat-bars', ...days.map((day, idx) => {
+        const v = totals[idx];
+        const pct = Math.max(4, Math.round((v / maxV) * 100));
+        return h('div.stat-col', { title: `${day.date}: всего ${v} (участн. ${day.members}, чат ${day.chat}, форум ${day.forum}, блог ${day.blog}, ЛС ${day.dm})` },
+          h('span.small.muted', String(v)),
+          h('div.stat-col-bar', { style: { height: pct + '%' } }),
+          h('span.small.muted', day.date));
+      }))),
+  ];
 }, { auth: true });

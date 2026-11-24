@@ -34,6 +34,7 @@ type Group struct {
 	Hidden         bool   `json:"hidden"`
 	Blocked        bool   `json:"blocked"`
 	BlockReason    string `json:"block_reason"`
+	Verified       bool   `json:"verified"`     // синяя галочка верификации
 	BotCommands    string `json:"bot_commands"` // JSON []BotCommand
 }
 
@@ -264,6 +265,7 @@ func groupCard(a *core.App, g Group, viewer *model.User) map[string]any {
 		"hidden":          g.Hidden,
 		"blocked":         g.Blocked,
 		"block_reason":    g.BlockReason,
+		"verified":        g.Verified,
 		"can_view":        canViewGroup(viewer, g),
 		"pending_request": pendingReq,
 		"requests_count":  reqCnt,
@@ -589,9 +591,10 @@ func Register(a *core.App) {
 			return core.ErrNotFound("Сообщество не найдено")
 		}
 		var in struct {
-			Hidden  *bool  `json:"hidden"`
-			Blocked *bool  `json:"blocked"`
-			Reason  string `json:"reason"`
+			Hidden   *bool  `json:"hidden"`
+			Blocked  *bool  `json:"blocked"`
+			Verified *bool  `json:"verified"`
+			Reason   string `json:"reason"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
@@ -599,6 +602,9 @@ func Register(a *core.App) {
 		upd, _ := groupsT.Update(g.ID, func(x *Group) {
 			if in.Hidden != nil {
 				x.Hidden = *in.Hidden
+			}
+			if in.Verified != nil {
+				x.Verified = *in.Verified
 			}
 			if in.Blocked != nil {
 				x.Blocked = *in.Blocked
@@ -922,4 +928,5 @@ func Register(a *core.App) {
 	registerSections(a)
 	registerMessages(a)
 	registerBot(a)
+	registerPollsAndStats(a)
 }

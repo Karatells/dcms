@@ -348,6 +348,7 @@ export const ui = {
     if (o.avatar) el.append(ui.avatar(ref, o.avatar === true ? 24 : o.avatar));
     el.append(h('span.nick', ref.nick));
     if (o.badges !== false && ref.id) {
+      if (ref.verified) el.append(h('span.ub.ver', { title: 'Подтверждённый аккаунт' }, icon('check', 10)));
       if (ref.banned) el.append(h('span.ub.ban', { title: 'Забанен' }, icon('gavel', 13)));
       else if (ref.level >= 2) el.append(h('span.ub.adm', { title: ref.group }, icon('shield', 13)));
       else if (ref.level >= 1) el.append(h('span.ub.mod', { title: ref.group }, icon('shield', 13)));
