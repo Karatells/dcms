@@ -1,4 +1,4 @@
-import { h, api, ui, router, state, icon, link, fmt, events, can } from '../core.js';
+import { h, api, ui, router, state, icon, link, fmt, events, can, bus } from '../core.js';
 
 const me = () => state.user;
 const msgHtml = html => h('div.post-body', { html });
@@ -125,7 +125,146 @@ router.add('/guest/top', async ctx => {
   return [ui.breadcrumbs([{ href: '/guest', title: 'Гостевая' }, { title: 'Топ' }]), ui.pageHead('Самые активные'), ui.card(d.items.length ? h('div.list', d.items.map((x, k) => h('div.list-item', h('b', (ctx.page - 1) * d.per + k + 1 + '.'), ui.avatar(x.user, 36), h('div.main', ui.userLink(x.user)), h('span.badge', x.total)))) : ui.empty('Пусто', 'users')), ui.pager(d)];
 });
 router.add('/guest', wall('guest'));
-router.add('/admin/chat', wall('adm'), { auth: true, access: 'adm_panel_show' });
+
+// ───────── админ-чат (мессенджер-дизайн + всплывающее окно на любой странице)
+async function buildAdminChatView({ popup = false, onClose = null } = {}) {
+  const d = await api.get('/api/adm-chat');
+  let items = d.items || [];
+  let replyTo = 0;
+  const seenIds = new Set(items.map(x => x.id));
+  const scrollEl = h('div.msg-scroll');
+  const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Сообщение персоналу…', maxlength: 2048 });
+  const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', disabled: true }, icon('send', 18));
+
+  const sync = () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(110, Math.max(38, ta.scrollHeight)) + 'px';
+    sendBtn.disabled = !ta.value.trim();
+  };
+
+  const draw = () => {
+    if (!items.length) {
+      scrollEl.replaceChildren(ui.empty('Чат персонала пуст — напишите первым!', 'shield'));
+      return;
+    }
+    const myId = me() ? me().id : 0;
+    const canModDel = me() && (me().level >= 3 || can('guest_delete'));
+    scrollEl.replaceChildren(...items.map(m => {
+      const mine = myId === m.user.id;
+      const isNew = !seenIds.has(m.id);
+      if (isNew) seenIds.add(m.id);
+      const canDel = m.can_delete || mine || canModDel;
+      return h('div.bubble-row' + (mine ? '.mine' : '') + (isNew ? '.new-msg' : ''),
+        !mine ? ui.avatar(m.user, 28) : null,
+        h('div.bubble' + (mine ? '.mine' : ''),
+          !mine ? h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px', fontSize: '.78rem' } },
+            ui.userLink(m.user),
+            m.user.group ? h('span.badge', { style: { fontSize: '.66rem', padding: '1px 5px' } }, m.user.group) : null) : null,
+          ui.html(m.msg, 'text'),
+          h('div.bubble-meta',
+            h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
+            !mine ? h('button.link', {
+              title: 'Ответить',
+              onclick: () => { replyTo = m.user.id; ta.value = `[b]${m.user.nick}[/b], ` + ta.value; sync(); ta.focus(); },
+            }, icon('corner-up-left', 12)) : null,
+            canDel ? h('button.link', {
+              title: 'Удалить',
+              onclick: async () => {
+                await api.del('/api/adm-chat/' + m.id);
+                items = items.filter(x => x.id !== m.id);
+                draw();
+              },
+            }, icon('trash', 12)) : null)));
+    }));
+    requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
+  };
+
+  const send = async () => {
+    const msg = ta.value.trim();
+    if (!msg || sendBtn.disabled) return;
+    sendBtn.disabled = true;
+    const rTo = replyTo;
+    replyTo = 0;
+    try {
+      ta.value = ''; sync();
+      const r = await api.post('/api/adm-chat', { msg, reply_to: rTo });
+      if (r && r.id && !items.some(x => x.id === r.id)) {
+        items.push(r);
+        draw();
+      }
+    } finally { sync(); }
+  };
+
+  sendBtn.onclick = send;
+  ta.oninput = sync;
+  ta.onkeydown = e => {
+    if (e.key === 'Enter' && !e.shiftKey && window.innerWidth > 700) { e.preventDefault(); send(); }
+  };
+
+  const onMsg = data => {
+    if (!data || !data.id || items.some(x => x.id === data.id)) return;
+    items.push(data);
+    draw();
+  };
+  const onDel = data => {
+    if (!data || !data.id) return;
+    items = items.filter(x => x.id !== data.id);
+    draw();
+  };
+  const off1 = bus.on('sse:adm_chat', onMsg);
+  const off2 = bus.on('sse:adm_chat_del', onDel);
+
+  const head = h('div.msg-head',
+    !popup ? h('a.icon-btn', { href: '/admin', title: 'В админку' }, icon('arrow-left', 20)) : null,
+    h('div.adm-chat-ava', icon('shield', 18)),
+    h('div.msg-head-info',
+      h('b', 'Админ-чат'),
+      h('div.msg-status', `Персонал онлайн: ${fmt.num(d.staff_online || 1)}`)),
+    popup ? h('a.icon-btn', { href: '/admin/chat', title: 'Открыть на всю страницу', onclick: () => onClose && onClose() }, icon('monitor', 17)) : null,
+    popup ? h('button.icon-btn', { type: 'button', title: 'Закрыть', onclick: () => onClose && onClose() }, icon('x', 19)) : null);
+
+  const foot = h('div.msg-foot', h('div.msg-compose', h('div.msg-input-wrap', ta), sendBtn));
+  draw();
+
+  const el = h(popup ? 'div.adm-chat-shell' : 'div.msg-shell', head, scrollEl, foot);
+  return { el, destroy: () => { off1(); off2(); } };
+}
+
+router.add('/admin/chat', async ctx => {
+  ctx.title('Админ-чат');
+  document.body.classList.add('msg-page');
+  const view = await buildAdminChatView({ popup: false });
+  ctx.onLeave(() => {
+    document.body.classList.remove('msg-page');
+    view.destroy();
+  });
+  return view.el;
+}, { auth: true });
+
+let _admPop = null;
+export function isAdminChatPopupOpen() { return !!_admPop; }
+export async function toggleAdminChatPopup() {
+  if (_admPop) {
+    _admPop.destroy();
+    _admPop.el.remove();
+    _admPop = null;
+    return false;
+  }
+  const wrap = h('div.adm-chat-pop', h('div.pad.muted.small', 'Загрузка админ-чата…'));
+  document.body.append(wrap);
+  const close = () => {
+    if (_admPop) { _admPop.destroy(); _admPop.el.remove(); _admPop = null; }
+  };
+  try {
+    const view = await buildAdminChatView({ popup: true, onClose: close });
+    wrap.replaceChildren(view.el);
+    _admPop = { el: wrap, destroy: view.destroy };
+    return true;
+  } catch (e) {
+    wrap.remove();
+    throw e;
+  }
+}
 
 // ───────── новости
 function newsForm(n, onSubmit, submit) {

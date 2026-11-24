@@ -65,6 +65,16 @@ const sideEl = h('aside.side');
 const scrimEl = h('div.nav-scrim', { onclick: closeNav });
 const view = h('main#view');
 const topCounters = {};
+let _admUnread = 0;
+bus.on('sse:adm_chat', async d => {
+  if (!state.user || (d && d.user && d.user.id === state.user.id)) return;
+  if (location.pathname === '/admin/chat') return;
+  const mod = await import('./pages/chatnews.js').catch(() => null);
+  if (mod && mod.isAdminChatPopupOpen && mod.isAdminChatPopupOpen()) return;
+  _admUnread++;
+  const dot = $('#admChatDot');
+  if (dot) { dot.textContent = String(_admUnread); dot.style.display = ''; }
+});
 
 function closeNav() { document.body.classList.remove('nav-open'); }
 function toggleNav() { document.body.classList.toggle('nav-open'); }
@@ -112,7 +122,20 @@ function drawTop() {
     { label: 'Выйти', icon: 'log-out', danger: true, onclick: logout },
   ]);
   const createBtn = h('a.icon-btn', { href: '/create', title: 'Создать публикацию', 'aria-label': 'Создать' }, icon('plus', 20));
-  top.append(searchBtn, createBtn, themeBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), topButton('/mail', 'mail', 'mail', 'Почта'), topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
+  const isStaff = u.level >= 1 || can('adm_panel_show');
+  let staffBtn = null;
+  if (isStaff) {
+    const dot = h('span.dot#admChatDot', { style: { display: _admUnread > 0 ? '' : 'none' } }, _admUnread > 0 ? String(_admUnread) : '');
+    staffBtn = h('button.icon-btn', {
+      type: 'button', title: 'Админ-чат (всплывающее окно)', 'aria-label': 'Админ-чат',
+      onclick: async () => {
+        _admUnread = 0; dot.style.display = 'none';
+        const { toggleAdminChatPopup } = await import('./pages/chatnews.js');
+        await toggleAdminChatPopup();
+      },
+    }, icon('shield', 20), dot);
+  }
+  top.append(searchBtn, createBtn, themeBtn, staffBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), topButton('/mail', 'mail', 'mail', 'Почта'), topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
 }
 async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('Выйти из аккаунта?'))) return; await api.post('/api/logout'); await refreshMe(); events.restart(); router.go('/'); }
 

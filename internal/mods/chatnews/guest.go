@@ -225,16 +225,29 @@ func registerAdminChat(a *core.App) {
 	admPosts = store.NewTable[AdmPost](a.DB, "adm_chat")
 	a.OnUserDelete(func(uid int64) { admPosts.DeleteWhere(func(p *AdmPost) bool { return p.IDUser == uid }) })
 
+	isStaff := func(u *model.User) bool {
+		return u != nil && (u.Level >= 1 || a.Can(u.ID, "adm_panel_show"))
+	}
 	need := func(c *core.Ctx) (*model.User, error) {
 		me, err := c.Need()
 		if err != nil {
 			return nil, err
 		}
-		if err := c.NeedAccess("adm_panel_show"); err != nil {
-			return nil, err
+		if !isStaff(me) {
+			return nil, core.ErrForbidden("Доступно только администрации и модераторам")
 		}
 		return me, nil
 	}
+	notifyStaff := func(event string, data any) {
+		a.Hub.Publish("adm_chat", event, data)
+		now := core.Now()
+		for _, u := range a.T.Users.All() {
+			if u.DateLast > now-900 && isStaff(&u) {
+				a.Hub.ToUser(u.ID, event, data)
+			}
+		}
+	}
+
 	a.GET("/api/adm-chat", func(c *core.Ctx) error {
 		me, err := need(c)
 		if err != nil {
@@ -242,18 +255,38 @@ func registerAdminChat(a *core.App) {
 		}
 		a.T.Notifications.UpdateWhere(func(n *model.Notification) bool { return n.IDUser == me.ID && n.Type == "adm_komm" && n.Read == 0 },
 			func(n *model.Notification) { n.Read = 1 })
-		p := c.Page()
-		list, total := admPosts.Select(store.Opts[AdmPost]{Desc: true, Offset: p.Offset, Limit: p.Per})
+		limit := int(c.QInt("limit"))
+		if limit < 1 || limit > 150 {
+			limit = 80
+		}
+		list, total := admPosts.Select(store.Opts[AdmPost]{Desc: true, Offset: 0, Limit: limit})
+		// Хронологический порядок: старые сверху, новые снизу (как в личной переписке)
+		for l, r := 0, len(list)-1; l < r; l, r = l+1, r-1 {
+			list[l], list[r] = list[r], list[l]
+		}
+		canModDel := me.Level >= 3 || c.Can("guest_delete")
 		items := make([]map[string]any, 0, len(list))
 		for _, x := range list {
 			m := postView(a, x.ID, x.Msg, x.Time, x.IDUser)
 			m["can_reply"] = x.IDUser != me.ID
-			m["can_delete"] = c.Can("guest_delete")
+			m["can_delete"] = x.IDUser == me.ID || canModDel
 			items = append(items, m)
 		}
-		online := onlineByURL(a, "/admin/chat")
-		return c.JSON(map[string]any{"items": items, "total": total, "page": p.Page, "per": p.Per, "pages": max(1, (total+p.Per-1)/p.Per), "reading": len(online)})
+		now := core.Now()
+		staffOnline := 0
+		for _, u := range a.T.Users.All() {
+			if u.DateLast > now-600 && isStaff(&u) {
+				staffOnline++
+			}
+		}
+		return c.JSON(map[string]any{
+			"items":        items,
+			"total":        total,
+			"can_write":    true,
+			"staff_online": staffOnline,
+		})
 	}, core.Auth)
+
 	a.POST("/api/adm-chat", func(c *core.Ctx) error {
 		me, err := need(c)
 		if err != nil {
@@ -267,35 +300,36 @@ func registerAdminChat(a *core.App) {
 			return err
 		}
 		msg := strings.TrimSpace(in.Msg)
-		if err := noMat(a, msg, "тексте сообщения"); err != nil {
+		if err := lenOK(msg, 1, 2048, "Сообщение"); err != nil {
 			return err
 		}
-		if err := lenOK(msg, 2, 1024, "Сообщение"); err != nil {
-			return err
-		}
-		if admPosts.Count(func(p *AdmPost) bool { return p.IDUser == me.ID && p.Msg == msg }) > 0 {
-			return core.ErrBad("Ваше сообщение повторяет предыдущее")
-		}
-		id := admPosts.Insert(&AdmPost{IDUser: me.ID, Time: core.Now(), Msg: msg})
-		a.AddBalls(me.ID, 1, 0)
-		if in.ReplyTo != 0 {
+		now := core.Now()
+		id := admPosts.Insert(&AdmPost{IDUser: me.ID, Time: now, Msg: msg})
+		if in.ReplyTo != 0 && in.ReplyTo != me.ID {
 			a.Notify(me.ID, in.ReplyTo, "adm_komm", 0, true)
 		}
-		return c.OK("id", id)
+		dto := postView(a, id, msg, now, me.ID)
+		dto["can_reply"] = true
+		dto["can_delete"] = false
+		notifyStaff("adm_chat", dto)
+		dto["can_delete"] = true
+		return c.JSON(dto)
 	}, core.Auth)
+
 	a.DELETE("/api/adm-chat/{id}", func(c *core.Ctx) error {
-		if _, err := need(c); err != nil {
-			return err
-		}
-		if err := c.NeedAccess("guest_delete"); err != nil {
+		me, err := need(c)
+		if err != nil {
 			return err
 		}
 		p, ok := admPosts.Get(c.PathInt("id"))
 		if !ok {
 			return core.ErrNotFound()
 		}
+		if p.IDUser != me.ID && me.Level < 3 && !c.Can("guest_delete") {
+			return core.ErrForbidden("Нет прав на удаление этого сообщения")
+		}
 		admPosts.Delete(p.ID)
-		a.AdminLog(c.UID(), "Гостевая", "Удаление сообщения", "Удаление сообщения от "+a.Ref(p.IDUser).Nick)
+		notifyStaff("adm_chat_del", map[string]any{"id": p.ID})
 		return c.OK()
 	}, core.Auth)
 }
