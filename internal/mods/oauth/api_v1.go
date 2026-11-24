@@ -419,4 +419,6 @@ func registerV1(a *core.App) {
 			"time":     m.Time,
 		})
 	})
+
+	registerV1Groups(a, handle, pageParams)
 }
