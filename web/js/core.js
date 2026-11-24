@@ -220,6 +220,12 @@ const I = {
   'corner-up-left': 'M9 14 4 9l5-5M20 20v-7a4 4 0 0 0-4-4H4',
   maximize: 'M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3',
   dice: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 8h.01M16 8h.01M8 16h.01M16 16h.01M12 12h.01',
+  mic: 'M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8',
+  music: 'M9 18V5l12-2v13M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  award: 'M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8.21 13.89 7 23l5-3 5 3-1.21-9.12',
+  'skip-back': 'M19 20 9 12l10-8v16zM5 19V5',
+  'skip-forward': 'M5 4l10 8-10 8V4zM19 5v14',
+  'shopping-bag': 'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0',
 };
 export function icon(name, size = 18, cls = '') {
   const svg = h('svg', { class: 'icon ' + cls, width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
@@ -650,7 +656,7 @@ function reconnect() {
     if (es) es.close();
     const t = [...topics.keys()].join(',');
     es = new EventSource('/api/events' + (t ? '?topics=' + encodeURIComponent(t) : ''));
-    ['notify', 'counters', 'chat', 'message', 'event', 'group_dm', 'group_chat', 'shorts_ready', 'shorts_progress', 'typing', 'mail_read', 'mail_react', 'adm_chat', 'adm_chat_del'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
+    ['notify', 'counters', 'chat', 'message', 'event', 'group_dm', 'group_chat', 'shorts_ready', 'shorts_progress', 'typing', 'mail_read', 'mail_react', 'mail_edit', 'adm_chat', 'adm_chat_del', 'gchat_msg', 'duel_update'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
     es.onerror = () => { es.close(); es = null; setTimeout(reconnect, 5000); };
   }, 50);
 }

@@ -435,9 +435,93 @@ function renderBubbleAttach(att) {
     h('div.main', h('div.title', att.title || 'Файл'), att.text ? h('div.small.muted.clip', att.text) : null));
 }
 
+// ───────── плеер голосового сообщения (1x / 1.5x / 2x)
+function renderVoicePlayer(v) {
+  if (!v || !v.url) return null;
+  const audio = new Audio(v.url);
+  audio.preload = 'metadata';
+  let rateIdx = 0;
+  const rates = [1, 1.5, 2];
+  const fmtT = s => { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  const fill = h('div.voice-fill');
+  const bar = h('div.voice-bar', fill);
+  const timeEl = h('span', fmtT(v.dur));
+  const playBtn = h('button.voice-play', { type: 'button', title: 'Воспроизвести' }, icon('play', 16));
+  const spdBtn = h('button.voice-spd', {
+    type: 'button', title: 'Скорость воспроизведения',
+    onclick: e => {
+      e.stopPropagation();
+      rateIdx = (rateIdx + 1) % rates.length;
+      audio.playbackRate = rates[rateIdx];
+      spdBtn.textContent = rates[rateIdx] + 'x';
+    },
+  }, '1x');
+
+  playBtn.onclick = e => {
+    e.stopPropagation();
+    if (audio.paused) {
+      audio.play().catch(() => {});
+      playBtn.replaceChildren(icon('pause2', 15));
+    } else {
+      audio.pause();
+      playBtn.replaceChildren(icon('play', 16));
+    }
+  };
+  audio.ontimeupdate = () => {
+    const dur = (audio.duration && isFinite(audio.duration)) ? audio.duration : (v.dur || 1);
+    fill.style.width = Math.min(100, (audio.currentTime / dur) * 100) + '%';
+    timeEl.textContent = `${fmtT(audio.currentTime)} / ${fmtT(dur)}`;
+  };
+  audio.onended = () => {
+    playBtn.replaceChildren(icon('play', 16));
+    fill.style.width = '0%';
+    timeEl.textContent = fmtT(v.dur);
+  };
+  bar.onclick = e => {
+    e.stopPropagation();
+    const dur = (audio.duration && isFinite(audio.duration)) ? audio.duration : (v.dur || 1);
+    const rect = bar.getBoundingClientRect();
+    audio.currentTime = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * dur;
+  };
+  return h('div.voice-msg', { onclick: e => e.stopPropagation() },
+    playBtn,
+    h('div.voice-track', bar, h('div.voice-meta', timeEl, spdBtn)));
+}
+
+// ───────── пересылка сообщения в другой диалог
+async function openForwardModal(m, fromUser) {
+  const box = h('div.stack', ui.loading());
+  const modal = ui.modal({ title: 'Переслать сообщение', body: box, actions: [{ label: 'Закрыть' }] });
+  try {
+    const d = await api.get('/api/konts', { type: 'common', page: 1 });
+    const list = d.items || [];
+    if (!list.length) { box.replaceChildren(h('div.small.muted', 'Нет контактов для пересылки')); return; }
+    box.replaceChildren(h('div.list', ...list.map(k => {
+      const btn = ui.btn('Переслать', {
+        ic: 'send', small: true, kind: 'primary',
+        onclick: async () => {
+          btn.disabled = true;
+          try {
+            await api.post('/api/mail/' + k.user.id, {
+              msg: m.raw || '',
+              fwd_from: m.mine ? state.user.id : fromUser.id,
+              att_type: m.attach ? m.attach.type : '',
+              att_id: m.attach ? m.attach.id : 0,
+              sticker: m.sticker || '',
+            });
+            btn.textContent = 'Отправлено ✓';
+            ui.ok('Переслано пользователю ' + k.user.nick);
+          } catch { btn.disabled = false; }
+        },
+      });
+      return h('div.list-item', ui.avatar(k.user, 34), h('div.main', h('div.title', k.name || k.user.nick)), btn);
+    })));
+  } catch { box.replaceChildren(h('div.small.muted', 'Не удалось загрузить контакты')); }
+}
+
 // ───────── контекстное меню сообщения (с быстрой панелью реакций)
 const MSG_EMOJIS = ['👍', '❤️', '😂', '🔥', '😱', '👎'];
-function openMsgMenu(m, { onReact, onReply, onPin, onDelete, onSpam }) {
+function openMsgMenu(m, { onReact, onReply, onEdit, onForward, onPin, onDelete, onSpam }) {
   const close = () => back.remove();
   const item = (ic, label, fn, danger = false) => h('button.msg-ctx-item' + (danger ? '.danger' : ''), {
     type: 'button',
@@ -450,6 +534,8 @@ function openMsgMenu(m, { onReact, onReply, onPin, onDelete, onSpam }) {
   const menu = h('div.msg-ctx',
     reactBar,
     item('corner-up-left', 'Ответить', onReply),
+    onEdit && m.mine && m.raw && !m.voice && !m.sticker ? item('edit', 'Редактировать', onEdit) : null,
+    onForward && !m.voice ? item('share', 'Переслать', onForward) : null,
     item('pin', m.pinned ? 'Открепить' : 'Закрепить', onPin),
     m.raw ? item('copy', 'Копировать текст', () => navigator.clipboard?.writeText(m.raw).then(() => ui.ok('Скопировано'))) : null,
     !m.mine ? item('flag', 'Пожаловаться', onSpam) : null,
@@ -471,10 +557,13 @@ router.add('/mail/:id', async ctx => {
   const seenIds = new Set(items.map(x => x.id));
   let pinnedMsg = d.pinned || null;
   let replyTo = null; // { id, nick, text }
+  let editMsg = null; // { id, raw }
   let attach = null;  // { type, id, title, image }
+  let inputTa = null;
 
   const scrollEl = h('div.msg-scroll');
   const pinnedHost = h('div');
+  const searchHost = h('div');
   const chipHost = h('div');
   const reload = () => router.render();
 
@@ -502,6 +591,12 @@ router.add('/mail/:id', async ctx => {
   let syncTa = () => {};
   const renderChips = () => {
     const nodes = [];
+    if (editMsg) {
+      nodes.push(h('div.msg-bar-chip',
+        icon('edit', 16),
+        h('div.chip-main', h('div.chip-title', 'Редактирование сообщения'), h('div.chip-text', editMsg.raw)),
+        h('button.icon-btn', { type: 'button', onclick: () => { editMsg = null; if (inputTa) inputTa.value = ''; renderChips(); syncTa(); } }, icon('x', 16))));
+    }
     if (replyTo) {
       nodes.push(h('div.msg-bar-chip',
         icon('corner-up-left', 16),
@@ -548,11 +643,13 @@ router.add('/mail/:id', async ctx => {
           renderMessages(false);
         };
         const openMenu = e => {
-          if (e.target.closest('a, .bubble-reply, .bubble-react-pill')) return;
+          if (e.target.closest('a, .bubble-reply, .bubble-react-pill, .voice-msg')) return;
           e.preventDefault();
           openMsgMenu(m, {
             onReact: doReact,
-            onReply: () => { replyTo = { id: m.id, nick: m.mine ? state.user.nick : d.user.nick, text: (m.raw || '').slice(0, 80) || (m.attach ? m.attach.title : 'Сообщение') }; renderChips(); },
+            onReply: () => { editMsg = null; replyTo = { id: m.id, nick: m.mine ? state.user.nick : d.user.nick, text: (m.raw || '').slice(0, 80) || (m.voice ? '🎤 Голосовое' : m.sticker ? m.sticker + ' Стикер' : (m.attach ? m.attach.title : 'Сообщение')) }; renderChips(); inputTa && inputTa.focus(); },
+            onEdit: () => { replyTo = null; attach = null; editMsg = { id: m.id, raw: m.raw }; renderChips(); if (inputTa) { inputTa.value = m.raw; syncTa(); inputTa.focus(); } },
+            onForward: () => openForwardModal(m, d.user),
             onPin: async () => {
               const r = await api.post(`/api/mail/msg/${m.id}/pin`);
               items.forEach(x => { x.pinned = false; });
@@ -579,18 +676,47 @@ router.add('/mail/:id', async ctx => {
             onclick: e => { e.stopPropagation(); doReact(rx.emoji); },
           }, rx.emoji, rx.count > 1 ? h('span', String(rx.count)) : null)))
           : null;
-        const bubble = h('div.bubble' + (m.mine ? '.mine' : ''), {
+        const bubble = h('div.bubble' + (m.mine ? '.mine' : '') + (m.sticker ? '.is-sticker' : ''), {
           dataset: { mid: String(m.id) },
           onclick: openMenu,
           oncontextmenu: openMenu,
         },
+          m.fwd ? h('div.bubble-fwd', icon('share', 12), 'Переслано от ', m.fwd.nick) : null,
           m.reply ? h('div.bubble-reply', { onclick: e => { e.stopPropagation(); jumpToMsg(m.reply.id); } }, h('b', m.reply.nick), h('span', m.reply.text)) : null,
+          m.sticker ? h('div.bubble-sticker', m.sticker) : null,
+          m.voice ? renderVoicePlayer(m.voice) : null,
           renderBubbleAttach(m.attach),
           m.msg ? ui.html(m.msg, 'text') : null,
           h('div.bubble-meta',
             m.pinned ? icon('pin', 11) : null,
+            m.edited_at ? h('span', 'изм. ') : null,
             h('span', new Date(m.time * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })),
             m.mine ? icon(m.read ? 'check-all' : 'check', 14) : null));
+        // Свайп вправо для быстрого ответа
+        let swX = 0, swY = 0, swMoved = 0;
+        bubble.addEventListener('touchstart', e => {
+          if (e.touches.length !== 1) return;
+          swX = e.touches[0].clientX; swY = e.touches[0].clientY; swMoved = 0;
+        }, { passive: true });
+        bubble.addEventListener('touchmove', e => {
+          if (!swX) return;
+          const dx = e.touches[0].clientX - swX, dy = Math.abs(e.touches[0].clientY - swY);
+          if (dx > 12 && dx < 72 && dy < 24) {
+            swMoved = dx;
+            bubble.style.transform = `translateX(${dx}px)`;
+          }
+        }, { passive: true });
+        bubble.addEventListener('touchend', () => {
+          bubble.style.transform = '';
+          if (swMoved > 46) {
+            if (navigator.vibrate) try { navigator.vibrate(15); } catch {}
+            editMsg = null;
+            replyTo = { id: m.id, nick: m.mine ? state.user.nick : d.user.nick, text: (m.raw || '').slice(0, 80) || (m.voice ? '🎤 Голосовое' : m.sticker ? m.sticker + ' Стикер' : (m.attach ? m.attach.title : 'Сообщение')) };
+            renderChips();
+            inputTa && inputTa.focus();
+          }
+          swX = 0; swMoved = 0;
+        });
         const isNew = !seenIds.has(m.id);
         if (isNew) seenIds.add(m.id);
         nodes.push(h('div.bubble-row' + (m.mine ? '.mine' : '') + (isNew ? '.new-msg' : ''),
@@ -611,10 +737,38 @@ router.add('/mail/:id', async ctx => {
     statusEl.className = 'msg-status' + (d.user.online ? ' on' : '');
     statusEl.textContent = d.user.online ? 'в сети' : 'не в сети';
   };
+  let searchOpen = false;
+  const toggleSearch = () => {
+    searchOpen = !searchOpen;
+    if (!searchOpen) { searchHost.replaceChildren(); return; }
+    const sIn = h('input.input', { placeholder: 'Поиск по переписке…' });
+    const sRes = h('div.msg-search-res');
+    let st = null;
+    sIn.oninput = () => {
+      clearTimeout(st);
+      const q = sIn.value.trim();
+      if (!q) { sRes.replaceChildren(); return; }
+      st = setTimeout(async () => {
+        const r = await api.get(`/api/mail/${uid}/search`, { q }, { silent: true });
+        const hits = r.items || [];
+        if (!hits.length) { sRes.replaceChildren(h('div.pad.small.muted', 'Ничего не найдено')); return; }
+        sRes.replaceChildren(h('div.list', ...hits.map(hm => h('button.list-item', {
+          type: 'button', style: { width: '100%', background: 'none', border: 0, textAlign: 'left', cursor: 'pointer' },
+          onclick: () => { jumpToMsg(hm.id); toggleSearch(); },
+        }, h('div.main', h('div.small.muted', hm.mine ? 'Вы' : d.user.nick, ' · ', fmt.datetime(hm.time)), h('div.clip', hm.raw || 'Сообщение'))))));
+      }, 250);
+    };
+    searchHost.replaceChildren(
+      h('div.msg-search-bar', icon('search', 16), sIn, h('button.icon-btn', { type: 'button', onclick: toggleSearch }, icon('x', 18))),
+      sRes);
+    sIn.focus();
+  };
+
   const head = h('div.msg-head',
     h('a.icon-btn', { href: '/mail', title: 'Назад к почте', 'aria-label': 'Назад' }, icon('arrow-left', 20)),
     ui.avatar(d.user, 38),
     h('div.msg-head-info', ui.userLink(d.user, { badges: true }), statusEl),
+    h('button.icon-btn', { type: 'button', title: 'Поиск по переписке', onclick: toggleSearch }, icon('search', 19)),
     !d.contact ? ui.btn('', { ic: 'user-plus', small: true, title: 'В контакты', onclick: async () => { await api.post('/api/konts/' + d.user.id); ui.ok('Добавлено в контакты'); reload(); } }) : null,
     ui.dropdown(h('button.icon-btn', { title: 'Меню' }, icon('more', 20)), [
       { label: 'Профиль', icon: 'user', href: '/id' + d.user.id },
@@ -628,8 +782,11 @@ router.add('/mail/:id', async ctx => {
   const foot = h('div.msg-foot');
   if (d.can_write) {
     const ta = h('textarea.msg-input', { rows: 1, placeholder: 'Сообщение…', maxlength: 1024 });
+    inputTa = ta;
     const charEl = h('span.msg-char');
     const sendBtn = h('button.msg-send', { type: 'button', title: 'Отправить', 'aria-label': 'Отправить', disabled: true }, icon('send', 18));
+    const micBtn = h('button.msg-tool', { type: 'button', title: 'Записать голосовое сообщение', 'aria-label': 'Голосовое' }, icon('mic', 19));
+    const recHost = h('div');
     const drawerHost = h('div');
     let activeDrawer = '';
 
@@ -665,9 +822,41 @@ router.add('/mail/:id', async ctx => {
       const body = h('div');
       const tabsRow = h('div.msg-tools-tabs',
         h('button.msg-tools-tab', { type: 'button', onclick: () => { activeDrawer = ''; plusBtn.classList.remove('active'); drawerHost.replaceChildren(); openAttachPicker(a => { attach = a; renderChips(); syncTa(); }); } }, icon('paperclip', 15), 'Прикрепить'),
+        h('button.msg-tools-tab' + (subTab === 'stickers' ? '.active' : ''), { type: 'button', onclick: () => { subTab = 'stickers'; drawToolsDrawer(); } }, icon('star', 15), 'Стикеры'),
         h('button.msg-tools-tab' + (subTab === 'bb' ? '.active' : ''), { type: 'button', onclick: () => { subTab = 'bb'; drawToolsDrawer(); } }, h('b', 'Aa'), 'Формат'),
         h('button.msg-tools-tab' + (subTab === 'smiles' ? '.active' : ''), { type: 'button', onclick: () => { subTab = 'smiles'; drawToolsDrawer(); } }, icon('smile', 15), 'Смайлы'));
       drawerHost.replaceChildren(h('div.msg-drawer', tabsRow, body));
+
+      if (subTab === 'stickers') {
+        body.replaceChildren(h('div.pad.small.muted', 'Загрузка стикеров…'));
+        const stData = await api.get('/api/stickers', null, { silent: true });
+        const packs = stData.packs || [];
+        let curPack = packs[0]?.id || '';
+        const pTabs = h('div.sticker-tabs');
+        const pGrid = h('div.sticker-grid');
+        const drawPack = () => {
+          pTabs.replaceChildren(...packs.map(pk => h('button.btn.sm' + (pk.id === curPack ? '.primary' : ''), {
+            type: 'button', onclick: () => { curPack = pk.id; drawPack(); },
+          }, pk.vip ? '👑 ' + pk.title : pk.title)));
+          const pk = packs.find(x => x.id === curPack) || packs[0];
+          const locked = pk && pk.vip && !stData.is_vip;
+          pGrid.replaceChildren(...((pk && pk.stickers) || []).map(st => h('button.sticker-btn' + (locked ? '.locked' : ''), {
+            type: 'button',
+            title: locked ? 'Доступно только для VIP' : 'Отправить стикер',
+            onclick: async () => {
+              if (locked) { ui.toast('Этот набор стикеров доступен только для VIP-подписчиков', 'warn'); return; }
+              await api.post('/api/mail/' + d.user.id, { sticker: st, reply_id: replyTo ? replyTo.id : 0 });
+              replyTo = null; renderChips();
+              activeDrawer = ''; plusBtn.classList.remove('active'); drawerHost.replaceChildren();
+              const fresh = await api.get('/api/mail/' + uid, { page: 1 }, { silent: true });
+              curPage = 1; items = [...(fresh.items || [])].reverse(); renderMessages(true);
+            },
+          }, st)));
+        };
+        drawPack();
+        body.replaceChildren(pTabs, pGrid);
+        return;
+      }
 
       if (subTab === 'bb') {
         const bb = state.config.bb || {};
@@ -730,6 +919,17 @@ router.add('/mail/:id', async ctx => {
       if ((msg.length < 1 && !attach) || sendBtn.disabled) return;
       sendBtn.disabled = true;
       try {
+        if (editMsg) {
+          const upd = await api.put('/api/mail/msg/' + editMsg.id, { msg });
+          const idx = items.findIndex(x => x.id === editMsg.id);
+          if (idx >= 0) items[idx] = upd;
+          editMsg = null;
+          ta.value = '';
+          renderChips();
+          syncTa();
+          renderMessages(false);
+          return;
+        }
         await api.post('/api/mail/' + d.user.id, {
           msg,
           reply_id: replyTo ? replyTo.id : 0,
@@ -750,6 +950,55 @@ router.add('/mail/:id', async ctx => {
       } finally { syncTa(); }
     };
 
+    // Запись голосового сообщения
+    let recorder = null, recChunks = [], recTimer = null, recSec = 0, recStream = null;
+    const stopRec = sendVoice => {
+      clearInterval(recTimer);
+      recHost.replaceChildren();
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.onstop = async () => {
+          recStream && recStream.getTracks().forEach(t => t.stop());
+          if (!sendVoice || !recChunks.length) return;
+          const mime = recorder.mimeType || 'audio/webm';
+          const ext = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') ? 'm4a' : 'webm';
+          const blob = new Blob(recChunks, { type: mime });
+          const fd = new FormData();
+          fd.append('file', blob, 'voice.' + ext);
+          fd.append('dur', String(Math.max(1, recSec)));
+          try {
+            const res = await fetch(`/api/mail/${d.user.id}/voice`, { method: 'POST', body: fd, headers: { 'X-DCMS': '1' } });
+            if (!res.ok) throw new Error('Ошибка отправки');
+            const fresh = await api.get('/api/mail/' + uid, { page: 1 }, { silent: true });
+            curPage = 1; items = [...(fresh.items || [])].reverse(); renderMessages(true);
+          } catch { ui.toast('Не удалось отправить голосовое', 'err'); }
+        };
+        recorder.stop();
+      } else if (recStream) {
+        recStream.getTracks().forEach(t => t.stop());
+      }
+      recorder = null;
+    };
+    micBtn.onclick = async () => {
+      if (recorder) { stopRec(true); return; }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+        ui.toast('Запись голоса не поддерживается вашим браузером', 'warn');
+        return;
+      }
+      try {
+        recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        recChunks = []; recSec = 0;
+        recorder = new MediaRecorder(recStream);
+        recorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+        recorder.start();
+        const tEl = h('span', '0:00');
+        recTimer = setInterval(() => { recSec++; tEl.textContent = `${Math.floor(recSec / 60)}:${String(recSec % 60).padStart(2, '0')}`; }, 1000);
+        recHost.replaceChildren(h('div.msg-rec-bar',
+          h('span.msg-rec-dot'), h('span', 'Запись… '), tEl, h('span.grow'),
+          ui.btn('Отмена', { small: true, onclick: () => stopRec(false) }),
+          ui.btn('Отправить', { ic: 'send', small: true, kind: 'primary', onclick: () => stopRec(true) })));
+      } catch { ui.toast('Нет доступа к микрофону', 'err'); }
+    };
+
     let lastTypingSent = 0;
     sendBtn.onclick = doSend;
     ta.oninput = () => {
@@ -767,7 +1016,7 @@ router.add('/mail/:id', async ctx => {
       }
     };
 
-    foot.append(chipHost, drawerHost, h('div.msg-compose', plusBtn, h('div.msg-input-wrap', ta, charEl), sendBtn));
+    foot.append(chipHost, recHost, drawerHost, h('div.msg-compose', plusBtn, h('div.msg-input-wrap', ta, charEl), micBtn, sendBtn));
   } else {
     foot.append(h('div.pad.small.muted.center', 'Вы не можете писать этому пользователю.'));
   }
@@ -793,6 +1042,11 @@ router.add('/mail/:id', async ctx => {
     const m = items.find(x => x.id === ev.id);
     if (m) { m.reactions = ev.reactions || []; renderMessages(false); }
   });
+  const onEdit = bus.on('sse:mail_edit', ev => {
+    if (!ev) return;
+    const m = items.find(x => x.id === ev.id);
+    if (m) { m.msg = ev.msg; m.raw = ev.raw; m.edited_at = ev.edited_at; renderMessages(false); }
+  });
   const onMsg = bus.on('sse:message', async m => {
     if (m.from && m.from.id === d.user.id) {
       clearTimeout(typingTimer);
@@ -813,11 +1067,12 @@ router.add('/mail/:id', async ctx => {
     onTyping && onTyping();
     onRead && onRead();
     onReact && onReact();
+    onEdit && onEdit();
   });
 
   renderPinned();
   renderMessages(true);
-  return h('div.msg-shell', head, pinnedHost, scrollEl, foot);
+  return h('div.msg-shell', head, searchHost, pinnedHost, scrollEl, foot);
 }, { auth: true });
 
 // ───────── УНИВЕРСАЛЬНЫЙ ПОЛНОФУНКЦИОНАЛЬНЫЙ МЕССЕНДЖЕР ДЛЯ ПЕРЕПИСОК С СООБЩЕСТВАМИ

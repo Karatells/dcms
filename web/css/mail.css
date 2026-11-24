@@ -177,3 +177,26 @@ body.msg-page .footer { display: none; }
 .mail-chat-row.mail-sel-mode .mail-sel-chk{display:grid}
 .mail-chat-row.mail-row-sel{background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .mail-chat-row.mail-row-sel .mail-sel-chk{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* ── Пересылка, стикеры, голосовые и поиск по переписке ── */
+.bubble-fwd{font-size:.74rem;opacity:.82;display:flex;align-items:center;gap:4px;margin-bottom:4px;font-style:italic}
+.bubble-sticker{font-size:4.2rem;line-height:1.1;padding:4px 8px;user-select:none}
+.bubble.is-sticker{background:transparent!important;border:0!important;box-shadow:none!important;padding:2px!important}
+.voice-msg{display:flex;align-items:center;gap:8px;min-width:200px;max-width:280px;padding:4px 2px}
+.voice-play{width:34px;height:34px;border-radius:50%;border:0;background:var(--accent);color:#fff;display:grid;place-items:center;cursor:pointer;flex:none}
+.bubble.mine .voice-play{background:rgba(255,255,255,.24);color:#fff}
+.voice-track{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
+.voice-bar{height:5px;border-radius:99px;background:rgba(128,128,128,.3);overflow:hidden;cursor:pointer}
+.voice-fill{height:100%;width:0%;background:currentColor;border-radius:99px;transition:width .1s linear}
+.voice-meta{display:flex;justify-content:space-between;align-items:center;font-size:.72rem;opacity:.85}
+.voice-spd{border:1px solid currentColor;background:transparent;color:inherit;border-radius:6px;padding:1px 5px;font-size:.68rem;font-weight:700;cursor:pointer;opacity:.85}
+.msg-search-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border-s);background:var(--bg-sunken)}
+.msg-search-res{max-height:220px;overflow-y:auto;border-bottom:1px solid var(--border-s);background:var(--bg-card)}
+.msg-rec-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:color-mix(in srgb,var(--danger) 12%,var(--bg-card));border-top:1px solid var(--border-s);font-weight:600;color:var(--danger)}
+.msg-rec-dot{width:10px;height:10px;border-radius:50%;background:var(--danger);animation:recPulse 1s infinite}
+@keyframes recPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+.sticker-tabs{display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-s);overflow-x:auto}
+.sticker-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;padding:8px;max-height:190px;overflow-y:auto}
+.sticker-btn{font-size:2rem;line-height:1;padding:6px;border-radius:10px;border:0;background:transparent;cursor:pointer;transition:transform .12s,background .12s}
+.sticker-btn:hover{background:var(--bg-hover);transform:scale(1.15)}
+.sticker-btn.locked{opacity:.4;cursor:not-allowed}

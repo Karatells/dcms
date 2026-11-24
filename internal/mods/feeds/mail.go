@@ -1,6 +1,10 @@
 package feeds
 
 import (
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,16 +18,48 @@ import (
 // Mail — личное сообщение (таблица mail). Unlink — id пользователя, скрывшего переписку у себя.
 type Mail struct {
 	store.Base
-	IDUser  int64  `json:"id_user"`
-	IDKont  int64  `json:"id_kont"`
-	Time    int64  `json:"time"`
-	Msg     string `json:"msg"`
-	Read    bool   `json:"read"`
-	Unlink  int64  `json:"unlink"`
-	ReplyID int64  `json:"reply_id"`
-	AttType string `json:"att_type"` // foto | files | shorts
-	AttID   int64  `json:"att_id"`
-	Pinned  bool   `json:"pinned"`
+	IDUser   int64  `json:"id_user"`
+	IDKont   int64  `json:"id_kont"`
+	Time     int64  `json:"time"`
+	Msg      string `json:"msg"`
+	Read     bool   `json:"read"`
+	Unlink   int64  `json:"unlink"`
+	ReplyID  int64  `json:"reply_id"`
+	AttType  string `json:"att_type"` // foto | files | shorts
+	AttID    int64  `json:"att_id"`
+	Pinned   bool   `json:"pinned"`
+	EditedAt int64  `json:"edited_at,omitempty"`
+	FwdFrom  int64  `json:"fwd_from,omitempty"`
+	VoiceExt string `json:"voice_ext,omitempty"`
+	VoiceDur int    `json:"voice_dur,omitempty"`
+	Sticker  string `json:"sticker,omitempty"`
+}
+
+type stickerPack struct {
+	ID       string   `json:"id"`
+	Title    string   `json:"title"`
+	VIP      bool     `json:"vip"`
+	Stickers []string `json:"stickers"`
+}
+
+var builtInStickerPacks = []stickerPack{
+	{ID: "emotions", Title: "Эмоции", VIP: false, Stickers: []string{"😀", "😂", "🥰", "😎", "🤔", "😴", "🥳", "🤯", "😭", "😡", "🥺", "🤩"}},
+	{ID: "reactions", Title: "Реакции", VIP: false, Stickers: []string{"👍", "👎", "🔥", "💯", "❤️", "💔", "👏", "🙌", "🤝", "💪", "🎉", "🚀"}},
+	{ID: "vip_space", Title: "VIP Космос", VIP: true, Stickers: []string{"👑", "💎", "🛸", "🌌", "🦄", "🐉", "⚡", "🔮", "🏆", "🎭", "🌠", "🦚"}},
+}
+
+func isVIPSticker(st string) bool {
+	for _, p := range builtInStickerPacks {
+		if !p.VIP {
+			continue
+		}
+		for _, s := range p.Stickers {
+			if s == st {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Kont — контакт пользователя (users_konts): type common|favorite|ignor|deleted.
@@ -167,6 +203,8 @@ type sendOpts struct {
 	ReplyID int64
 	AttType string
 	AttID   int64
+	FwdFrom int64
+	Sticker string
 }
 
 // ListDialogs возвращает список диалогов пользователя (для публичного API v1).
@@ -288,6 +326,15 @@ func send(a *core.App, from, to *model.User, msg string, opts ...sendOpts) (Mail
 		o = opts[0]
 	}
 	msg = strings.TrimSpace(msg)
+	st := strings.TrimSpace(o.Sticker)
+	if st != "" {
+		if utf8.RuneCountInString(st) > 8 {
+			return Mail{}, core.ErrBad("Некорректный стикер")
+		}
+		if isVIPSticker(st) && from.VIPUntil <= core.Now() {
+			return Mail{}, core.ErrForbidden("Этот набор стикеров доступен только для VIP")
+		}
+	}
 	hasAtt := o.AttType != "" && o.AttID > 0
 	if hasAtt {
 		if o.AttType != "foto" && o.AttType != "files" && o.AttType != "shorts" {
@@ -301,7 +348,7 @@ func send(a *core.App, from, to *model.User, msg string, opts ...sendOpts) (Mail
 			return Mail{}, core.ErrForbidden("Можно прикреплять только свои файлы и фото")
 		}
 	}
-	if n := utf8.RuneCountInString(msg); n < 1 && !hasAtt {
+	if n := utf8.RuneCountInString(msg); n < 1 && !hasAtt && st == "" {
 		return Mail{}, core.ErrBad("Введите сообщение или прикрепите вложение")
 	} else if n > 1024 {
 		return Mail{}, core.ErrBad("Сообщение слишком длинное (максимум 1024 символа)")
@@ -323,7 +370,7 @@ func send(a *core.App, from, to *model.User, msg string, opts ...sendOpts) (Mail
 	if msg != "" {
 		cleanMsg = a.Text.Clean(msg)
 	}
-	m := Mail{IDUser: from.ID, IDKont: to.ID, Time: now, Msg: cleanMsg, ReplyID: o.ReplyID, AttType: o.AttType, AttID: o.AttID}
+	m := Mail{IDUser: from.ID, IDKont: to.ID, Time: now, Msg: cleanMsg, ReplyID: o.ReplyID, AttType: o.AttType, AttID: o.AttID, FwdFrom: o.FwdFrom, Sticker: st}
 	mails.Insert(&m)
 	// отправитель получает контакт, у получателя обновляется время существующего
 	if k, ok := kontOf(from.ID, to.ID); ok {
@@ -353,7 +400,9 @@ func send(a *core.App, from, to *model.User, msg string, opts ...sendOpts) (Mail
 		}
 	}
 	preview := a.Text.Plain(m.Msg, 120)
-	if preview == "" && hasAtt {
+	if preview == "" && st != "" {
+		preview = st + " Стикер"
+	} else if preview == "" && hasAtt {
 		preview = map[string]string{"foto": "📷 Фотография", "files": "📎 Файл", "shorts": "🎬 Клип"}[o.AttType]
 	}
 	a.Hub.ToUser(to.ID, "message", map[string]any{"from": a.Ref(from.ID), "id": m.ID, "text": preview})
@@ -365,6 +414,12 @@ func msgPreview(a *core.App, m Mail) string {
 	if s := a.Text.Plain(m.Msg, 90); s != "" {
 		return s
 	}
+	if m.VoiceExt != "" {
+		return "🎤 Голосовое сообщение"
+	}
+	if m.Sticker != "" {
+		return m.Sticker + " Стикер"
+	}
 	if m.AttType != "" {
 		return map[string]string{"foto": "📷 Фотография", "files": "📎 Файл", "shorts": "🎬 Клип"}[m.AttType]
 	}
@@ -373,13 +428,26 @@ func msgPreview(a *core.App, m Mail) string {
 
 func msgView(a *core.App, m Mail, me int64) map[string]any {
 	out := map[string]any{
-		"id":     m.ID,
-		"mine":   m.IDUser == me,
-		"time":   m.Time,
-		"msg":    a.Text.Render(m.Msg),
-		"raw":    m.Msg,
-		"read":   m.Read,
-		"pinned": m.Pinned,
+		"id":        m.ID,
+		"mine":      m.IDUser == me,
+		"time":      m.Time,
+		"msg":       a.Text.Render(m.Msg),
+		"raw":       m.Msg,
+		"read":      m.Read,
+		"pinned":    m.Pinned,
+		"edited_at": m.EditedAt,
+	}
+	if m.FwdFrom > 0 {
+		out["fwd"] = a.Ref(m.FwdFrom)
+	}
+	if m.Sticker != "" {
+		out["sticker"] = m.Sticker
+	}
+	if m.VoiceExt != "" {
+		out["voice"] = map[string]any{
+			"url": "/api/mail/voice/" + store.I(m.ID) + "." + m.VoiceExt,
+			"dur": m.VoiceDur,
+		}
 	}
 	if m.ReplyID > 0 {
 		if rm, ok := mails.Get(m.ReplyID); ok && rm.Unlink != me {
@@ -490,16 +558,191 @@ func registerMail(a *core.App) {
 			ReplyID int64  `json:"reply_id"`
 			AttType string `json:"att_type"`
 			AttID   int64  `json:"att_id"`
+			FwdFrom int64  `json:"fwd_from"`
+			Sticker string `json:"sticker"`
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
 		}
-		m, err := send(a, me, &other, in.Msg, sendOpts{ReplyID: in.ReplyID, AttType: in.AttType, AttID: in.AttID})
+		m, err := send(a, me, &other, in.Msg, sendOpts{ReplyID: in.ReplyID, AttType: in.AttType, AttID: in.AttID, FwdFrom: in.FwdFrom, Sticker: in.Sticker})
 		if err != nil {
 			return err
 		}
 		return c.JSON(msgView(a, m, me.ID))
 	}, core.Auth)
+
+	// редактирование своего сообщения
+	a.PUT("/api/mail/msg/{id}", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		m, ok := mails.Get(c.PathInt("id"))
+		if !ok || m.IDUser != me.ID {
+			return core.ErrNotFound("Сообщение не найдено")
+		}
+		if m.VoiceExt != "" || m.Sticker != "" {
+			return core.ErrBad("Это сообщение нельзя редактировать")
+		}
+		var in struct {
+			Msg string `json:"msg"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		txt := strings.TrimSpace(in.Msg)
+		if n := utf8.RuneCountInString(txt); n < 1 || n > 1024 {
+			return core.ErrBad("Длина сообщения должна быть от 1 до 1024 символов")
+		}
+		clean := a.Text.Clean(txt)
+		now := core.Now()
+		mails.Update(m.ID, func(x *Mail) {
+			x.Msg = clean
+			x.EditedAt = now
+		})
+		upd, _ := mails.Get(m.ID)
+		a.Hub.ToUser(m.IDKont, "mail_edit", map[string]any{"id": m.ID, "msg": a.Text.Render(clean), "raw": clean, "edited_at": now})
+		return c.JSON(msgView(a, upd, me.ID))
+	}, core.Auth)
+
+	// поиск по истории диалога
+	a.GET("/api/mail/{id}/search", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		otherID := c.PathInt("id")
+		q := strings.ToLower(strings.TrimSpace(c.Q("q")))
+		if utf8.RuneCountInString(q) < 1 {
+			return c.JSON(map[string]any{"items": []any{}})
+		}
+		all := mails.By("dialog", pairKey(me.ID, otherID))
+		var hits []Mail
+		for _, m := range all {
+			if m.Unlink == me.ID {
+				continue
+			}
+			if strings.Contains(strings.ToLower(m.Msg), q) {
+				hits = append(hits, m)
+			}
+		}
+		// новые сверху, максимум 30
+		for i := 0; i < len(hits); i++ {
+			for j := i + 1; j < len(hits); j++ {
+				if hits[j].ID > hits[i].ID {
+					hits[i], hits[j] = hits[j], hits[i]
+				}
+			}
+		}
+		if len(hits) > 30 {
+			hits = hits[:30]
+		}
+		out := make([]map[string]any, 0, len(hits))
+		for _, m := range hits {
+			out = append(out, msgView(a, m, me.ID))
+		}
+		return c.JSON(map[string]any{"items": out})
+	}, core.Auth)
+
+	// голосовые сообщения
+	voiceDir := filepath.Join(a.DataDir, "voice")
+	_ = os.MkdirAll(voiceDir, 0o755)
+	a.POST("/api/mail/{id}/voice", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		other, ok := a.GetUser(c.PathInt("id"))
+		if !ok {
+			return core.ErrNotFound("Пользователь не найден")
+		}
+		if err := canWriteTo(a, me, &other); err != nil {
+			return err
+		}
+		if _, ok := a.ActiveBan(me.ID, "all"); ok {
+			return core.ErrForbidden("Вы заблокированы")
+		}
+		if err := c.R.ParseMultipartForm(12 << 20); err != nil {
+			return core.ErrBad("Не удалось прочитать аудиофайл")
+		}
+		file, hdr, err := c.R.FormFile("file")
+		if err != nil {
+			return core.ErrBad("Аудиофайл не передан")
+		}
+		defer file.Close()
+		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(hdr.Filename), "."))
+		switch ext {
+		case "webm", "ogg", "mp4", "m4a", "mp3", "wav":
+		default:
+			ext = "webm"
+		}
+		dur, _ := strconv.Atoi(c.R.FormValue("dur"))
+		if dur < 1 {
+			dur = 1
+		}
+		if dur > 600 {
+			dur = 600
+		}
+		now := core.Now()
+		m := Mail{IDUser: me.ID, IDKont: other.ID, Time: now, VoiceExt: ext, VoiceDur: dur}
+		mails.Insert(&m)
+		dstPath := filepath.Join(voiceDir, store.I(m.ID)+"."+ext)
+		dst, err := os.Create(dstPath)
+		if err != nil {
+			mails.Delete(m.ID)
+			return core.ErrBad("Ошибка сохранения аудио")
+		}
+		n, err := io.Copy(dst, io.LimitReader(file, 10<<20))
+		_ = dst.Close()
+		if err != nil || n == 0 {
+			_ = os.Remove(dstPath)
+			mails.Delete(m.ID)
+			return core.ErrBad("Пустой аудиофайл")
+		}
+		if k, ok := kontOf(me.ID, other.ID); ok {
+			konts.Update(k.ID, func(x *Kont) { x.Time = now; if x.Type == "deleted" { x.Type = "common" } })
+		} else {
+			konts.Insert(&Kont{IDUser: me.ID, IDKont: other.ID, Time: now, Type: "common"})
+		}
+		if k, ok := kontOf(other.ID, me.ID); ok {
+			konts.Update(k.ID, func(x *Kont) { x.Time = now; if x.Type == "deleted" { x.Type = "common" } })
+		} else {
+			konts.Insert(&Kont{IDUser: other.ID, IDKont: me.ID, Time: now, Type: "common"})
+		}
+		a.Hub.ToUser(other.ID, "message", map[string]any{"from": a.Ref(me.ID), "id": m.ID, "text": "🎤 Голосовое сообщение"})
+		a.Hub.ToUser(other.ID, "counters", map[string]any{"mail": true})
+		return c.JSON(msgView(a, m, me.ID))
+	}, core.Auth)
+
+	a.GET("/api/mail/voice/{file}", func(c *core.Ctx) error {
+		me, err := c.Need()
+		if err != nil {
+			return err
+		}
+		name := filepath.Base(c.Path("file"))
+		parts := strings.SplitN(name, ".", 2)
+		if len(parts) != 2 {
+			return core.ErrNotFound()
+		}
+		id, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			return core.ErrNotFound()
+		}
+		m, ok := mails.Get(id)
+		if !ok || m.VoiceExt == "" || (m.IDUser != me.ID && m.IDKont != me.ID && me.Level < 7) {
+			return core.ErrForbidden()
+		}
+		p := filepath.Join(voiceDir, store.I(m.ID)+"."+m.VoiceExt)
+		http.ServeFile(c.W, c.R, p)
+		return nil
+	}, core.Auth)
+
+	// наборы стикеров
+	a.GET("/api/stickers", func(c *core.Ctx) error {
+		me := c.User()
+		isVIP := me != nil && me.VIPUntil > core.Now()
+		return c.JSON(map[string]any{"packs": builtInStickerPacks, "is_vip": isVIP})
+	})
 
 	// индикатор «печатает…»
 	a.POST("/api/mail/{id}/typing", func(c *core.Ctx) error {
