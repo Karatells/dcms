@@ -103,11 +103,15 @@ function wall(kind) {
     const reload = () => router.render();
     const ed = ui.bbEditor({ rows: 3, placeholder: 'Ваше сообщение', maxlength: 1024 });
     let replyTo = 0;
-    const cap = h('input.input', { placeholder: 'Число с картинки', maxlength: 8, autocomplete: 'off' });
-    const img = h('img', { src: '/api/captcha?' + Date.now(), alt: 'код', style: { height: '44px', cursor: 'pointer', borderRadius: '8px' } }); img.onclick = () => (img.src = '/api/captcha?' + Date.now());
+    const cap = d.captcha ? ui.captcha() : null;
     const answer = p => { replyTo = p.user.id; ed.ta.value = `[b]${p.user.nick}[/b], `; ed.ta.focus(); };
-    const send = async () => { await api.post(base, { msg: ed.value, reply_to: replyTo, captcha: cap.value }); ui.ok('Сообщение добавлено'); ed.value = ''; cap.value = ''; replyTo = 0; ctx.page === 1 ? reload() : router.go(location.pathname); };
-    const form = d.can_write ? h('div.card.pad.stack', ed.el, d.captcha ? h('div.row', img, cap) : null, d.wait ? h('div.small.muted', `Гостям можно писать раз в 5 минут. Подождите ${d.wait} сек.`) : null, h('div.row', h('span.grow'), ui.btn('Отправить', { ic: 'send', kind: 'primary', onclick: send })))
+    const send = async () => {
+      try {
+        await api.post(base, { msg: ed.value, reply_to: replyTo, captcha: cap ? cap.value : '' });
+        ui.ok('Сообщение добавлено'); ed.value = ''; cap?.reset(); replyTo = 0; ctx.page === 1 ? reload() : router.go(location.pathname);
+      } catch (e) { if (cap && String(e.message || '').includes('робот')) cap.reset(); throw e; }
+    };
+    const form = d.can_write ? h('div.card.pad.stack', ed.el, cap ? cap.el : null, d.wait ? h('div.small.muted', `Гостям можно писать раз в 5 минут. Подождите ${d.wait} сек.`) : null, h('div.row', h('span.grow'), ui.btn('Отправить', { ic: 'send', kind: 'primary', onclick: send })))
       : h('div.card.pad.muted', link('/login', 'Войдите'), ', чтобы писать в гостевую.');
     const out = [ui.pageHead(adm ? 'Админ-чат' : 'Гостевая книга', h('div.row', !adm ? link('/guest/top', 'Топ') : null)), form,
       ui.card(d.items.length ? h('div.posts', d.items.map(p => postCard(p, { reply: answer, del: async x => { if (await ui.confirm('Удалить сообщение?', { danger: true })) { await api.del(base + '/' + x.id); reload(); } } }))) : ui.empty('Сообщений нет', 'message')), ui.pager(d),

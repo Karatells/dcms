@@ -40,8 +40,6 @@ router.add('/reg', async ctx => {
   if (state.user) return router.go('/', true);
   const mode = state.config.reg_select;
   if (mode === 'close') return authBox('Регистрация', null, h('div.err', 'Регистрация временно приостановлена'));
-  const cap = h('img.captcha', { src: '/api/captcha?' + Date.now(), alt: 'код', style: { borderRadius: '10px', height: '56px', width: 'auto', alignSelf: 'flex-start', cursor: 'pointer' }, title: 'Обновить' });
-  cap.onclick = () => (cap.src = '/api/captcha?' + Date.now());
   const days = [{ value: '', label: 'День' }, ...Array.from({ length: 31 }, (_, i) => ({ value: i + 1, label: i + 1 }))];
   const months = ['Месяц', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'].map((l, i) => ({ value: i || '', label: l }));
   const y = new Date().getFullYear();
@@ -54,20 +52,19 @@ router.add('/reg', async ctx => {
     { name: 'pol', label: 'Пол', type: 'radio', value: '1', options: [{ value: '1', label: 'Мужской' }, { value: '0', label: 'Женский' }] },
     { name: 'name', label: 'Имя (необязательно)' },
     { name: 'd', label: 'День рождения', type: 'select', options: days }, { name: 'm', label: 'Месяц', type: 'select', options: months }, { name: 'y', label: 'Год', type: 'select', options: years },
-    { name: 'captcha', label: 'Проверочное число', required: true, hint: 'Введите цифры с картинки', autocomplete: 'off' },
+    { name: 'captcha', label: 'Проверка', type: 'captcha', required: true },
   ], {
     submit: 'Зарегистрироваться',
     onSubmit: async v => {
       const body = { ...v, pol: +v.pol, d: +v.d || 0, m: +v.m || 0, y: +v.y || 0 };
       try { const r = await api.post('/api/register', body, { silent: true }); if (r.activate) { form.replaceWith(h('div.ok', icon('check'), ' ', r.message)); return; } await afterLogin(); }
-      catch (e) { cap.onclick(); throw e; }
+      catch (e) { if (String(e.message || '').includes('робот')) form.inputs.captcha?.reset(); throw e; }
     },
   });
-  // компактная сетка даты рождения и капча рядом с полем
+  // компактная сетка даты рождения
   const fields = [...form.querySelectorAll('.field')];
   const dr = fields.filter(f => ['d', 'm', 'y'].includes(f.querySelector('[name]')?.name));
   if (dr.length === 3) { const row = h('div.row.nowrap'); dr[0].before(row); row.append(...dr); dr.forEach(f => (f.style.minWidth = 0)); }
-  const cf = fields.find(f => f.querySelector('[name=captcha]')); cf && cf.prepend(cap);
   return authBox('Регистрация', 'Создайте аккаунт за минуту', form, h('div.small.muted', 'Уже есть аккаунт? ', link('/login', 'Войти')));
 });
 router.add('/reg/activate/:id/:code', async ctx => {

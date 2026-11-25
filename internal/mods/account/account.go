@@ -67,6 +67,26 @@ func Register(a *core.App) {
 		http.SetCookie(c.W, &http.Cookie{Name: "dcms_cap", Value: tok, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode})
 		return c.ServeBytes(renderCaptcha(code), "image/png", false)
 	})
+	a.GET("/api/captcha/challenge", func(c *core.Ctx) error {
+		return c.JSON(newInteractiveChallenge(c.Q("type")))
+	})
+	a.POST("/api/captcha/verify", func(c *core.Ctx) error {
+		var in struct {
+			ID         string  `json:"id"`
+			Answer     float64 `json:"answer"`
+			Key        string  `json:"key"`
+			DurationMs int64   `json:"duration_ms"`
+			Moves      int     `json:"moves"`
+		}
+		if err := c.Bind(&in); err != nil {
+			return err
+		}
+		tok, expired, errMsg := verifyInteractiveChallenge(in.ID, in.Answer, strings.TrimSpace(in.Key), in.DurationMs, in.Moves)
+		if errMsg != "" {
+			return c.JSON(map[string]any{"ok": false, "expired": expired, "error": errMsg})
+		}
+		return c.JSON(map[string]any{"ok": true, "token": tok})
+	})
 
 	// ---------- вход
 	a.POST("/api/login", func(c *core.Ctx) error {
@@ -168,8 +188,9 @@ func Register(a *core.App) {
 		if ck != nil {
 			tok = ck.Value
 		}
-		if !checkCaptcha(tok, strings.TrimSpace(in.Captcha)) {
-			errs = append(errs, "Неверное проверочное число")
+		capCode := strings.TrimSpace(in.Captcha)
+		if !hasValidCaptchaPass(tok, capCode) {
+			errs = append(errs, "Пройдите проверку, что вы не робот")
 		}
 		if !reName.MatchString(in.Name) {
 			errs = append(errs, "Неверный формат имени")
@@ -185,6 +206,9 @@ func Register(a *core.App) {
 		}
 		if len(errs) > 0 {
 			return core.ErrBad(strings.Join(errs, "\n"))
+		}
+		if !checkCaptcha(tok, capCode) {
+			return core.ErrBad("Пройдите проверку, что вы не робот")
 		}
 		pol := int64(0)
 		if in.Pol == 1 {

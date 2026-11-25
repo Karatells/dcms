@@ -94,19 +94,17 @@ async function noteForm(ctx, note) {
   const radios = (label, key, opts) => h('div.field', h('label', label), h('div.chips', opts.map(([v, l]) => h('label.chip', h('input', { type: 'radio', name: key, value: v, checked: st[key] === v, onchange: () => (st[key] = v) }), ' ', l))));
   const u = me() || {};
   const needCap = !note && ((u.rating ?? 0) < 2 || (u.group_access ?? 0) < 6);
-  const cap = needCap ? h('input.input', { placeholder: 'Число с картинки', autocomplete: 'off', style: { maxWidth: '180px' } }) : null;
-  const img = needCap ? h('img.captcha', { src: '/api/captcha?' + Date.now(), alt: 'код', title: 'Обновить', style: { height: '48px', borderRadius: '10px', cursor: 'pointer' } }) : null;
-  if (img) img.onclick = () => (img.src = '/api/captcha?' + Date.now());
+  const cap = needCap ? ui.captcha() : null;
   const save = async () => {
     const body = { title: name.value, name: name.value, msg: ed.value, id_dir: +dir.value, ...st, captcha: cap ? cap.value : '' };
     try {
       const r = note ? (await api.put('/api/notes/' + note.id, body), { id: note.id }) : await api.post('/api/notes', body);
       ui.ok(note ? 'Изменения сохранены' : 'Блог успешно создан'); router.go('/notes/' + r.id);
-    } catch (e) { if (img) img.src = '/api/captcha?' + Date.now(); throw e; }
+    } catch (e) { if (cap && String(e.message || '').includes('робот')) cap.reset(); throw e; }
   };
   return h('div.card.pad.stack', h('div.field', h('label', 'Заголовок'), name), h('div.field', h('label', 'Текст'), ed.el), h('div.field', h('label', 'Категория'), dir),
     radios('Могут смотреть', 'private', [[0, 'Все'], [1, 'Друзья'], [2, 'Только я']]), radios('Могут комментировать', 'private_komm', [[0, 'Все'], [1, 'Друзья'], [2, 'Только я']]),
-    cap ? h('div.field', h('label', 'Проверочное число'), h('div.row', img, cap)) : null, ui.btn(note ? 'Сохранить' : 'Опубликовать', { ic: 'check', kind: 'primary', onclick: save }));
+    cap ? h('div.field', h('label', 'Проверка'), cap.el) : null, ui.btn(note ? 'Сохранить' : 'Опубликовать', { ic: 'check', kind: 'primary', onclick: save }));
 }
 router.add('/notes/add', async ctx => { ctx.title('Новый блог'); return [crumbs({ href: '/notes', title: 'Блоги' }, { title: 'Новая запись' }), ui.pageHead('Новая запись'), await noteForm(ctx, null)]; }, { auth: true });
 router.add('/notes/:id/edit', async ctx => {

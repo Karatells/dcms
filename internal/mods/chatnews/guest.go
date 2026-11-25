@@ -122,7 +122,7 @@ func registerGuest(a *core.App) {
 				return core.ErrAuth()
 			}
 			if !core.CaptchaCheck(c, in.Captcha) {
-				return core.ErrBad("Неверное проверочное число")
+				return core.ErrBad("Пройдите проверку, что вы не робот")
 			}
 			if t, ok := antiflood.Load(c.IP()); ok && t.(int64) > now-300 {
 				return core.ErrBad("Для того чтобы чаще писать нужно авторизоваться")

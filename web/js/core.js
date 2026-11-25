@@ -511,6 +511,7 @@ export const ui = {
       const common = { name: f.name, placeholder: f.placeholder, required: f.required, maxlength: f.maxlength, disabled: f.disabled };
       if (t === 'textarea') ctl = h('textarea.input', { ...common, rows: f.rows || 4 }, f.value ?? '');
       else if (t === 'bb') { const ed = ui.bbEditor({ value: f.value ?? '', rows: f.rows || 5, placeholder: f.placeholder, name: f.name, maxlength: f.maxlength }); inputs[f.name] = ed; form.append(h('div.field', f.label ? h('label', f.label) : null, ed.el, f.hint ? h('div.hint', f.hint) : null)); continue; }
+      else if (t === 'captcha') { const cap = ui.captcha({ name: f.name }); inputs[f.name] = cap; form.append(h('div.field', f.label ? h('label', f.label, f.required ? h('span.req', '*') : null) : null, cap.el)); continue; }
       else if (t === 'select') ctl = h('select.input', common, (f.options || []).map(o => { o = typeof o === 'object' ? o : { value: o, label: o }; return h('option', { value: o.value, selected: String(o.value) === String(f.value ?? '') }, o.label); }));
       else if (t === 'checkbox') { ctl = h('input', { type: 'checkbox', name: f.name, checked: !!f.value, disabled: f.disabled }); inputs[f.name] = ctl; form.append(h('label.check', ctl, h('span', f.label), f.hint ? h('small.muted', ' — ' + f.hint) : null)); continue; }
       else if (t === 'radio') { const group = (f.options || []).map(o => { o = typeof o === 'object' ? o : { value: o, label: o }; return h('label.check', h('input', { type: 'radio', name: f.name, value: o.value, checked: String(o.value) === String(f.value ?? '') }), h('span', o.label)); }); inputs[f.name] = { get value() { const c = form.querySelector(`input[name="${f.name}"]:checked`); return c ? c.value : ''; } }; form.append(h('div.field', f.label ? h('label', f.label) : null, h('div.stack-s', group), f.hint ? h('div.hint', f.hint) : null)); continue; }
@@ -646,6 +647,215 @@ export const ui = {
 
   /** Выбор файла/картинки с превью. */
   imagePreview(input, img) { input.addEventListener('change', () => { const f = input.files[0]; if (f) img.src = URL.createObjectURL(f); }); },
+
+  /** Интерактивная «человечная» капча (пазл / поворот / выбор фигуры). Возвращает {el, value, reset()}. */
+  captcha({ name = 'captcha', onSolved } = {}) {
+    const TYPES = ['slider', 'rotate', 'click'];
+    let token = '', open = false, loading = false, curType = '', challenge = null, openedAt = 0;
+    const hidden = h('input', { type: 'hidden', name, value: '' });
+    const chk = h('span.cap-check');
+    const lbl = h('span.cap-label', 'Я не робот');
+    const bar = h('button.cap-bar', { type: 'button', onclick: () => { if (!token && !loading) toggle(); } },
+      chk, lbl, h('span.grow'), h('span.cap-brand', icon('shield', 14), 'Защита'));
+    const panel = h('div.cap-panel', { style: { display: 'none' } });
+    const wrap = h('div.cap-box', hidden, bar, panel);
+
+    const setSolved = tok => {
+      token = tok;
+      hidden.value = tok;
+      open = false;
+      panel.style.display = 'none';
+      panel.replaceChildren();
+      wrap.classList.add('solved');
+      wrap.classList.remove('open');
+      chk.replaceChildren(icon('check', 16));
+      lbl.textContent = 'Проверка пройдена';
+      onSolved && onSolved(tok);
+    };
+
+    const reset = () => {
+      token = '';
+      hidden.value = '';
+      open = false;
+      loading = false;
+      challenge = null;
+      wrap.classList.remove('solved', 'open');
+      chk.replaceChildren();
+      lbl.textContent = 'Я не робот';
+      panel.style.display = 'none';
+      panel.replaceChildren();
+    };
+
+    const shake = (msgEl, text) => {
+      if (msgEl) { msgEl.textContent = text; msgEl.className = 'cap-msg err'; }
+      panel.classList.remove('shake');
+      void panel.offsetWidth;
+      panel.classList.add('shake');
+    };
+
+    const load = async wantType => {
+      loading = true;
+      wrap.classList.add('open');
+      panel.style.display = '';
+      panel.replaceChildren(h('div.cap-loading', 'Загрузка задания…'));
+      try {
+        const q = wantType ? { type: wantType } : null;
+        challenge = await api.get('/api/captcha/challenge', q, { silent: true });
+        curType = challenge.type;
+        openedAt = Date.now();
+        renderChallenge();
+      } catch {
+        panel.replaceChildren(h('div.cap-msg.err', 'Не удалось загрузить задание'), h('button.btn.sm', { type: 'button', onclick: () => load(curType) }, 'Повторить'));
+      } finally { loading = false; }
+    };
+
+    const toggle = () => {
+      if (open) { open = false; wrap.classList.remove('open'); panel.style.display = 'none'; return; }
+      open = true;
+      load(curType);
+    };
+
+    const nextType = () => {
+      const idx = TYPES.indexOf(curType);
+      load(TYPES[(idx + 1) % TYPES.length]);
+    };
+
+    const renderChallenge = () => {
+      const ch = challenge;
+      const msg = h('div.cap-msg');
+      const head = h('div.cap-head',
+        h('div.cap-prompt', ch.prompt),
+        h('div.cap-tools',
+          h('button.cap-ico', { type: 'button', title: 'Другой тип задания', onclick: () => nextType() }, icon('grid', 15)),
+          h('button.cap-ico', { type: 'button', title: 'Обновить задание', onclick: () => load(curType) }, icon('rotate-ccw', 15)),
+        ));
+      const body = h('div.cap-body');
+
+      if (ch.type === 'slider') {
+        const maxX = ch.w - ch.pw;
+        let curX = 0, moves = 0, dragging = false, startClientX = 0, startX = 0, busy = false;
+        const piece = h('img.cap-piece', {
+          src: ch.piece, alt: '', draggable: false,
+          style: { top: (ch.y / ch.h * 100) + '%', width: (ch.pw / ch.w * 100) + '%', left: '0%' },
+        });
+        const stage = h('div.cap-stage', { style: { aspectRatio: `${ch.w} / ${ch.h}` } },
+          h('img.cap-bg', { src: ch.bg, alt: '', draggable: false }), piece);
+        const fill = h('div.cap-fill');
+        const hint = h('span.cap-track-hint', 'Потяните ползунок вправо →');
+        const knob = h('div.cap-knob', { tabindex: 0, role: 'slider', 'aria-label': ch.prompt, 'aria-valuemin': 0, 'aria-valuemax': maxX, 'aria-valuenow': 0 }, icon('chevron-right', 18));
+        const track = h('div.cap-track', fill, hint, knob);
+
+        const setX = x => {
+          curX = Math.max(0, Math.min(maxX, x));
+          const pct = curX / ch.w * 100;
+          piece.style.left = pct + '%';
+          const tw = Math.max(1, track.clientWidth - knob.offsetWidth);
+          const ratio = curX / maxX;
+          knob.style.transform = `translateX(${ratio * tw}px)`;
+          fill.style.width = (ratio * tw + knob.offsetWidth / 2) + 'px';
+          knob.setAttribute('aria-valuenow', String(Math.round(curX)));
+          hint.style.opacity = curX > 8 ? '0' : '1';
+        };
+
+        const submitSlider = async () => {
+          if (busy) return;
+          busy = true;
+          try {
+            const r = await api.post('/api/captcha/verify', { id: ch.id, answer: curX, duration_ms: Date.now() - openedAt, moves }, { silent: true });
+            if (r.ok) { setSolved(r.token); return; }
+            shake(msg, r.error || 'Попробуйте ещё раз');
+            setX(0); moves = 0;
+            if (r.expired) setTimeout(() => load('slider'), 650);
+          } catch { shake(msg, 'Ошибка проверки'); }
+          finally { busy = false; }
+        };
+
+        knob.addEventListener('pointerdown', e => {
+          if (busy) return;
+          dragging = true;
+          startClientX = e.clientX;
+          startX = curX;
+          knob.setPointerCapture(e.pointerId);
+          knob.classList.add('active');
+        });
+        knob.addEventListener('pointermove', e => {
+          if (!dragging) return;
+          const tw = Math.max(1, track.clientWidth - knob.offsetWidth);
+          const dx = (e.clientX - startClientX) / tw * maxX;
+          moves++;
+          setX(startX + dx);
+        });
+        const finishDrag = () => {
+          if (!dragging) return;
+          dragging = false;
+          knob.classList.remove('active');
+          if (curX > 4) submitSlider();
+        };
+        knob.addEventListener('pointerup', finishDrag);
+        knob.addEventListener('pointercancel', finishDrag);
+        knob.addEventListener('keydown', e => {
+          if (e.key === 'ArrowRight') { e.preventDefault(); moves++; setX(curX + (e.shiftKey ? 12 : 4)); }
+          else if (e.key === 'ArrowLeft') { e.preventDefault(); moves++; setX(curX - (e.shiftKey ? 12 : 4)); }
+          else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); moves = Math.max(moves, 3); submitSlider(); }
+        });
+        body.append(stage, track);
+      } else if (ch.type === 'rotate') {
+        let angle = 0, busy = false;
+        const img = h('img.cap-rot-img', { src: ch.img, alt: '', draggable: false });
+        const stage = h('div.cap-rot-wrap', img);
+        const range = h('input.cap-rot-range', { type: 'range', min: 0, max: 360, step: 5, value: 0 });
+        const applyAngle = a => {
+          angle = ((a % 360) + 360) % 360;
+          range.value = String(angle);
+          img.style.transform = `rotate(${angle}deg)`;
+        };
+        range.oninput = () => applyAngle(+range.value);
+        const submitRot = async () => {
+          if (busy) return;
+          busy = true;
+          try {
+            const r = await api.post('/api/captcha/verify', { id: ch.id, answer: angle, duration_ms: Date.now() - openedAt, moves: 3 }, { silent: true });
+            if (r.ok) { setSolved(r.token); return; }
+            shake(msg, r.error || 'Поверните точнее');
+            if (r.expired) setTimeout(() => load('rotate'), 650);
+          } catch { shake(msg, 'Ошибка проверки'); }
+          finally { busy = false; }
+        };
+        const ctrls = h('div.cap-rot-ctrls',
+          h('button.btn.sm', { type: 'button', onclick: () => applyAngle(angle - 15), title: 'Влево на 15°' }, '⟲'),
+          range,
+          h('button.btn.sm', { type: 'button', onclick: () => applyAngle(angle + 15), title: 'Вправо на 15°' }, '⟳'),
+        );
+        body.append(stage, ctrls, h('button.btn.primary.sm', { type: 'button', onclick: submitRot, style: { width: '100%' } }, icon('check', 15), ' Готово'));
+      } else if (ch.type === 'click') {
+        let busy = false;
+        const grid = h('div.cap-grid', (ch.items || []).map(it => {
+          const tile = h('button.cap-tile', {
+            type: 'button',
+            onclick: async () => {
+              if (busy) return;
+              busy = true;
+              tile.classList.add('picked');
+              try {
+                const r = await api.post('/api/captcha/verify', { id: ch.id, key: it.key, duration_ms: Date.now() - openedAt, moves: 1 }, { silent: true });
+                if (r.ok) { setSolved(r.token); return; }
+                tile.classList.remove('picked');
+                tile.classList.add('wrong');
+                shake(msg, r.error || 'Не та фигура, попробуйте новую');
+                setTimeout(() => load('click'), 650);
+              } catch { shake(msg, 'Ошибка проверки'); busy = false; }
+            },
+          }, h('img', { src: it.img, alt: '', draggable: false }));
+          return tile;
+        }));
+        body.append(grid);
+      }
+
+      panel.replaceChildren(head, body, msg);
+    };
+
+    return { el: wrap, get value() { return token; }, reset };
+  },
 };
 
 // ───────────────────────────────────────────── realtime (SSE)

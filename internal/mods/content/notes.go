@@ -271,7 +271,7 @@ func registerNotes(a *core.App) {
 		}
 		if me.Rating < 2 || me.GroupAccess < 6 {
 			if !core.CaptchaCheck(c, in.Captcha) {
-				return core.ErrBad("Проверьте правильность ввода проверочного числа")
+				return core.ErrBad("Пройдите проверку, что вы не робот")
 			}
 		}
 		msg := a.Text.Clean(strings.TrimSpace(in.Msg))
