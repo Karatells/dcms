@@ -79,13 +79,14 @@ class MainActivity : AppCompatActivity() {
         cb.onReceiveValue(uris)
     }
 
-    private val audioPermLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+    private val mediaPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
         val req = pendingPermRequest
         pendingPermRequest = null
         if (req != null) {
-            if (granted) req.grant(req.resources) else req.deny()
+            val allGranted = results.values.all { it }
+            if (allGranted) req.grant(req.resources) else req.deny()
         }
     }
 
@@ -200,14 +201,20 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPermissionRequest(request: PermissionRequest) {
-                val needAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
-                if (needAudio && ContextCompat.checkSelfPermission(
-                        this@MainActivity,
-                        Manifest.permission.RECORD_AUDIO
-                    ) != PackageManager.PERMISSION_GRANTED
+                val needed = mutableListOf<String>()
+                if (request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) &&
+                    ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
                 ) {
+                    needed.add(Manifest.permission.RECORD_AUDIO)
+                }
+                if (request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
+                    ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    needed.add(Manifest.permission.CAMERA)
+                }
+                if (needed.isNotEmpty()) {
                     pendingPermRequest = request
-                    audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    mediaPermLauncher.launch(needed.toTypedArray())
                 } else {
                     request.grant(request.resources)
                 }

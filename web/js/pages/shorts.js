@@ -1,4 +1,4 @@
-import { h, api, ui, router, state, icon, link, fmt, bus } from '../core.js';
+import { h, api, ui, router, state, icon, link, fmt, bus, nativePlatform } from '../core.js';
 
 if (!document.querySelector('link[href="/css/shorts.css"]')) {
   document.head.append(h('link', { rel: 'stylesheet', href: '/css/shorts.css' }));
@@ -25,9 +25,13 @@ const fmtDur = s => {
   return `${m}:${r < 10 ? '0' : ''}${r}`;
 };
 
-// ───────── загрузка клипа с прогрессом (вызывается только на своей странице клипов)
+// ───────── загрузка клипа с прогрессом (на Android — полноэкранная студия, на Desktop/Web — привычная модалка)
 export function openUploadModal(maxSec = 60, maxMB = 100, onDone) {
   if (!me()) { router.go('/login'); return; }
+  if (nativePlatform() === 'android') {
+    import('./clip_studio.js').then(m => m.openAndroidClipStudio(maxSec, maxMB, onDone));
+    return;
+  }
   let pickedFile = null;
   let previewURL = '';
 
