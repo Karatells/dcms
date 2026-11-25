@@ -192,7 +192,7 @@ func (a *App) banGate(c *Ctx) error {
 		}
 	}
 	if c.user == nil && a.Cfg.Str("guest_select") == "1" && strings.HasPrefix(p0, "/api/") {
-		for _, ok := range []string{"/api/me", "/api/config", "/api/login", "/api/register", "/api/captcha", "/api/pass/", "/api/ban/", "/api/dev/", "/api/menu", "/api/events", "/api/counters"} {
+		for _, ok := range []string{"/api/me", "/api/config", "/api/login", "/api/register", "/api/captcha", "/api/apps", "/api/pass/", "/api/ban/", "/api/dev/", "/api/menu", "/api/events", "/api/counters"} {
 			if strings.HasPrefix(p0, ok) {
 				return nil
 			}

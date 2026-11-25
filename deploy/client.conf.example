@@ -1,0 +1,26 @@
+# Конфигурация сборки клиентов DCMS Social (/etc/dcms/client.conf)
+# Скопируйте этот файл в /etc/dcms/client.conf и укажите параметры вашей соцсети.
+
+# Полный URL вашей соцсети (обязательно)
+SERVER_URL="https://dcms.home"
+
+# Отображаемое название приложения
+APP_NAME="DCMS Social"
+
+# Идентификатор пакета (Android applicationId и Desktop appId)
+APP_ID="org.dcms.app"
+
+# Какие клиенты собирать (через запятую: android,linux,windows)
+TARGETS="android,linux,windows"
+
+# Архитектуры для Linux (через запятую: x64,arm64; пусто = текущая архитектура сервера)
+LINUX_ARCHS=""
+
+# Архитектуры для Windows (через запятую: x64,arm64)
+WIN_ARCHS="x64"
+
+# Разрешить самоподписанные TLS-сертификаты (true для локальных сетей вроде dcms.home, false для продакшена)
+ALLOW_INSECURE_TLS="false"
+
+# Куда складывать готовые сборки (должно совпадать с $DCMS_DATA/apps для раздачи на странице /apps)
+OUT_DIR="/var/lib/dcms/apps"

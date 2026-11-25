@@ -206,9 +206,10 @@ async function drawSide() {
       mk('/user/settings', 'settings', 'Настройки'));
   }
   restMenu.slice(3).forEach(m => moreNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
+  moreNav.append(mk('/apps', 'smartphone', 'Приложения'));
   moreNav.append(mk('/developers', 'key', 'Разработчикам (API)'));
 
-  const moreOpen = location.pathname.startsWith('/user/') || location.pathname.startsWith('/developers');
+  const moreOpen = location.pathname.startsWith('/user/') || location.pathname.startsWith('/developers') || location.pathname.startsWith('/apps');
   const moreDetails = h('details.nav.nav-more', moreOpen ? { open: true } : null,
     h('summary.nav-more-sum', icon('grid', 17), 'Ещё разделы', icon('chevron-down', 16)),
     moreNav);

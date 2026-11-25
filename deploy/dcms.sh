@@ -225,6 +225,10 @@ CONFEOF
   systemctl enable --now dcms
   wait_health && ok "Сервис запущен" || { journalctl -u dcms -n 30 --no-pager; die "Сервис не отвечает"; }
   setup_nginx
+  if [ "${BUILD_CLIENTS:-0}" = 1 ] && [ -x "$APP_DIR/deploy/build-clients.sh" ]; then
+    info "Собираю клиентские приложения (BUILD_CLIENTS=1)…"
+    "$APP_DIR/deploy/build-clients.sh" || echo "Предупреждение: сборка клиентов завершилась с ошибками" >&2
+  fi
   local ip; ip="$(curl -fsS https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
   echo
   ok "Готово! Откройте: ${DOMAIN:+http://$DOMAIN  или }http://$ip:$PORT"
@@ -300,14 +304,20 @@ ENVEOF
   local bk; bk="$(cmd_backup | tail -n1)"
   echo "$old" > "$APP_DIR/.prev_commit"
   git reset --hard --quiet "origin/$BRANCH"
-  chmod +x deploy/dcms.sh
+  chmod +x deploy/dcms.sh deploy/build-clients.sh 2>/dev/null || true
   if ! build; then git reset --hard --quiet "$old"; die "Сборка новой версии не удалась — осталась прежняя"; fi
   cp -f "$APP_DIR/dcms" "$APP_DIR/dcms.prev" 2>/dev/null || true
   systemctl stop dcms
   mv -f "$APP_DIR/dcms.new" "$APP_DIR/dcms"
   write_unit
   systemctl start dcms
-  if wait_health; then ok "Обновлено до $(git rev-parse --short HEAD)"; else
+  if wait_health; then
+    ok "Обновлено до $(git rev-parse --short HEAD)"
+    if [ "${BUILD_CLIENTS:-0}" = 1 ] && [ -x "$APP_DIR/deploy/build-clients.sh" ]; then
+      info "Пересобираю клиентские приложения (BUILD_CLIENTS=1)…"
+      "$APP_DIR/deploy/build-clients.sh" || echo "Предупреждение: сборка клиентов завершилась с ошибками" >&2
+    fi
+  else
     echo "${c_err}Новая версия не запустилась — откат…${c_off}"; journalctl -u dcms -n 20 --no-pager || true
     systemctl stop dcms || true
     [ -f "$APP_DIR/dcms.prev" ] && mv -f "$APP_DIR/dcms.prev" "$APP_DIR/dcms"
@@ -335,12 +345,13 @@ cmd_uninstall() {
 }
 
 case "${1:-}" in
-  install)   cmd_install ;;
-  update)    cmd_update ;;
-  backup)    cmd_backup >/dev/null ;;
-  rollback)  cmd_rollback ;;
-  status)    systemctl status dcms --no-pager; git -C "$APP_DIR" log -1 --oneline ;;
-  logs)      journalctl -u dcms -f -n 100 ;;
-  uninstall) cmd_uninstall ;;
+  install)       cmd_install ;;
+  update)        cmd_update ;;
+  build-clients) shift; exec "$APP_DIR/deploy/build-clients.sh" "$@" ;;
+  backup)        cmd_backup >/dev/null ;;
+  rollback)      cmd_rollback ;;
+  status)        systemctl status dcms --no-pager; git -C "$APP_DIR" log -1 --oneline ;;
+  logs)          journalctl -u dcms -f -n 100 ;;
+  uninstall)     cmd_uninstall ;;
   *) sed -n 2,19p "$0"; exit 1 ;;
 esac

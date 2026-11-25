@@ -1,0 +1,45 @@
+{
+  "name": "dcms-desktop",
+  "productName": "DCMS Social",
+  "version": "1.0.0",
+  "description": "Настольный клиент DCMS Social",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:linux": "electron-builder --linux tar.gz",
+    "dist:win": "electron-builder --win zip"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "org.dcms.desktop",
+    "productName": "DCMS Social",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "config.json",
+      "package.json"
+    ],
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Network;Chat;",
+      "target": [
+        "tar.gz"
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "signAndEditExecutable": false,
+      "target": [
+        "zip"
+      ]
+    }
+  }
+}

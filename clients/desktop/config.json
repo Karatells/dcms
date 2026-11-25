@@ -1,0 +1,6 @@
+{
+  "serverUrl": "https://dcms.home",
+  "appName": "DCMS Social",
+  "appId": "org.dcms.desktop",
+  "allowInsecureTls": false
+}
