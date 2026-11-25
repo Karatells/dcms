@@ -24,6 +24,8 @@ const TEXT_STYLES = [
   { id: 'accent', label: 'Неон', fg: '#ffffff', bg: '#6366f1' },
 ];
 
+const BLANK_POSTER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 const fmtSec = s => {
   s = Math.max(0, Math.floor(s || 0));
   const m = Math.floor(s / 60), r = s % 60;
@@ -123,15 +125,34 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
     const progFill = h('div.acs-prog-fill');
     const timerEl = h('span.acs-pill', `0:00 / ${fmtSec(maxSec)}`);
     const filterNameEl = h('span.acs-pill', FILTERS[filterIdx].name);
-    const camVid = h('video.acs-video', { autoplay: true, muted: true, playsinline: true });
+    const camVid = h('video.acs-video', { autoplay: true, muted: true, playsinline: true, poster: BLANK_POSTER });
     camVid.setAttribute('playsinline', '');
     camVid.setAttribute('webkit-playsinline', '');
+    camVid.setAttribute('muted', '');
     const errBox = h('div.acs-cam-err', { style: { display: 'none' } });
 
     const applyCamVisuals = () => {
       camVid.style.filter = FILTERS[filterIdx].css;
       camVid.style.transform = facing === 'user' ? 'scaleX(-1)' : 'none';
       filterNameEl.textContent = FILTERS[filterIdx].name;
+    };
+
+    const openCameraStream = async () => {
+      const attempts = [
+        { video: { facingMode: { ideal: facing } }, audio: true },
+        { video: { facingMode: { ideal: facing } }, audio: false },
+        { video: true, audio: true },
+        { video: true, audio: false },
+      ];
+      let lastErr = null;
+      for (const c of attempts) {
+        try {
+          return await navigator.mediaDevices.getUserMedia(c);
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error('Camera unavailable');
     };
 
     const startCam = async () => {
@@ -144,17 +165,15 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
         return;
       }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing, width: { ideal: 720 }, height: { ideal: 1280 } },
-          audio: true,
-        });
+        stream = await openCameraStream();
         camVid.srcObject = stream;
         applyCamVisuals();
         await camVid.play().catch(() => {});
-      } catch {
+      } catch (e) {
         errBox.style.display = '';
         errBox.replaceChildren(
-          h('p', 'Нет доступа к камере или микрофону. Разрешите доступ или выберите готовое видео из галереи.'),
+          h('p', 'Нет доступа к камере. Если вы только что выдали разрешение — нажмите «Повторить» или выберите файл из галереи.'),
+          e && e.name ? h('div.small.muted', `${e.name}${e.message ? ': ' + e.message : ''}`) : null,
           h('div.row',
             h('button.btn', { type: 'button', onclick: startCam }, 'Повторить'),
             h('button.btn.primary', { type: 'button', onclick: () => fileInput.click() }, icon('upload', 16), ' Галерея')));
@@ -232,7 +251,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
     const isImg = sourceKind === 'image';
     const mediaEl = isImg
       ? h('img.acs-video', { src: sourceURL, alt: '' })
-      : h('video.acs-video', { src: sourceURL, autoplay: true, loop: true, playsinline: true });
+      : h('video.acs-video', { src: sourceURL, autoplay: true, loop: true, playsinline: true, poster: BLANK_POSTER });
     if (!isImg) {
       mediaEl.setAttribute('playsinline', '');
       mediaEl.setAttribute('webkit-playsinline', '');
@@ -279,59 +298,138 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
       mediaEl.onclick = () => { selectedOverlayId = 0; drawOverlays(); };
     }
 
+    const trashZone = h('div.acs-trash-zone', { style: { display: 'none' } }, icon('trash', 22), h('span', 'Перетащите сюда для удаления'));
+
+    const updateSelectionClasses = () => {
+      ovlLayer.querySelectorAll('.acs-ovl').forEach(node => {
+        node.classList.toggle('selected', Number(node.dataset.id) === selectedOverlayId);
+      });
+    };
+
     const drawOverlays = () => {
       ovlLayer.replaceChildren(...overlays.map(o => {
+        if (!o.scale) o.scale = 1;
         const isSel = o.id === selectedOverlayId;
         const st = TEXT_STYLES.find(s => s.id === o.style) || TEXT_STYLES[0];
-        const fontSize = o.kind === 'emoji' ? (o.size === 1 ? '2.1rem' : o.size === 3 ? '4.1rem' : '3.1rem')
-          : (o.size === 1 ? '1rem' : o.size === 3 ? '1.65rem' : '1.3rem');
+        const baseFont = o.kind === 'emoji' ? '3.1rem' : '1.3rem';
         const el = h('div.acs-ovl' + (isSel ? '.selected' : '') + (o.kind === 'text' ? '.is-text' : ''), {
+          'data-id': String(o.id),
           style: {
             left: (o.x * 100) + '%',
             top: (o.y * 100) + '%',
-            fontSize,
+            fontSize: baseFont,
+            transform: `translate(-50%,-50%) scale(${o.scale})`,
             color: o.kind === 'text' ? st.fg : undefined,
             background: o.kind === 'text' && st.bg ? st.bg : undefined,
           },
         }, o.text);
 
-        let dragging = false, startX = 0, startY = 0, origX = o.x, origY = o.y;
+        // Мультитач: 1 палец = перемещение, 2 пальца = щипок (увеличение/уменьшение) + перемещение
+        const pointers = new Map();
+        let startCenter = null, startDist = 0, origX = o.x, origY = o.y, origScale = o.scale;
+
+        const getMetrics = () => {
+          const pts = [...pointers.values()];
+          if (pts.length === 1) return { cx: pts[0].x, cy: pts[0].y, dist: 0 };
+          const cx = (pts[0].x + pts[1].x) / 2;
+          const cy = (pts[0].y + pts[1].y) / 2;
+          const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+          return { cx, cy, dist };
+        };
+
         el.addEventListener('pointerdown', e => {
           e.stopPropagation();
+          e.preventDefault();
           selectedOverlayId = o.id;
-          dragging = true;
-          startX = e.clientX; startY = e.clientY;
-          origX = o.x; origY = o.y;
+          updateSelectionClasses();
           el.setPointerCapture(e.pointerId);
-          drawOverlays();
+          pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          const m = getMetrics();
+          startCenter = { x: m.cx, y: m.cy };
+          startDist = m.dist;
+          origX = o.x; origY = o.y; origScale = o.scale;
+          trashZone.style.display = 'flex';
         });
+
         el.addEventListener('pointermove', e => {
-          if (!dragging) return;
+          if (!pointers.has(e.pointerId)) return;
+          e.preventDefault();
+          pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
           const rect = ovlLayer.getBoundingClientRect();
           if (!rect.width || !rect.height) return;
-          o.x = Math.max(0.08, Math.min(0.92, origX + (e.clientX - startX) / rect.width));
-          o.y = Math.max(0.08, Math.min(0.92, origY + (e.clientY - startY) / rect.height));
+          const m = getMetrics();
+          o.x = Math.max(0.06, Math.min(0.94, origX + (m.cx - startCenter.x) / rect.width));
+          o.y = Math.max(0.06, Math.min(0.94, origY + (m.cy - startCenter.y) / rect.height));
+          if (pointers.size >= 2 && startDist > 12 && m.dist > 12) {
+            o.scale = Math.max(0.45, Math.min(3.2, origScale * (m.dist / startDist)));
+          }
           el.style.left = (o.x * 100) + '%';
           el.style.top = (o.y * 100) + '%';
+          el.style.transform = `translate(-50%,-50%) scale(${o.scale})`;
+          trashZone.classList.toggle('hot', o.y > 0.84);
         });
-        const stopDrag = () => { dragging = false; };
-        el.addEventListener('pointerup', stopDrag);
-        el.addEventListener('pointercancel', stopDrag);
+
+        const endPointer = e => {
+          if (!pointers.has(e.pointerId)) return;
+          pointers.delete(e.pointerId);
+          if (pointers.size === 0) {
+            trashZone.style.display = 'none';
+            trashZone.classList.remove('hot');
+            if (o.y > 0.84) {
+              overlays = overlays.filter(x => x.id !== o.id);
+              selectedOverlayId = 0;
+              drawOverlays();
+            }
+          } else {
+            // остался 1 палец — переинициализируем базу для плавного перехода
+            const m = getMetrics();
+            startCenter = { x: m.cx, y: m.cy };
+            startDist = 0;
+            origX = o.x; origY = o.y; origScale = o.scale;
+          }
+        };
+        el.addEventListener('pointerup', endPointer);
+        el.addEventListener('pointercancel', endPointer);
+        // Поддержка колёсика мыши на случай теста с ПК
+        el.addEventListener('wheel', e => {
+          e.preventDefault();
+          o.scale = Math.max(0.45, Math.min(3.2, (o.scale || 1) * (e.deltaY < 0 ? 1.08 : 0.92)));
+          el.style.transform = `translate(-50%,-50%) scale(${o.scale})`;
+        }, { passive: false });
         return el;
       }));
-      syncSelectionBar();
     };
 
-    const selBar = h('div.acs-sel-bar', { style: { display: 'none' } });
-    const syncSelectionBar = () => {
-      const o = overlays.find(x => x.id === selectedOverlayId);
-      if (!o) { selBar.style.display = 'none'; return; }
-      selBar.style.display = 'flex';
-      selBar.replaceChildren(
-        h('button.acs-mini', { type: 'button', onclick: () => { o.size = Math.max(1, o.size - 1); drawOverlays(); } }, 'A−'),
-        h('button.acs-mini', { type: 'button', onclick: () => { o.size = Math.min(3, o.size + 1); drawOverlays(); } }, 'A+'),
-        h('button.acs-mini.danger', { type: 'button', onclick: () => { overlays = overlays.filter(x => x.id !== o.id); selectedOverlayId = 0; drawOverlays(); } }, icon('trash', 14), ' Удалить'));
-    };
+    // Позволяем делать pinch-to-zoom двумя пальцами даже если второй палец лёг рядом со стикером
+    const stagePointers = new Map();
+    let stagePinchDist = 0, stagePinchScale = 1;
+    stage.addEventListener('pointerdown', e => {
+      if (!selectedOverlayId) return;
+      stagePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (stagePointers.size === 2) {
+        const pts = [...stagePointers.values()];
+        stagePinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const o = overlays.find(x => x.id === selectedOverlayId);
+        stagePinchScale = o ? (o.scale || 1) : 1;
+      }
+    });
+    stage.addEventListener('pointermove', e => {
+      if (!stagePointers.has(e.pointerId)) return;
+      stagePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (stagePointers.size === 2 && stagePinchDist > 12 && selectedOverlayId) {
+        const pts = [...stagePointers.values()];
+        const d = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const o = overlays.find(x => x.id === selectedOverlayId);
+        if (o && d > 12) {
+          o.scale = Math.max(0.45, Math.min(3.2, stagePinchScale * (d / stagePinchDist)));
+          const node = ovlLayer.querySelector(`.acs-ovl[data-id="${o.id}"]`);
+          if (node) node.style.transform = `translate(-50%,-50%) scale(${o.scale})`;
+        }
+      }
+    });
+    const clearStagePtr = e => { stagePointers.delete(e.pointerId); if (stagePointers.size < 2) stagePinchDist = 0; };
+    stage.addEventListener('pointerup', clearStagePtr);
+    stage.addEventListener('pointercancel', clearStagePtr);
 
     const openTool = tool => {
       activeTool = activeTool === tool ? '' : tool;
@@ -344,7 +442,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
             type: 'button',
             onclick: () => {
               const id = nextOvlId++;
-              overlays.push({ id, kind: 'emoji', text: em, x: 0.5, y: 0.45, size: 2, style: 'white' });
+              overlays.push({ id, kind: 'emoji', text: em, x: 0.5, y: 0.45, scale: 1, style: 'white' });
               selectedOverlayId = id;
               drawOverlays();
             },
@@ -367,7 +465,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
           const t = inp.value.trim();
           if (!t) return;
           const id = nextOvlId++;
-          overlays.push({ id, kind: 'text', text: t, x: 0.5, y: 0.35, size: 2, style: styleId });
+          overlays.push({ id, kind: 'text', text: t, x: 0.5, y: 0.35, scale: 1, style: styleId });
           selectedOverlayId = id;
           inp.value = '';
           drawOverlays();
@@ -437,7 +535,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
       muteBtn);
 
     stage.append(vid, ovlLayer, !isImg ? playIcon : null);
-    root.replaceChildren(fileInput, stage, topBar, sideTools, selBar, drawer);
+    root.replaceChildren(fileInput, stage, topBar, sideTools, trashZone, drawer);
     drawOverlays();
   }
 
@@ -445,15 +543,16 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
     for (const o of overlays) {
       const px = o.x * cw;
       const py = o.y * ch;
+      const sc = o.scale || 1;
       ctx.save();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       if (o.kind === 'emoji') {
-        const sz = Math.round(cw * (o.size === 1 ? 0.09 : o.size === 3 ? 0.19 : 0.14));
+        const sz = Math.round(cw * 0.14 * sc);
         ctx.font = `${sz}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
         ctx.fillText(o.text, px, py);
       } else {
-        const sz = Math.round(cw * (o.size === 1 ? 0.045 : o.size === 3 ? 0.08 : 0.06));
+        const sz = Math.round(cw * 0.06 * sc);
         ctx.font = `700 ${sz}px system-ui,-apple-system,sans-serif`;
         const st = TEXT_STYLES.find(s => s.id === o.style) || TEXT_STYLES[0];
         const tw = ctx.measureText(o.text).width;
@@ -566,36 +665,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
             ctx.restore();
 
             // Рисуем стикеры и текстовые плашки
-            for (const o of overlays) {
-              const px = o.x * cw;
-              const py = o.y * ch;
-              ctx.save();
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              if (o.kind === 'emoji') {
-                const sz = Math.round(cw * (o.size === 1 ? 0.09 : o.size === 3 ? 0.19 : 0.14));
-                ctx.font = `${sz}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
-                ctx.fillText(o.text, px, py);
-              } else {
-                const sz = Math.round(cw * (o.size === 1 ? 0.045 : o.size === 3 ? 0.08 : 0.06));
-                ctx.font = `700 ${sz}px system-ui,-apple-system,sans-serif`;
-                const st = TEXT_STYLES.find(s => s.id === o.style) || TEXT_STYLES[0];
-                const tw = ctx.measureText(o.text).width;
-                if (st.bg) {
-                  const padX = sz * 0.45, padY = sz * 0.3;
-                  ctx.fillStyle = st.bg;
-                  ctx.beginPath();
-                  ctx.roundRect(px - tw / 2 - padX, py - sz / 2 - padY, tw + padX * 2, sz + padY * 2, sz * 0.3);
-                  ctx.fill();
-                } else {
-                  ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                  ctx.shadowBlur = 8;
-                }
-                ctx.fillStyle = st.fg;
-                ctx.fillText(o.text, px, py);
-              }
-              ctx.restore();
-            }
+            drawOverlaysOnCtx(ctx, cw, ch);
 
             onProgress && onProgress(Math.min(100, Math.round(((v.currentTime - startT) / totalT) * 100)));
             requestAnimationFrame(drawFrame);

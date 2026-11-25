@@ -139,7 +139,8 @@ body.acs-open{overflow:hidden!important}
 .acs-ovl.selected{outline:2px dashed #fff;outline-offset:3px}
 .acs-play-mark{position:absolute;inset:0;margin:auto;width:68px;height:68px;border-radius:50%;background:rgba(0,0,0,.5);display:grid;place-items:center;pointer-events:none;opacity:0;transition:opacity .15s;z-index:12}
 .acs-play-mark.show{opacity:1}
-.acs-sel-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:max(20px,env(safe-area-inset-bottom));display:flex;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(15,18,25,.85);backdrop-filter:blur(8px);z-index:16}
+.acs-trash-zone{position:absolute;left:50%;transform:translateX(-50%);bottom:max(22px,env(safe-area-inset-bottom));display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:999px;background:rgba(15,18,25,.85);border:1px solid rgba(255,255,255,.25);color:#fff;font-size:.82rem;font-weight:600;z-index:16;transition:all .15s;pointer-events:none}
+.acs-trash-zone.hot{background:#ef4444;border-color:#ef4444;transform:translateX(-50%) scale(1.08)}
 .acs-mini{padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.12);color:#fff;font-size:.8rem;font-weight:600;display:inline-flex;align-items:center;gap:4px;cursor:pointer}
 .acs-mini.active{background:var(--accent);border-color:var(--accent)}
 .acs-mini.danger{background:#ef4444;border-color:#ef4444}
@@ -154,5 +155,6 @@ body.acs-open{overflow:hidden!important}
 .acs-trim-row{display:flex;align-items:center;gap:10px;font-size:.84rem}
 .acs-trim-row span{min-width:56px;opacity:.85}
 .acs-trim-row input{flex:1;accent-color:var(--accent)}
-.acs-pub-back{position:absolute;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-end;z-index:25}
-.acs-pub-sheet{width:100%;background:var(--surf);color:var(--text);border-radius:22px 22px 0 0;padding:18px 18px max(22px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px}
+.acs-pub-back{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column;z-index:25;overflow-y:auto}
+.acs-pub-sheet{width:100%;max-width:520px;margin:0 auto;flex:1;background:var(--bg);color:var(--text);padding:max(20px,env(safe-area-inset-top)) 18px max(24px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:14px}
+.acs-pub-sheet .acs-mini{color:var(--text);background:var(--surf-2);border-color:var(--border)}

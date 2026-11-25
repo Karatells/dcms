@@ -6,6 +6,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.net.http.SslError
@@ -93,12 +94,36 @@ class MainActivity : AppCompatActivity() {
 
     private val mediaPermLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
+    ) { _ ->
         val req = pendingPermRequest
         pendingPermRequest = null
         if (req != null) {
-            val allGranted = results.values.all { it }
-            if (allGranted) req.grant(req.resources) else req.deny()
+            grantWebViewPermissions(req)
+        }
+    }
+
+    private fun grantWebViewPermissions(request: PermissionRequest) {
+        val allowed = mutableListOf<String>()
+        for (res in request.resources) {
+            when (res) {
+                PermissionRequest.RESOURCE_VIDEO_CAPTURE -> {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        allowed.add(res)
+                    }
+                }
+                PermissionRequest.RESOURCE_AUDIO_CAPTURE -> {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        allowed.add(res)
+                    }
+                }
+                else -> allowed.add(res)
+            }
+        }
+        runOnUiThread {
+            try {
+                if (allowed.isNotEmpty()) request.grant(allowed.toTypedArray())
+                else request.deny()
+            } catch (_: Exception) {}
         }
     }
 
@@ -190,6 +215,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun getDefaultVideoPoster(): Bitmap {
+                return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            }
+
             override fun onShowFileChooser(
                 webView: WebView,
                 filePathCallback: ValueCallback<Array<Uri>>,
@@ -228,7 +257,7 @@ class MainActivity : AppCompatActivity() {
                     pendingPermRequest = request
                     mediaPermLauncher.launch(needed.toTypedArray())
                 } else {
-                    request.grant(request.resources)
+                    grantWebViewPermissions(request)
                 }
             }
         }
