@@ -68,11 +68,24 @@ const RPS_MAP = { rock: '🪨 Камень', paper: '📄 Бумага', scissor
 
 router.add('/games', async ctx => {
   ctx.title('Мини-игры и дуэли');
-  const d = await api.get('/api/games/duels');
-  const reload = () => router.render();
+  let d = await api.get('/api/games/duels');
+  const contentHost = h('div.stack');
+  let lastSig = '';
+  let fetching = false;
 
-  const onUpd = bus.on('sse:duel_update', () => reload());
-  ctx.onLeave(() => onUpd && onUpd());
+  const refreshDuels = async (silent = true) => {
+    if (fetching) return;
+    fetching = true;
+    try {
+      const fresh = await api.get('/api/games/duels', null, { silent });
+      const sig = JSON.stringify(fresh);
+      if (sig !== lastSig) {
+        d = fresh;
+        lastSig = sig;
+        drawContent();
+      }
+    } catch {} finally { fetching = false; }
+  };
 
   const openCreate = () => {
     const gameSel = h('select.input',
@@ -105,7 +118,7 @@ router.add('/games', async ctx => {
             });
             modal.close();
             ui.ok('Дуэль создана!');
-            reload();
+            await refreshDuels(true);
             return false;
           },
         },
@@ -130,12 +143,12 @@ router.add('/games', async ctx => {
       if (g.game === 'rps') {
         body = h('div.row', ...Object.entries(RPS_MAP).map(([mv, lbl]) => ui.btn(lbl, {
           small: true, kind: 'primary',
-          onclick: async () => { await api.post(`/api/games/duels/${g.id}/join`, { move: mv }); ui.ok('Ход сделан!'); reload(); },
+          onclick: async () => { await api.post(`/api/games/duels/${g.id}/join`, { move: mv }); ui.ok('Ход сделан!'); await refreshDuels(true); },
         })));
       } else {
         body = ui.btn('Принять вызов', {
           ic: 'dice', small: true, kind: 'primary',
-          onclick: async () => { await api.post(`/api/games/duels/${g.id}/join`, {}); reload(); },
+          onclick: async () => { await api.post(`/api/games/duels/${g.id}/join`, {}); await refreshDuels(true); },
         });
       }
     } else if (g.status === 'playing' && g.game === 'ttt') {
@@ -146,7 +159,7 @@ router.add('/games', async ctx => {
         h('div.ttt-board', ...board.map((cell, idx) => h('button.ttt-cell', {
           type: 'button',
           disabled: !myTurn || cell !== 0,
-          onclick: async () => { await api.post(`/api/games/duels/${g.id}/move`, { cell: idx }); reload(); },
+          onclick: async () => { await api.post(`/api/games/duels/${g.id}/move`, { cell: idx }); await refreshDuels(true); },
         }, cell === 1 ? '✕' : cell === 2 ? '◯' : ''))));
     } else if (g.status === 'done') {
       const resText = g.winner ? `Победитель: ${g.winner === g.p1.id ? g.p1.nick : (g.p2 ? g.p2.nick : '')}` : 'Ничья!';
@@ -159,15 +172,34 @@ router.add('/games', async ctx => {
     return h('div.card.pad.stack-s', header, vs, body);
   };
 
+  const drawContent = () => {
+    contentHost.replaceChildren(
+      (d.mine && d.mine.length) ? ui.section('Мои активные дуэли', h('div.stack', ...d.mine.map(renderDuel))) : null,
+      ui.section('Открытые дуэли', (d.open && d.open.length) ? h('div.stack', ...d.open.map(renderDuel)) : ui.empty('Открытых дуэлей пока нет — создайте первую!', 'dice')),
+      (d.recent && d.recent.length) ? ui.section('Последние матчи', h('div.stack', ...d.recent.map(renderDuel))) : null,
+      (d.leaderboard && d.leaderboard.length) ? ui.section('Таблица лидеров', h('div.list', ...d.leaderboard.map((r, idx) => h('div.list-item',
+        h('b', `#${idx + 1}`), ui.avatar(r.user, 32), h('div.main', ui.userLink(r.user)), h('span.badge.primary', `${r.wins} побед`))))) : null);
+  };
+
+  lastSig = JSON.stringify(d);
+  drawContent();
+
+  const onUpd = bus.on('sse:duel_update', () => refreshDuels(true));
+  const poll = setInterval(() => {
+    if (document.visibilityState === 'visible' && !document.querySelector('.modal-back')) {
+      refreshDuels(true);
+    }
+  }, 3000);
+  ctx.onLeave(() => {
+    onUpd && onUpd();
+    clearInterval(poll);
+  });
+
   return [
     ui.pageHead('Мини-игры и дуэли', h('div.row',
       ui.btn('Задания', { ic: 'award', small: true, href: '/quests' }),
       me() ? ui.btn('Создать дуэль', { ic: 'plus', kind: 'primary', small: true, onclick: openCreate }) : null)),
-    (d.mine && d.mine.length) ? ui.section('Мои активные дуэли', h('div.stack', ...d.mine.map(renderDuel))) : null,
-    ui.section('Открытые дуэли', (d.open && d.open.length) ? h('div.stack', ...d.open.map(renderDuel)) : ui.empty('Открытых дуэлей пока нет — создайте первую!', 'dice')),
-    (d.recent && d.recent.length) ? ui.section('Последние матчи', h('div.stack', ...d.recent.map(renderDuel))) : null,
-    (d.leaderboard && d.leaderboard.length) ? ui.section('Таблица лидеров', h('div.list', ...d.leaderboard.map((r, idx) => h('div.list-item',
-      h('b', `#${idx + 1}`), ui.avatar(r.user, 32), h('div.main', ui.userLink(r.user)), h('span.badge.primary', `${r.wins} побед`))))) : null,
+    contentHost,
   ];
 });
 

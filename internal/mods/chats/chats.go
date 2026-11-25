@@ -405,6 +405,14 @@ func Register(a *core.App) {
 	voiceDir := filepath.Join(a.DataDir, "gvoice")
 	_ = os.MkdirAll(voiceDir, 0o755)
 
+	a.Describer("gchat", func(id int64) (core.Desc, bool) {
+		ch, ok := chatsT.Get(id)
+		if !ok {
+			return core.Desc{}, false
+		}
+		return core.Desc{Title: "Беседа · " + ch.Title, Text: "Перейти к беседе", Link: "/chats/" + i(ch.ID)}, true
+	})
+
 	a.OnUserDelete(func(uid int64) {
 		membersT.DeleteBy("user", i(uid))
 		msgsT.DeleteWhere(func(m *GroupChatMsg) bool { return m.UserID == uid })
@@ -891,7 +899,7 @@ func Register(a *core.App) {
 			if target, ok := a.UserByNick(sub[1]); ok && !notified[target.ID] {
 				if _, isM := memberOf(ch.ID, target.ID); isM {
 					notified[target.ID] = true
-					a.Notify(me.ID, target.ID, "mention", ch.ID, true)
+					a.Notify(me.ID, target.ID, "chat_mention", ch.ID, true)
 				}
 			}
 		}

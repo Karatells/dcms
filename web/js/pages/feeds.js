@@ -74,6 +74,11 @@ const NOTIF_TEXT = {
   del_frend: a => `к сожалению удалил${verb(a, '', 'а')} вас из списка друзей`, no_frend: a => `к сожалению отказал${verb(a, '', 'а')} вам в дружбе`,
   ok_frend: a => `стал${verb(a, '', 'а')} вашим другом`, otm_frend: a => `отменил${verb(a, '', 'а')} свою заявку в друзья`,
   user_rating: a => `оценил${verb(a, '', 'а')} вашу анкету`,
+  shorts_like: a => `оценил${verb(a, '', 'а')} ваш клип ❤️`,
+  shorts_komm: a => `прокомментировал${verb(a, '', 'а')} ваш клип`,
+  duel: a => `вызвал${verb(a, '', 'а')} вас на дуэль в мини-играх`,
+  mention: a => `упомянул${verb(a, '', 'а')} вас на стене`,
+  chat_mention: a => `упомянул${verb(a, '', 'а')} вас в групповой беседе`,
   group_invite: a => `приглашает вас вступить в сообщество`,
   group_req: a => `подал${verb(a, '', 'а')} заявку на вступление в ваше сообщество`,
   group_req_ok: a => `одобрил${verb(a, '', 'а')} вашу заявку на вступление в сообщество`,
@@ -106,8 +111,10 @@ router.add('/user/notification', async ctx => {
         },
       })) : null;
     return h('article.feed-item' + (n.read ? '' : '.unread'), ui.avatar(n.author, 42), h('div.main',
-      h('div.feed-head', ui.userLink(n.author), ' ', h('span.muted', (NOTIF_TEXT[n.type] || (() => 'уведомление'))(n.author)), h('span.grow'), ui.time(n.time)),
-      n.link ? h('a.feed-desc', { href: n.link }, h('div', h('div.title', n.desc?.title || 'Перейти'), n.desc?.text ? h('div.small.muted', n.desc.text) : null)) : null,
+      h('div.feed-head', ui.userLink(n.author), ' ', h('span.muted', (NOTIF_TEXT[n.type] || (() => 'новое уведомление'))(n.author)), h('span.grow'), ui.time(n.time)),
+      n.link ? h('a.feed-desc', { href: n.link },
+        n.desc?.image ? h('img', { src: n.desc.image, alt: '', loading: 'lazy' }) : null,
+        h('div', h('div.title', n.desc?.title || 'Перейти'), n.desc?.text ? h('div.small.muted', n.desc.text) : null)) : null,
       invActs),
       ui.btn('', { ic: 'x', small: true, title: 'Удалить', onclick: async () => { await api.del('/api/notification/' + n.id); reload(); } }));
   });

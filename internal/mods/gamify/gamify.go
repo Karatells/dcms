@@ -182,6 +182,22 @@ func Register(a *core.App) {
 		Index("user", func(x *ShopPurchase) string { return i(x.UserID) }).
 		Index("pair", func(x *ShopPurchase) string { return i(x.UserID) + ":" + x.ItemID })
 
+	a.Describer("duel", func(id int64) (core.Desc, bool) {
+		d, ok := duelsT.Get(id)
+		if !ok {
+			return core.Desc{}, false
+		}
+		gName := "Камень-ножницы-бумага"
+		if d.Game == "ttt" {
+			gName = "Крестики-нолики"
+		}
+		txt := "Без ставки · нажмите, чтобы принять вызов"
+		if d.Bet > 0 {
+			txt = "Ставка: " + i(d.Bet) + " б. · нажмите, чтобы принять вызов"
+		}
+		return core.Desc{Title: "Дуэль · " + gName, Text: txt, Link: "/games"}, true
+	})
+
 	a.OnUserDelete(func(uid int64) {
 		streaksT.DeleteBy("user", i(uid))
 		shopT.DeleteBy("user", i(uid))
@@ -396,6 +412,7 @@ func Register(a *core.App) {
 		duelsT.Insert(&d)
 		if p2 > 0 {
 			a.Notify(me.ID, p2, "duel", d.ID, true)
+			a.Hub.ToUser(p2, "duel_update", duelView(a, d, p2))
 		}
 		return c.JSON(duelView(a, d, me.ID))
 	}, core.Auth)

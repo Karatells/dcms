@@ -272,6 +272,7 @@ var notifDescribe = map[string]string{
 	"foto_komm": "foto", "notes_komm": "notes", "them_komm": "them", "stena_komm2": "stena",
 	"shorts_komm": "shorts", "shorts_like": "shorts",
 	"group_invite": "group_invite", "group_req": "group", "group_req_ok": "group", "group_dm": "group_dm",
+	"duel": "duel", "chat_mention": "gchat",
 }
 
 func notifLink(a *core.App, me int64, n model.Notification) (string, map[string]any) {
@@ -283,25 +284,30 @@ func notifLink(a *core.App, me int64, n model.Notification) (string, map[string]
 			}
 			return d.Link, m
 		}
+		if n.Type == "duel" {
+			return "/games", map[string]any{"title": "Мини-игры · Дуэль", "text": "Открыть страницу дуэлей"}
+		}
 		return "", nil
 	}
 	switch n.Type {
 	case "stena_komm":
-		return "/user/stena/" + store.I(n.IDObject), nil
+		return "/user/stena/" + store.I(n.IDObject), map[string]any{"title": "Стена", "text": "Перейти к записи"}
 	case "stena":
-		return "/user/stena/" + store.I(me), nil
+		return "/user/stena/" + store.I(me), map[string]any{"title": "Ваша стена", "text": "Открыть запись на стене"}
+	case "mention":
+		return "/user/stena/" + store.I(n.IDObject), map[string]any{"title": "Упоминание на стене", "text": "Перейти к записи"}
 	case "guest":
-		return "/guest", nil
+		return "/guest", map[string]any{"title": "Гостевая книга"}
 	case "adm_komm":
-		return "/chat/admin", nil
+		return "/admin/chat", map[string]any{"title": "Админ-чат"}
 	case "new_gift", "ok_gift", "no_gift":
-		return "/user/gift/" + store.I(me), nil
+		return "/user/gift/" + store.I(me), map[string]any{"title": "Подарки"}
 	case "money_in":
-		return "/user/money", nil
+		return "/user/money", map[string]any{"title": "Баланс монет", "text": "Поступило: " + store.I(n.IDObject) + " монет"}
 	case "ok_frend", "no_frend", "del_frend", "otm_frend":
 		return "/id" + store.I(n.Avtor), nil
 	case "user_rating":
-		return "/user/info/who_rating/" + store.I(me), nil
+		return "/user/info/who_rating/" + store.I(me), map[string]any{"title": "Оценки анкеты"}
 	}
 	return "", nil
 }
