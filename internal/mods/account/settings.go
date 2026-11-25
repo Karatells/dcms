@@ -15,7 +15,7 @@ func registerSettings(a *core.App) {
 			"add_konts": u.AddKonts, "set_time_chat": u.SetTimeChat, "set_news_to_mail": u.SetNewsToMail, "set_timesdvig": u.SetTimesdvig,
 			"show_url": u.ShowURL, "abuld": u.Abuld, "set_files": u.SetFiles, "set_p_str": u.SetPStr, "theme": u.Theme, "accent": u.Accent,
 			"privat_str": us.PrivatStr, "privat_mail": us.PrivatMail, "ocenka": us.Ocenka, "block_group_invites": us.BlockGroupInvites,
-			"privat_wall": us.PrivatWall, "privat_friends": us.PrivatFriends, "privat_stories": us.PrivatStories, "hide_online": us.HideOnline,
+			"privat_wall": us.PrivatWall, "privat_friends": us.PrivatFriends, "privat_stories": us.PrivatStories, "privat_duels": us.PrivatDuels, "hide_online": us.HideOnline,
 			"email": u.Email, "has_email": u.Email != "",
 		})
 	}, core.Auth)
@@ -96,6 +96,7 @@ func registerSettings(a *core.App) {
 			PrivatWall        *int64 `json:"privat_wall"`
 			PrivatFriends     *int64 `json:"privat_friends"`
 			PrivatStories     *int64 `json:"privat_stories"`
+			PrivatDuels       *int64 `json:"privat_duels"`
 			HideOnline        *bool  `json:"hide_online"`
 		}
 		if err := c.Bind(&in); err != nil {
@@ -121,6 +122,9 @@ func registerSettings(a *core.App) {
 			}
 			if in.PrivatStories != nil && *in.PrivatStories >= 0 && *in.PrivatStories <= 2 {
 				x.PrivatStories = *in.PrivatStories
+			}
+			if in.PrivatDuels != nil && *in.PrivatDuels >= 0 && *in.PrivatDuels <= 2 {
+				x.PrivatDuels = *in.PrivatDuels
 			}
 			if in.HideOnline != nil {
 				x.HideOnline = *in.HideOnline

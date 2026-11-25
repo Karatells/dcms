@@ -90,7 +90,8 @@ router.add('/games', async ctx => {
   const openCreate = () => {
     const gameSel = h('select.input',
       h('option', { value: 'rps' }, 'Камень-ножницы-бумага'),
-      h('option', { value: 'ttt' }, 'Крестики-нолики'));
+      h('option', { value: 'ttt' }, 'Крестики-нолики'),
+      h('option', { value: 'bs' }, '⚓ Морской бой (6×6)'));
     const betIn = h('input.input', { type: 'number', min: 0, max: 500, value: 10 });
     const oppIn = h('input.input', { placeholder: 'Оставьте пустым для открытой дуэли' });
     const moveSel = h('select.input',
@@ -128,7 +129,7 @@ router.add('/games', async ctx => {
 
   const renderDuel = g => {
     const isMine = me() && (g.p1.id === me().id || (g.p2 && g.p2.id === me().id));
-    const title = g.game === 'rps' ? 'Камень-ножницы-бумага' : 'Крестики-нолики';
+    const title = g.game === 'rps' ? 'Камень-ножницы-бумага' : g.game === 'bs' ? '⚓ Морской бой' : 'Крестики-нолики';
     const header = h('div.row',
       h('b', title),
       g.bet ? h('span.badge.primary', `Ставка: ${g.bet} б.`) : h('span.badge', 'Без ставки'),
@@ -161,6 +162,24 @@ router.add('/games', async ctx => {
           disabled: !myTurn || cell !== 0,
           onclick: async () => { await api.post(`/api/games/duels/${g.id}/move`, { cell: idx }); await refreshDuels(true); },
         }, cell === 1 ? '✕' : cell === 2 ? '◯' : ''))));
+    } else if ((g.status === 'playing' || g.status === 'done') && g.game === 'bs' && g.state) {
+      const myTurn = g.status === 'playing' && me() && g.turn === me().id;
+      const myB = g.state.my_board || Array(36).fill(0);
+      const enB = g.state.enemy_board || Array(36).fill(0);
+      const cellCh = (v, isEnemy) => (v === 2 ? '💥' : v === 3 ? '•' : (v === 1 && (!isEnemy || g.status === 'done')) ? '🚢' : '');
+      const mkBoard = (arr, isEnemy) => h('div.bs-board', ...arr.map((v, idx) => h('button.bs-cell' + (v === 2 ? '.hit' : v === 3 ? '.miss' : (v === 1 && (!isEnemy || g.status === 'done')) ? '.ship' : ''), {
+        type: 'button',
+        disabled: !isEnemy || !myTurn || v === 2 || v === 3,
+        onclick: async () => { await api.post(`/api/games/duels/${g.id}/move`, { cell: idx }); await refreshDuels(true); },
+      }, cellCh(v, isEnemy))));
+      const statusLine = g.status === 'done'
+        ? h('div.small', h('b.ok', g.winner ? `Победитель: ${g.winner === g.p1.id ? g.p1.nick : (g.p2 ? g.p2.nick : '')}` : 'Ничья!'))
+        : h('div.small', myTurn ? h('b.ok', 'Ваш выстрел! (попадание даёт ещё один ход)') : h('span.muted', 'Ход соперника…'));
+      body = h('div.stack-s',
+        statusLine,
+        h('div.bs-wrap',
+          h('div.stack-s', h('div.small.muted', `Поле соперника (палуб: ${g.state.enemy_left ?? 0})`), mkBoard(enB, true)),
+          h('div.stack-s', h('div.small.muted', `Ваш флот (палуб: ${g.state.my_left ?? 0})`), mkBoard(myB, false))));
     } else if (g.status === 'done') {
       const resText = g.winner ? `Победитель: ${g.winner === g.p1.id ? g.p1.nick : (g.p2 ? g.p2.nick : '')}` : 'Ничья!';
       const rpsInfo = g.game === 'rps' && g.state ? ` (${RPS_MAP[g.state.m1] || ''} vs ${RPS_MAP[g.state.m2] || ''})` : '';

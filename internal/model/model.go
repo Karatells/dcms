@@ -311,6 +311,7 @@ type UserSet struct {
 	PrivatWall        int64 `json:"privat_wall"`    // 0=все, 1=друзья, 2=только я
 	PrivatFriends     int64 `json:"privat_friends"` // 0=все, 1=друзья, 2=только я
 	PrivatStories     int64 `json:"privat_stories"` // 0=все, 1=друзья, 2=только я
+	PrivatDuels       int64 `json:"privat_duels"`   // 0=все, 1=друзья, 2=никто
 	HideOnline        bool  `json:"hide_online"`
 }
 

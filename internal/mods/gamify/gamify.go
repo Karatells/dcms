@@ -2,6 +2,7 @@ package gamify
 
 import (
 	"encoding/json"
+	"math/rand"
 	"sort"
 	"strings"
 	"time"
@@ -110,6 +111,101 @@ func getOrCreateStreak(uid int64) UserStreak {
 	return s
 }
 
+type bsState struct {
+	B1 [36]int `json:"b1"` // 0=вода, 1=корабль, 2=попадание, 3=промах
+	B2 [36]int `json:"b2"`
+}
+
+func genBattleshipBoard() [36]int {
+	ships := []int{3, 2, 2, 1, 1, 1}
+	for attempt := 0; attempt < 50; attempt++ {
+		var b [36]int
+		okAll := true
+		for _, sz := range ships {
+			placed := false
+			for tries := 0; tries < 80; tries++ {
+				horiz := rand.Intn(2) == 0
+				r := rand.Intn(6)
+				c := rand.Intn(6)
+				if horiz && c+sz > 6 {
+					continue
+				}
+				if !horiz && r+sz > 6 {
+					continue
+				}
+				can := true
+				for k := 0; k < sz && can; k++ {
+					rr, cc := r, c
+					if horiz {
+						cc += k
+					} else {
+						rr += k
+					}
+					for dr := -1; dr <= 1; dr++ {
+						for dc := -1; dc <= 1; dc++ {
+							nr, nc := rr+dr, cc+dc
+							if nr >= 0 && nr < 6 && nc >= 0 && nc < 6 && b[nr*6+nc] != 0 {
+								can = false
+							}
+						}
+					}
+				}
+				if can {
+					for k := 0; k < sz; k++ {
+						rr, cc := r, c
+						if horiz {
+							cc += k
+						} else {
+							rr += k
+						}
+						b[rr*6+cc] = 1
+					}
+					placed = true
+					break
+				}
+			}
+			if !placed {
+				okAll = false
+				break
+			}
+		}
+		if okAll {
+			return b
+		}
+	}
+	// детерминированный запасной вариант
+	var fb [36]int
+	for _, idx := range []int{0, 1, 2, 12, 13, 16, 17, 24, 29, 34} {
+		fb[idx] = 1
+	}
+	return fb
+}
+
+func maskBSBoard(b [36]int, reveal bool) [36]int {
+	if reveal {
+		return b
+	}
+	var out [36]int
+	for i, v := range b {
+		if v == 1 {
+			out[i] = 0
+		} else {
+			out[i] = v
+		}
+	}
+	return out
+}
+
+func countShipsLeft(b [36]int) int {
+	n := 0
+	for _, v := range b {
+		if v == 1 {
+			n++
+		}
+	}
+	return n
+}
+
 func duelView(a *core.App, d GameDuel, meID int64) map[string]any {
 	var st map[string]any
 	_ = json.Unmarshal([]byte(d.State), &st)
@@ -134,6 +230,34 @@ func duelView(a *core.App, d GameDuel, meID int64) map[string]any {
 			}
 		}
 		st = masked
+	}
+	// Для Морского боя скрываем неповреждённые корабли соперника до конца игры
+	if d.Game == "bs" {
+		var bs bsState
+		_ = json.Unmarshal([]byte(d.State), &bs)
+		done := d.Status == "done"
+		if meID == d.P2 {
+			st = map[string]any{
+				"my_board":    bs.B2,
+				"enemy_board": maskBSBoard(bs.B1, done),
+				"my_left":     countShipsLeft(bs.B2),
+				"enemy_left":  countShipsLeft(bs.B1),
+			}
+		} else if meID == d.P1 {
+			st = map[string]any{
+				"my_board":    bs.B1,
+				"enemy_board": maskBSBoard(bs.B2, done),
+				"my_left":     countShipsLeft(bs.B1),
+				"enemy_left":  countShipsLeft(bs.B2),
+			}
+		} else {
+			st = map[string]any{
+				"my_board":    maskBSBoard(bs.B1, done),
+				"enemy_board": maskBSBoard(bs.B2, done),
+				"my_left":     countShipsLeft(bs.B1),
+				"enemy_left":  countShipsLeft(bs.B2),
+			}
+		}
 	}
 	out := map[string]any{
 		"id":      d.ID,
@@ -190,6 +314,8 @@ func Register(a *core.App) {
 		gName := "Камень-ножницы-бумага"
 		if d.Game == "ttt" {
 			gName = "Крестики-нолики"
+		} else if d.Game == "bs" {
+			gName = "Морской бой"
 		}
 		txt := "Без ставки · нажмите, чтобы принять вызов"
 		if d.Bet > 0 {
@@ -378,8 +504,8 @@ func Register(a *core.App) {
 		if err := c.Bind(&in); err != nil {
 			return err
 		}
-		if in.Game != "rps" && in.Game != "ttt" {
-			return core.ErrBad("Выберите игру: rps или ttt")
+		if in.Game != "rps" && in.Game != "ttt" && in.Game != "bs" {
+			return core.ErrBad("Выберите игру: rps, ttt или bs")
 		}
 		if in.Bet < 0 || in.Bet > 500 {
 			return core.ErrBad("Ставка должна быть от 0 до 500 баллов")
@@ -393,21 +519,25 @@ func Register(a *core.App) {
 			if !ok || u.ID == me.ID {
 				return core.ErrBad("Соперник не найден")
 			}
+			if !a.CanAccessPrivacy(me, u.ID, a.UserSettings(u.ID).PrivatDuels) {
+				return core.ErrForbidden("Этот пользователь запретил вызывать себя на дуэли")
+			}
 			p2 = u.ID
 		}
-		stObj := map[string]any{}
+		var rawSt []byte
 		if in.Game == "rps" {
 			if in.Move != "rock" && in.Move != "paper" && in.Move != "scissors" {
 				return core.ErrBad("Выберите ваш ход: камень, ножницы или бумага")
 			}
-			stObj["m1"] = in.Move
+			rawSt, _ = json.Marshal(map[string]any{"m1": in.Move})
+		} else if in.Game == "bs" {
+			rawSt, _ = json.Marshal(bsState{B1: genBattleshipBoard(), B2: genBattleshipBoard()})
 		} else {
-			stObj["board"] = [9]int{}
+			rawSt, _ = json.Marshal(map[string]any{"board": [9]int{}})
 		}
 		if in.Bet > 0 {
 			a.T.Users.Update(me.ID, func(u *model.User) { u.Balls -= in.Bet })
 		}
-		rawSt, _ := json.Marshal(stObj)
 		d := GameDuel{Game: in.Game, P1: me.ID, P2: p2, Bet: in.Bet, Status: "open", Turn: me.ID, State: string(rawSt), Created: core.Now()}
 		duelsT.Insert(&d)
 		if p2 > 0 {
@@ -487,7 +617,7 @@ func Register(a *core.App) {
 			return err
 		}
 		d, ok := duelsT.Get(c.PathInt("id"))
-		if !ok || d.Status != "playing" || d.Game != "ttt" {
+		if !ok || d.Status != "playing" || (d.Game != "ttt" && d.Game != "bs") {
 			return core.ErrBad("Игра недоступна для хода")
 		}
 		if d.Turn != me.ID {
@@ -498,6 +628,51 @@ func Register(a *core.App) {
 		}
 		if err := c.Bind(&in); err != nil {
 			return err
+		}
+		if d.Game == "bs" {
+			if in.Cell < 0 || in.Cell >= 36 {
+				return core.ErrBad("Некорректная клетка")
+			}
+			var bs bsState
+			_ = json.Unmarshal([]byte(d.State), &bs)
+			target := &bs.B2
+			oppID := d.P2
+			if me.ID == d.P2 {
+				target = &bs.B1
+				oppID = d.P1
+			}
+			if target[in.Cell] == 2 || target[in.Cell] == 3 {
+				return core.ErrBad("Вы уже стреляли в эту клетку")
+			}
+			nextTurn := oppID
+			hit := false
+			if target[in.Cell] == 1 {
+				target[in.Cell] = 2
+				hit = true
+				nextTurn = me.ID // при попадании — повторный выстрел!
+			} else {
+				target[in.Cell] = 3
+			}
+			status := "playing"
+			var winID int64
+			if hit && countShipsLeft(*target) == 0 {
+				status = "done"
+				winID = me.ID
+				if d.Bet > 0 {
+					a.AddBalls(me.ID, d.Bet*2, 0)
+				}
+			}
+			rawSt, _ := json.Marshal(bs)
+			duelsT.Update(d.ID, func(x *GameDuel) {
+				x.State = string(rawSt)
+				x.Status = status
+				x.Turn = nextTurn
+				x.Winner = winID
+			})
+			upd, _ := duelsT.Get(d.ID)
+			a.Hub.ToUser(upd.P1, "duel_update", duelView(a, upd, upd.P1))
+			a.Hub.ToUser(upd.P2, "duel_update", duelView(a, upd, upd.P2))
+			return c.JSON(duelView(a, upd, me.ID))
 		}
 		if in.Cell < 0 || in.Cell > 8 {
 			return core.ErrBad("Некорректная клетка")

@@ -160,6 +160,7 @@ router.add('/user/settings/privacy', async ctx => {
     { name: 'privat_wall', label: 'Кто может писать на моей стене', type: 'select', value: s.privat_wall || 0, options: extOpts },
     { name: 'privat_friends', label: 'Кто видит список моих друзей', type: 'select', value: s.privat_friends || 0, options: extOpts },
     { name: 'privat_stories', label: 'Кто видит мои истории (Сторис)', type: 'select', value: s.privat_stories || 0, options: extOpts },
+    { name: 'privat_duels', label: 'Кто может вызывать меня на дуэли в мини-играх', type: 'select', value: s.privat_duels || 0, options: [{ value: 0, label: 'Все' }, { value: 1, label: 'Только друзья' }, { value: 2, label: 'Никто' }] },
     { name: 'ocenka', label: 'Кто может оценивать мой профиль', type: 'select', value: s.ocenka, options: opts },
     { name: 'hide_online', label: 'Скрыть статус «онлайн» от других пользователей', type: 'checkbox', value: !!s.hide_online },
     { name: 'block_group_invites', label: 'Запретить приглашения в сообщества', type: 'checkbox', value: !!s.block_group_invites },
@@ -167,7 +168,7 @@ router.add('/user/settings/privacy', async ctx => {
     onSubmit: async v => {
       await api.put('/api/settings/privacy', {
         privat_str: +v.privat_str, privat_mail: +v.privat_mail, ocenka: +v.ocenka,
-        privat_wall: +v.privat_wall, privat_friends: +v.privat_friends, privat_stories: +v.privat_stories,
+        privat_wall: +v.privat_wall, privat_friends: +v.privat_friends, privat_stories: +v.privat_stories, privat_duels: +v.privat_duels,
         hide_online: !!v.hide_online, block_group_invites: !!v.block_group_invites,
       });
       ui.ok('Изменения успешно приняты');
