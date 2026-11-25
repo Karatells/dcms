@@ -288,6 +288,14 @@ function swapView(view, nodes, isSamePage) {
   }
 }
 
+/** Проверка, что интерфейс открыт внутри нативного/десктопного клиента (Electron или Android). */
+export const isNativeClient = () => !!(window.dcmsNative || /DcmsAndroid\//i.test(navigator.userAgent));
+export const nativePlatform = () => {
+  if (!window.dcmsNative) return /DcmsAndroid\//i.test(navigator.userAgent) ? 'android' : '';
+  return typeof window.dcmsNative.platform === 'function' ? window.dcmsNative.platform() : (window.dcmsNative.platform || 'desktop');
+};
+const NATIVE_GUEST_RE = /^\/(login|reg(\/activate\/[^/]+\/[^/]+)?|pass(\/[^/]+\/[^/]+)?|ban)$/;
+
 function compile(pattern) {
   const keys = [];
   const re = new RegExp('^' + pattern.replace(/\/+$/, '').replace(/:([a-zA-Z_]+)(\*)?/g, (_, k, star) => { keys.push(k); return star ? '(.+)' : '([^/]+)'; }) + '/?$');
@@ -304,6 +312,12 @@ export const router = {
     const seq = ++renderSeq;
     const url = new URL(location.href);
     const path = url.pathname.replace(/\/+$/, '') || '/';
+    const guestClient = isNativeClient() && !state.user;
+    document.body.classList.toggle('native-auth-only', guestClient);
+    if (guestClient && !NATIVE_GUEST_RE.test(path)) {
+      history.replaceState(null, '', '/login');
+      return router.render();
+    }
     const isSamePage = path === lastRenderedPath;
 
     for (const r of routes) {

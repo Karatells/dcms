@@ -1,4 +1,4 @@
-import { h, $, api, bus, can, events, icon, link, refreshCounters, refreshMe, router, state, ui } from './core.js';
+import { h, $, api, bus, can, events, icon, isNativeClient, link, nativePlatform, refreshCounters, refreshMe, router, state, ui } from './core.js';
 import pages from './pages/manifest.js';
 
 // mdi-имена иконок меню старого движка → наши иконки
@@ -139,7 +139,7 @@ function drawTop() {
   }
   top.append(searchBtn, createBtn, themeBtn, staffBtn, topButton('/user/discussions', 'message-circle', 'discussions', 'Обсуждения'), mailBtn, topButton('/user/notification', 'bell', 'notification', 'Уведомления'), menu);
 }
-async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('Выйти из аккаунта?'))) return; await api.post('/api/logout'); await refreshMe(); events.restart(); router.go('/'); }
+async function logout() { if (state.config.exit !== '0' && !(await ui.confirm('Выйти из аккаунта?'))) return; await api.post('/api/logout'); await refreshMe(); events.restart(); router.go(isNativeClient() ? '/login' : '/', true); }
 
 async function drawSide() {
   const u = state.user, c = state.counters || {};
@@ -206,7 +206,7 @@ async function drawSide() {
       mk('/user/settings', 'settings', 'Настройки'));
   }
   restMenu.slice(3).forEach(m => moreNav.append(h('a', { href: m.url }, icon(menuIcon(m.icon), 18), m.name, m.count ? h('span.cnt', m.count) : null)));
-  moreNav.append(mk('/apps', 'smartphone', 'Приложения'));
+  if (!isNativeClient()) moreNav.append(mk('/apps', 'smartphone', 'Приложения'));
   moreNav.append(mk('/developers', 'key', 'Разработчикам (API)'));
 
   const moreOpen = location.pathname.startsWith('/user/') || location.pathname.startsWith('/developers') || location.pathname.startsWith('/apps');
@@ -266,8 +266,13 @@ async function refreshAll() {
   const sn = $('#sitename'); sn && (sn.textContent = state.config.site_name || 'DCMS Social');
   const sc = $('#sitechar'); sc && (sc.textContent = siteInitial());
 }
-bus.on('user', () => { refreshAll(); events.restart(); });
-bus.on('counters', () => { drawTop(); drawSide(); drawTabbar(); });
+function syncNativeBadge() {
+  if (!window.dcmsNative || typeof window.dcmsNative.setBadge !== 'function') return;
+  const c = state.counters || {};
+  window.dcmsNative.setBadge((c.mail || 0) + (c.notification || 0));
+}
+bus.on('user', () => { refreshAll(); syncNativeBadge(); events.restart(); });
+bus.on('counters', () => { drawTop(); drawSide(); drawTabbar(); syncNativeBadge(); });
 bus.on('route', () => { markActive(); syncMsgViewport(); });
 let _prevMsgH = 0;
 function syncMsgViewport() {
@@ -318,6 +323,11 @@ setInterval(() => { if (state.user && document.visibilityState === 'visible') re
 
 // ── старт
 (async function main() {
+  if (isNativeClient()) {
+    document.body.classList.add('native-client');
+    const plat = nativePlatform();
+    if (plat) document.body.classList.add('native-' + plat);
+  }
   await refreshMe().catch(() => {});
   build();
   // подключаем страницы модулей параллельно, но регистрируем маршруты в порядке манифеста

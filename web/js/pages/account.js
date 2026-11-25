@@ -1,7 +1,71 @@
-import { h, api, ui, router, state, icon, link, bus, events, refreshMe, returnTo, fmt } from '../core.js';
+import { h, api, ui, router, state, icon, isNativeClient, link, nativePlatform, bus, events, refreshMe, returnTo, fmt } from '../core.js';
 
-const authBox = (title, sub, ...c) => h('div.auth-box', h('div.card.pad', h('div.stack', h('div', h('h1', title), sub ? h('p.muted', sub) : null), ...c)));
-async function afterLogin() { await refreshMe(); events.restart(); router.go(returnTo()); }
+async function changeNativeServer() {
+  const cur = location.origin;
+  const next = await ui.prompt('Введите адрес сервера соцсети (https://...)', cur, { title: 'Сменить сервер' });
+  if (!next || !next.trim()) return;
+  if (window.dcmsNative && typeof window.dcmsNative.setServerUrl === 'function') {
+    window.dcmsNative.setServerUrl(next.trim());
+  }
+}
+
+function toggleClientTheme() {
+  const cur = document.documentElement.dataset.theme;
+  const dark = cur === 'dark' || (cur === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const next = dark ? 'light' : 'dark';
+  localStorage.setItem('theme', next);
+  document.documentElement.dataset.theme = next;
+}
+
+const authBox = (title, sub, ...c) => {
+  if (!isNativeClient()) {
+    return h('div.auth-box', h('div.card.pad', h('div.stack', h('div', h('h1', title), sub ? h('p.muted', sub) : null), ...c)));
+  }
+  const siteName = state.config.site_name || 'DCMS Social';
+  const initial = (Array.from(siteName.trim())[0] || 'D').toUpperCase();
+  const plat = nativePlatform();
+  const platLabel = plat === 'android' ? 'Android' : 'Desktop';
+  const p = location.pathname;
+  const isLogin = p === '/login' || p === '/';
+  const isReg = p === '/reg';
+  const regOpen = state.config.reg_select !== 'close';
+
+  const hero = h('section.na-hero',
+    h('div.na-brand',
+      h('div.na-logo', initial),
+      h('div',
+        h('div.na-title', siteName),
+        h('div.na-sub', platLabel + ' клиент'))),
+    h('p.na-lead', 'Единое пространство для общения, ленты, музыки и сообществ — быстро и всегда под рукой.'),
+    h('ul.na-feats',
+      h('li', icon('message-circle', 18), h('span', 'Живые личные чаты, беседы и голосовые сообщения')),
+      h('li', icon('video', 18), h('span', 'Умная лента, истории, фото и короткие видео')),
+      h('li', icon('music', 18), h('span', 'Музыкальный плеер, сообщества и мини-игры'))),
+    h('div.na-server',
+      h('span.na-server-url', icon('globe', 14), ' ', location.host),
+      window.dcmsNative && typeof window.dcmsNative.setServerUrl === 'function'
+        ? h('button.na-server-btn', { type: 'button', onclick: changeNativeServer }, 'Сменить')
+        : null));
+
+  const tabs = (isLogin || isReg) ? h('div.na-tabs',
+    h('a.na-tab' + (isLogin ? '.active' : ''), { href: '/login' }, 'Вход'),
+    regOpen ? h('a.na-tab' + (isReg ? '.active' : ''), { href: '/reg' }, 'Регистрация') : null) : null;
+
+  const card = h('section.na-card',
+    h('div.na-card-top',
+      tabs || h('a.na-back', { href: '/login' }, icon('chevron-left', 16), ' Ко входу'),
+      h('button.icon-btn', { type: 'button', title: 'Переключить тему', onclick: toggleClientTheme }, icon('sun', 18))),
+    h('div.na-head',
+      h('h1', title),
+      sub ? h('p.muted', sub) : null),
+    h('div.stack', ...c),
+    window.dcmsNative && typeof window.dcmsNative.setServerUrl === 'function'
+      ? h('div.na-mob-server', h('span', location.host), h('button', { type: 'button', onclick: changeNativeServer }, 'Сменить сервер'))
+      : null);
+
+  return h('div.native-auth-shell', h('div.na-frame', hero, card));
+};
+async function afterLogin() { await refreshMe(); events.restart(); router.go(returnTo(), true); }
 
 // ───────── вход
 router.add('/login', async ctx => {
