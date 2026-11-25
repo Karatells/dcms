@@ -226,6 +226,10 @@ const I = {
   'skip-back': 'M19 20 9 12l10-8v16zM5 19V5',
   'skip-forward': 'M5 4l10 8-10 8V4zM19 5v14',
   'shopping-bag': 'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0',
+  phone: 'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z',
+  'phone-off': 'M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91M23 1 1 23',
+  'mic-off': 'M1 1l22 22M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M12 19v4M8 23h8',
+  'video-off': 'M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10M1 1l22 22',
 };
 export function icon(name, size = 18, cls = '') {
   const svg = h('svg', { class: 'icon ' + cls, width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
@@ -882,7 +886,7 @@ function reconnect() {
     if (es) es.close();
     const t = [...topics.keys()].join(',');
     es = new EventSource('/api/events' + (t ? '?topics=' + encodeURIComponent(t) : ''));
-    ['notify', 'counters', 'chat', 'message', 'event', 'group_dm', 'group_chat', 'shorts_ready', 'shorts_progress', 'typing', 'mail_read', 'mail_react', 'mail_edit', 'adm_chat', 'adm_chat_del', 'gchat_msg', 'gchat_edit', 'gchat_react', 'gchat_typing', 'gchat_del', 'duel_update', 'mfa_request'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
+    ['notify', 'counters', 'chat', 'message', 'event', 'group_dm', 'group_chat', 'shorts_ready', 'shorts_progress', 'typing', 'mail_read', 'mail_react', 'mail_edit', 'adm_chat', 'adm_chat_del', 'gchat_msg', 'gchat_edit', 'gchat_react', 'gchat_typing', 'gchat_del', 'duel_update', 'mfa_request', 'call_signal'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
     es.onerror = () => { es.close(); es = null; setTimeout(reconnect, 5000); };
   }, 50);
 }

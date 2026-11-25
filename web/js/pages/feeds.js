@@ -822,6 +822,8 @@ router.add('/mail/:id', async ctx => {
     h('a.icon-btn', { href: '/mail', title: 'Назад к почте', 'aria-label': 'Назад' }, icon('arrow-left', 20)),
     ui.avatar(d.user, 38),
     h('div.msg-head-info', ui.userLink(d.user, { badges: true }), statusEl),
+    h('button.icon-btn', { type: 'button', title: 'Аудиозвонок', onclick: () => import('../calls.js').then(m => m.startCall(d.user, 'audio')) }, icon('phone', 19)),
+    h('button.icon-btn', { type: 'button', title: 'Видеозвонок', onclick: () => import('../calls.js').then(m => m.startCall(d.user, 'video')) }, icon('video', 19)),
     h('button.icon-btn', { type: 'button', title: 'Поиск по переписке', onclick: toggleSearch }, icon('search', 19)),
     !d.contact ? ui.btn('', { ic: 'user-plus', small: true, title: 'В контакты', onclick: async () => { await api.post('/api/konts/' + d.user.id); ui.ok('Добавлено в контакты'); reload(); } }) : null,
     ui.dropdown(h('button.icon-btn', { title: 'Меню' }, icon('more', 20)), [

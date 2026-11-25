@@ -50,6 +50,8 @@ router.add('/id:id', async ctx => {
         h('div.profile-actions', self
           ? [ui.btn('Редактировать', { ic: 'edit', href: '/user/info/edit' }), ui.btn('Настройки', { ic: 'settings', href: '/user/settings' }), verifyBtn]
           : [me() ? ui.btn('Написать', { ic: 'mail', kind: 'primary', href: '/mail/' + u.id }) : null,
+             me() ? ui.btn('', { ic: 'phone', title: 'Аудиозвонок', onclick: () => import('../calls.js').then(m => m.startCall(u, 'audio')) }) : null,
+             me() ? ui.btn('', { ic: 'video', title: 'Видеозвонок', onclick: () => import('../calls.js').then(m => m.startCall(u, 'video')) }) : null,
              me() ? friendButton(u, d.friend, render) : null,
              me() ? ui.btn('', { ic: d.favorite ? 'heart' : 'bookmark', title: d.favorite ? 'Убрать из закладок' : 'В закладки', onclick: async () => { await api.post(`/api/user/${u.id}/favorite`, { on: !d.favorite }); render(); } }) : null,
              me() ? ui.btn('', { ic: 'gift', title: 'Подарить подарок', href: '/user/gift/' + u.id }) : null,

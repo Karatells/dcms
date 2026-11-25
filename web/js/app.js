@@ -371,6 +371,7 @@ async function checkPendingMfa() {
   } catch {}
 }
 bus.on('sse:mfa_request', showMfaApproveModal);
+bus.on('sse:call_signal', sig => { import('./calls.js').then(m => m.handleCallSignal(sig)).catch(() => {}); });
 bus.on('user', () => { if (state.user) checkPendingMfa(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkPendingMfa(); });
 const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип', group_invite: 'приглашает вас в сообщество', group_req: 'подал заявку в ваше сообщество', group_req_ok: 'одобрил вашу заявку в сообщество', group_dm: 'ответили от имени сообщества', mention: 'упомянул вас на стене', chat_mention: 'упомянул вас в беседе', duel: 'вызвал вас на дуэль' };
