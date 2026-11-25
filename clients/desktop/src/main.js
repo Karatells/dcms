@@ -1,6 +1,9 @@
-const { app, BrowserWindow, Menu, Tray, shell, ipcMain, nativeImage, session } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, ipcMain, nativeImage, session, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const https = require('https');
+const crypto = require('crypto');
 
 function loadBuildConfig() {
   try {
@@ -76,6 +79,7 @@ function createTray() {
   const menu = Menu.buildFromTemplate([
     { label: 'Открыть ' + (buildCfg.appName || 'DCMS'), click: () => { mainWin?.show(); mainWin?.focus(); } },
     { label: 'Обновить', click: () => mainWin?.webContents.reload() },
+    { label: 'Проверить обновления', click: () => { mainWin?.show(); mainWin?.webContents.executeJavaScript('window.dcmsCheckUpdate && window.dcmsCheckUpdate(true)').catch(() => {}); } },
     { type: 'separator' },
     { label: 'Сменить сервер…', click: () => { mainWin?.show(); mainWin?.loadFile(path.join(__dirname, 'offline.html')); } },
     { type: 'separator' },
@@ -204,6 +208,54 @@ ipcMain.on('dcms:setBadge', (_e, count) => {
     const base = buildCfg.appName || 'DCMS Social';
     mainWin.setTitle(count > 0 ? `(${count}) ${base}` : base);
   }
+});
+
+ipcMain.handle('dcms:downloadUpdate', async (_e, { url, file, sha256 }) => {
+  const fullUrl = /^https?:\/\//i.test(url) ? url : (serverUrl.replace(/\/+$/, '') + '/' + String(url || '').replace(/^\/+/, ''));
+  const safeName = path.basename(file || 'dcms-update.zip');
+  const dest = path.join(app.getPath('downloads'), safeName);
+
+  await new Promise((resolve, reject) => {
+    const mod = fullUrl.startsWith('https://') ? https : http;
+    const req = mod.get(fullUrl, { rejectUnauthorized: !buildCfg.allowInsecureTls }, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        return reject(new Error('HTTP ' + res.statusCode));
+      }
+      const total = Number(res.headers['content-length'] || 0);
+      let loaded = 0;
+      const hash = crypto.createHash('sha256');
+      const out = fs.createWriteStream(dest);
+      res.on('data', (chunk) => {
+        loaded += chunk.length;
+        hash.update(chunk);
+        if (total > 0 && mainWin) {
+          mainWin.webContents.send('dcms:updateProgress', { pct: Math.round((loaded / total) * 100) });
+        }
+      });
+      res.pipe(out);
+      out.on('finish', () => {
+        out.close(() => {
+          const actual = hash.digest('hex');
+          if (sha256 && actual.toLowerCase() !== String(sha256).toLowerCase()) {
+            try { fs.unlinkSync(dest); } catch {}
+            return reject(new Error('Ошибка контрольной суммы SHA-256'));
+          }
+          resolve();
+        });
+      });
+      out.on('error', reject);
+    });
+    req.on('error', reject);
+  });
+
+  shell.showItemInFolder(dest);
+  dialog.showMessageBox(mainWin, {
+    type: 'info',
+    title: 'Обновление скачано',
+    message: `Файл ${safeName} сохранён в «Загрузки».`,
+    detail: 'Распакуйте архив и замените папку приложения, чтобы перейти на новую версию.',
+  }).catch(() => {});
+  return { ok: true, path: dest };
 });
 
 app.whenReady().then(() => {

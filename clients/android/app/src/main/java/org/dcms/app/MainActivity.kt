@@ -38,7 +38,19 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -329,6 +341,71 @@ class MainActivity : AppCompatActivity() {
     inner class NativeBridge {
         @JavascriptInterface
         fun platform(): String = "android"
+
+        @JavascriptInterface
+        fun getAppVersion(): String = BuildConfig.VERSION_NAME
+
+        @JavascriptInterface
+        fun installUpdate(downloadPath: String, expectedSha256: String) {
+            val fullUrl = if (downloadPath.startsWith("http://") || downloadPath.startsWith("https://")) {
+                downloadPath
+            } else {
+                serverUrl().trimEnd('/') + "/" + downloadPath.trimStart('/')
+            }
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, "Скачивание обновления…", Toast.LENGTH_SHORT).show()
+            }
+            Thread {
+                try {
+                    val dir = File(cacheDir, "updates").apply { mkdirs() }
+                    val apkFile = File(dir, "dcms-update.apk")
+                    val conn = URL(fullUrl).openConnection() as HttpURLConnection
+                    if (conn is HttpsURLConnection && BuildConfig.ALLOW_INSECURE_TLS) {
+                        val tm = arrayOf<TrustManager>(object : X509TrustManager {
+                            override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
+                            override fun checkServerTrusted(c: Array<X509Certificate>, a: String) {}
+                            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+                        })
+                        val sc = SSLContext.getInstance("TLS").apply { init(null, tm, SecureRandom()) }
+                        conn.sslSocketFactory = sc.socketFactory
+                        conn.setHostnameVerifier { _, _ -> true }
+                    }
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 60000
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw RuntimeException("HTTP $code")
+
+                    val md = MessageDigest.getInstance("SHA-256")
+                    conn.inputStream.use { inp ->
+                        FileOutputStream(apkFile).use { out ->
+                            val buf = ByteArray(16384)
+                            while (true) {
+                                val n = inp.read(buf)
+                                if (n <= 0) break
+                                out.write(buf, 0, n)
+                                md.update(buf, 0, n)
+                            }
+                        }
+                    }
+                    val actualSha = md.digest().joinToString("") { "%02x".format(it) }
+                    if (expectedSha256.isNotBlank() && !actualSha.equals(expectedSha256.trim(), ignoreCase = true)) {
+                        apkFile.delete()
+                        throw RuntimeException("Ошибка контрольной суммы SHA-256")
+                    }
+
+                    val uri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", apkFile)
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    runOnUiThread { startActivity(intent) }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Ошибка обновления: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
+        }
 
         @JavascriptInterface
         fun canSign2FA(): Boolean = true

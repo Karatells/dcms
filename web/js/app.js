@@ -376,12 +376,80 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип', group_invite: 'приглашает вас в сообщество', group_req: 'подал заявку в ваше сообщество', group_req_ok: 'одобрил вашу заявку в сообщество', group_dm: 'ответили от имени сообщества', mention: 'упомянул вас на стене', chat_mention: 'упомянул вас в беседе', duel: 'вызвал вас на дуэль' };
 setInterval(() => { if (state.user && document.visibilityState === 'visible') refreshCounters(); }, 60000);
 
+// ── Проверка автообновлений клиентов (Android APK / Electron Desktop)
+let _updBar = null;
+async function checkClientUpdate(manual = false) {
+  if (!isNativeClient() || !window.dcmsNative) return;
+  const plat = nativePlatform();
+  let curVer = '';
+  if (typeof window.dcmsNative.getAppVersion === 'function') curVer = window.dcmsNative.getAppVersion();
+  else if (window.dcmsNative.version) curVer = window.dcmsNative.version;
+  else {
+    const m = navigator.userAgent.match(/DcmsAndroid\/([0-9.]+)/i);
+    if (m) curVer = m[1];
+  }
+  if (!curVer) return;
+  const osPlat = plat === 'android' ? 'android' : (window.dcmsNative.os === 'win32' ? 'windows' : 'linux');
+  const arch = window.dcmsNative.arch || '';
+  try {
+    const r = await api.get('/api/apps/check', { platform: osPlat, arch, current: curVer }, { silent: true });
+    if (!r || !r.update_available) {
+      if (manual) ui.ok(`У вас установлена последняя версия (v${curVer})`);
+      return;
+    }
+    if (!manual && sessionStorage.getItem('dcms_upd_skip') === r.latest) return;
+    if (_updBar) _updBar.remove();
+    const updBtn = h('button.btn.primary.sm', {
+      type: 'button',
+      onclick: async () => {
+        if (plat === 'android' && typeof window.dcmsNative.installUpdate === 'function') {
+          updBtn.disabled = true;
+          updBtn.textContent = 'Загрузка…';
+          window.dcmsNative.installUpdate(r.download_url, r.sha256 || '');
+          setTimeout(() => { updBtn.disabled = false; updBtn.textContent = 'Обновить'; }, 8000);
+        } else if (typeof window.dcmsNative.downloadUpdate === 'function') {
+          updBtn.disabled = true;
+          updBtn.textContent = 'Загрузка 0%';
+          if (typeof window.dcmsNative.onUpdateProgress === 'function') {
+            window.dcmsNative.onUpdateProgress(p => { if (p && p.pct != null) updBtn.textContent = `Загрузка ${p.pct}%`; });
+          }
+          try {
+            await window.dcmsNative.downloadUpdate(r.download_url, r.file, r.sha256 || '');
+            ui.ok('Обновление скачано в папку «Загрузки»');
+            _updBar && _updBar.remove();
+          } catch (e) {
+            ui.toast('Ошибка загрузки: ' + (e.message || e), 'error');
+            updBtn.disabled = false;
+            updBtn.textContent = 'Обновить';
+          }
+        } else {
+          location.href = r.download_url;
+        }
+      },
+    }, icon('download', 14), ' Обновить');
+    _updBar = h('div.upd-banner',
+      icon('zap', 16),
+      h('span.grow', `Доступна новая версия `, h('b', 'v' + r.latest), r.size ? ` (${(r.size / 1048576).toFixed(1)} МБ)` : ''),
+      updBtn,
+      h('button.icon-btn', {
+        type: 'button', title: 'Позже',
+        onclick: () => { sessionStorage.setItem('dcms_upd_skip', r.latest); _updBar && _updBar.remove(); _updBar = null; },
+      }, icon('x', 16)));
+    document.body.append(_updBar);
+  } catch {
+    if (manual) ui.toast('Не удалось проверить обновления', 'error');
+  }
+}
+window.dcmsCheckUpdate = checkClientUpdate;
+
 // ── старт
 (async function main() {
   if (isNativeClient()) {
     document.body.classList.add('native-client');
     const plat = nativePlatform();
     if (plat) document.body.classList.add('native-' + plat);
+    setTimeout(() => checkClientUpdate(false), 3500);
+    setInterval(() => checkClientUpdate(false), 3600000);
   }
   await refreshMe().catch(() => {});
   build();

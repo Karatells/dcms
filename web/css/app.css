@@ -692,3 +692,5 @@ body.native-auth-only #view{max-width:none;padding:0;margin:0}
 .tfa-qr-slot,.tfa-key-slot{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 .tfa-qr-wrap{padding:12px;border-radius:14px;background:#fff;border:1px solid var(--border);display:inline-flex;box-shadow:0 4px 16px rgba(0,0,0,.1)}
 .tfa-qr-wrap img{display:block;border-radius:4px}
+.upd-banner{position:fixed;left:12px;right:12px;bottom:max(72px,calc(env(safe-area-inset-bottom) + 64px));max-width:540px;margin:0 auto;z-index:900;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:var(--surf);border:1px solid var(--accent);box-shadow:0 12px 32px rgba(0,0,0,.28);font-size:.86rem}
+body.native-desktop .upd-banner{bottom:16px}
