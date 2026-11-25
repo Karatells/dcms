@@ -248,15 +248,25 @@ ensure_android_sdk() {
     "$sdkmgr" --sdk_root="$sdk" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
   fi
 
-  # На arm64 Linux штатный aapt2 из SDK собран под x86_64 — ставим нативный системный aapt2
+  # На arm64 Linux штатный aapt2 из SDK собран под x86_64 — ставим нативный системный aapt2 (в Debian/Ubuntu это пакет `aapt`)
   if [ "$HOST_ARCH" = "arm64" ] && [ ! -x /usr/bin/aapt2 ]; then
     if can_install_deps && command -v apt-get >/dev/null; then
-      info "Устанавливаю нативный arm64 aapt2…"
-      pkg_install aapt2 || warn "Не удалось установить пакет aapt2 — сборка Android на arm64 может не пройти"
+      info "Устанавливаю нативный arm64 aapt2 (пакет aapt)…"
+      pkg_install aapt || pkg_install android-sdk-build-tools || pkg_install aapt2 || warn "Не удалось установить пакет aapt — сборка Android на arm64 может не пройти"
     fi
   fi
-  if [ "$HOST_ARCH" = "arm64" ] && [ -x /usr/bin/aapt2 ] && [ -d "$sdk/build-tools/34.0.0" ]; then
-    ln -sf /usr/bin/aapt2 "$sdk/build-tools/34.0.0/aapt2" 2>/dev/null || true
+  if [ "$HOST_ARCH" = "arm64" ]; then
+    local native_aapt2=""
+    for p in /usr/bin/aapt2 /usr/lib/android-sdk/build-tools/debian/aapt2; do
+      [ -x "$p" ] && native_aapt2="$p" && break
+    done
+    if [ -n "$native_aapt2" ]; then
+      [ -d "$sdk/build-tools/34.0.0" ] && ln -sf "$native_aapt2" "$sdk/build-tools/34.0.0/aapt2" 2>/dev/null || true
+      export DCMS_NATIVE_AAPT2="$native_aapt2"
+    else
+      warn "Нативный arm64 aapt2 не найден (установите пакет: sudo apt install -y aapt)"
+      return 1
+    fi
   fi
 
   ok "Android SDK готов ($sdk)"
@@ -291,9 +301,9 @@ build_android() {
   fi
 
   local extra_args=()
-  # На arm64 Linux Maven-версия aapt2 (x86_64) не запускается — используем нативный системный /usr/bin/aapt2
-  if [ "$HOST_ARCH" = "arm64" ] && [ -x /usr/bin/aapt2 ]; then
-    extra_args+=("-Pandroid.aapt2FromMavenOverride=/usr/bin/aapt2")
+  # На arm64 Linux Maven-версия aapt2 (x86_64) не запускается — используем нативный системный aapt2
+  if [ "$HOST_ARCH" = "arm64" ] && [ -n "${DCMS_NATIVE_AAPT2:-}" ] && [ -x "$DCMS_NATIVE_AAPT2" ]; then
+    extra_args+=("-Pandroid.aapt2FromMavenOverride=$DCMS_NATIVE_AAPT2")
   fi
 
   if [ -n "$ICON_PATH" ] && [ -f "$ICON_PATH" ]; then
