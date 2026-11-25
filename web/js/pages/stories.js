@@ -1,4 +1,4 @@
-import { h, api, ui, state, icon, fmt, router } from '../core.js';
+import { h, api, ui, state, icon, fmt, router, nativePlatform } from '../core.js';
 
 const GRADIENTS = [
   'linear-gradient(135deg,#6366f1,#ec4899)',
@@ -9,6 +9,13 @@ const GRADIENTS = [
 ];
 
 export function openCreateStoryModal(onDone) {
+  if (nativePlatform() === 'android') {
+    if (!document.querySelector('link[href="/css/shorts.css"]')) {
+      document.head.append(h('link', { rel: 'stylesheet', href: '/css/shorts.css' }));
+    }
+    import('./clip_studio.js').then(m => m.openAndroidClipStudio(60, 50, onDone, { target: 'story' }));
+    return;
+  }
   let file = null;
   let bg = GRADIENTS[0];
   const fileIn = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', style: { display: 'none' } });
@@ -110,16 +117,32 @@ function openStoryViewer(groups, startGroupIdx, onRefresh) {
       api.post(`/api/stories/${st.id}/view`, {}, { silent: true }).then(r => { if (r && r.views) st.views = r.views; }).catch(() => {});
     }
 
+    const isVideo = st.media && st.media_type === 'video';
+    let activeFill = null;
     barsEl.replaceChildren(...g.stories.map((_, idx) => {
       const fill = h('div.story-bar-fill');
       if (idx < sIdx) fill.style.width = '100%';
       else if (idx === sIdx) {
         fill.style.width = '0%';
-        fill.style.transition = `width ${DURATION}ms linear`;
-        requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = '100%'; }));
+        activeFill = fill;
+        if (!isVideo) {
+          fill.style.transition = `width ${DURATION}ms linear`;
+          requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = '100%'; }));
+        }
       }
       return h('div.story-bar', fill);
     }));
+
+    let storyVid = null;
+    const muteBtn = isVideo ? h('button.icon-btn', {
+      title: 'Звук', style: { color: '#fff' },
+      onclick: e => {
+        e.stopPropagation();
+        if (!storyVid) return;
+        storyVid.muted = !storyVid.muted;
+        muteBtn.replaceChildren(icon(storyVid.muted ? 'volume-x' : 'volume', 18));
+      },
+    }, icon('volume', 18)) : null;
 
     headEl.replaceChildren(
       h('a.row.grow', { href: '/id' + g.user.id, style: { color: '#fff', textDecoration: 'none' }, onclick: close },
@@ -127,11 +150,13 @@ function openStoryViewer(groups, startGroupIdx, onRefresh) {
         h('div',
           h('b', { style: { fontSize: '.9rem' } }, g.user.nick),
           h('div', { style: { fontSize: '.74rem', opacity: '.8' } }, fmt.ago(st.time)))),
+      muteBtn,
       st.is_owner ? h('button.icon-btn', {
         title: 'Кто посмотрел', style: { color: '#fff' },
         onclick: async e => {
           e.stopPropagation();
           clearTimeout(timer);
+          if (storyVid) storyVid.pause();
           const v = await api.get(`/api/stories/${st.id}/viewers`);
           ui.modal({
             title: `Просмотры (${v.items.length})`,
@@ -147,6 +172,7 @@ function openStoryViewer(groups, startGroupIdx, onRefresh) {
         onclick: async e => {
           e.stopPropagation();
           clearTimeout(timer);
+          if (storyVid) storyVid.pause();
           if (await ui.confirm('Удалить эту историю?', { danger: true })) {
             await api.del(`/api/stories/${st.id}`);
             ui.ok('История удалена');
@@ -157,17 +183,35 @@ function openStoryViewer(groups, startGroupIdx, onRefresh) {
       }, icon('trash', 18)) : null,
       h('button.icon-btn', { title: 'Закрыть', style: { color: '#fff' }, onclick: e => { e.stopPropagation(); close(); } }, icon('x', 22)));
 
-    if (st.media) {
+    if (isVideo) {
+      stageEl.style.background = '#000';
+      storyVid = h('video.story-img', { src: st.media, autoplay: true, playsinline: true });
+      storyVid.setAttribute('playsinline', '');
+      storyVid.setAttribute('webkit-playsinline', '');
+      storyVid.ontimeupdate = () => {
+        if (activeFill && storyVid.duration) {
+          activeFill.style.width = Math.min(100, (storyVid.currentTime / storyVid.duration) * 100) + '%';
+        }
+      };
+      storyVid.onended = () => next();
+      storyVid.play().catch(() => {
+        storyVid.muted = true;
+        if (muteBtn) muteBtn.replaceChildren(icon('volume-x', 18));
+        storyVid.play().catch(() => {});
+      });
+      stageEl.replaceChildren(storyVid);
+      footEl.replaceChildren(st.caption ? h('div.story-cap', st.caption) : null);
+    } else if (st.media) {
       stageEl.style.background = '#000';
       stageEl.replaceChildren(h('img.story-img', { src: st.media, alt: '' }));
       footEl.replaceChildren(st.caption ? h('div.story-cap', st.caption) : null);
+      timer = setTimeout(next, DURATION);
     } else {
       stageEl.style.background = st.bg || GRADIENTS[0];
       stageEl.replaceChildren(h('div.story-text-only', st.caption));
       footEl.replaceChildren();
+      timer = setTimeout(next, DURATION);
     }
-
-    timer = setTimeout(next, DURATION);
   };
 
   const tapL = h('div.story-tap-l', { onclick: prev });

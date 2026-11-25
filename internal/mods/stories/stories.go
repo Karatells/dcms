@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -46,6 +47,15 @@ var allowedExts = map[string]string{
 	".png":  "png",
 	".webp": "webp",
 	".gif":  "gif",
+	".mp4":  "mp4",
+	".webm": "webm",
+	".mov":  "mov",
+	".m4v":  "mp4",
+	".3gp":  "3gp",
+}
+
+func isVideoExt(ext string) bool {
+	return ext == "mp4" || ext == "webm" || ext == "mov" || ext == "3gp"
 }
 
 func i(n int64) string { return store.I(n) }
@@ -124,14 +134,21 @@ func Register(a *core.App) {
 					hasUnseen = true
 				}
 				media := ""
+				mediaType := "text"
 				if s.MediaExt != "" {
 					media = "/api/stories/" + i(s.ID) + "/media"
+					if isVideoExt(s.MediaExt) {
+						mediaType = "video"
+					} else {
+						mediaType = "image"
+					}
 				}
 				canDel := me != nil && (me.ID == s.IDUser || me.Level >= 2)
 				items = append(items, map[string]any{
 					"id":         s.ID,
 					"caption":    s.Caption,
 					"media":      media,
+					"media_type": mediaType,
 					"bg":         s.Bg,
 					"time":       s.Time,
 					"expires_at": s.ExpiresAt,
@@ -190,7 +207,7 @@ func Register(a *core.App) {
 			return core.ErrBad("Максимум " + i(int64(maxStories)) + " активных историй за 24 часа")
 		}
 
-		if err := c.R.ParseMultipartForm(12 << 20); err != nil {
+		if err := c.R.ParseMultipartForm(52 << 20); err != nil {
 			return core.ErrBad("Некорректные данные формы")
 		}
 		caption := a.Text.Clean(strings.TrimSpace(c.R.FormValue("caption")))
@@ -203,38 +220,71 @@ func Register(a *core.App) {
 		}
 
 		var ext string
-		var imgBytes []byte
+		var tmpFile string
 		f, hdr, ferr := c.R.FormFile("file")
 		if ferr == nil {
 			defer f.Close()
-			if hdr.Size > 10<<20 {
-				return core.ErrBad("Файл слишком большой (максимум 10 МБ)")
-			}
 			e := strings.ToLower(filepath.Ext(hdr.Filename))
 			okExt, ok := allowedExts[e]
 			if !ok {
-				return core.ErrBad("Поддерживаются только изображения JPG, PNG, WebP и GIF")
+				return core.ErrBad("Поддерживаются изображения (JPG, PNG, WebP, GIF) и видео (MP4, WebM, MOV)")
+			}
+			maxBytes := int64(10 << 20)
+			if isVideoExt(okExt) {
+				maxBytes = 50 << 20
+			}
+			if hdr.Size > maxBytes {
+				if isVideoExt(okExt) {
+					return core.ErrBad("Видео слишком большое (максимум 50 МБ)")
+				}
+				return core.ErrBad("Файл слишком большой (максимум 10 МБ)")
 			}
 			ext = okExt
-			imgBytes, err = io.ReadAll(io.LimitReader(f, (10<<20)+1))
+			tf, err := os.CreateTemp(filepath.Join(a.DataDir, "stories"), "up-*."+ext)
 			if err != nil {
-				return core.ErrBad("Не удалось прочитать файл")
+				return err
+			}
+			tmpFile = tf.Name()
+			n, copyErr := io.Copy(tf, io.LimitReader(f, maxBytes+1))
+			_ = tf.Close()
+			if copyErr != nil || n > maxBytes {
+				_ = os.Remove(tmpFile)
+				return core.ErrBad("Не удалось сохранить файл (проверьте размер)")
 			}
 		} else if caption == "" {
-			return core.ErrBad("Добавьте изображение или текст истории")
+			return core.ErrBad("Добавьте изображение, видео или текст истории")
+		}
+
+		finalExt := ext
+		if tmpFile != "" && isVideoExt(ext) {
+			if ff, err := exec.LookPath("ffmpeg"); err == nil {
+				outTmp := tmpFile + ".mp4"
+				cmd := exec.Command(ff, "-y", "-i", tmpFile, "-t", "60",
+					"-vf", "scale='min(720,iw)':-2",
+					"-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p",
+					"-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", outTmp)
+				if cmd.Run() == nil {
+					_ = os.Remove(tmpFile)
+					tmpFile = outTmp
+					finalExt = "mp4"
+				} else {
+					_ = os.Remove(outTmp)
+				}
+			}
 		}
 
 		now := core.Now()
 		id := storiesT.Insert(&Story{
 			IDUser:    me.ID,
 			Caption:   caption,
-			MediaExt:  ext,
+			MediaExt:  finalExt,
 			Bg:        bg,
 			Time:      now,
 			ExpiresAt: now + storyTTL,
 		})
-		if ext != "" && len(imgBytes) > 0 {
-			if err := os.WriteFile(storyFile(a, id, ext), imgBytes, 0o644); err != nil {
+		if tmpFile != "" {
+			if err := os.Rename(tmpFile, storyFile(a, id, finalExt)); err != nil {
+				_ = os.Remove(tmpFile)
 				storiesT.Delete(id)
 				return err
 			}

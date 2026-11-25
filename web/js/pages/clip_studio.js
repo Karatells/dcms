@@ -38,8 +38,9 @@ function pickRecorderMime() {
   return '';
 }
 
-export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
-  let mode = 'camera'; // camera | edit | publish
+export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {}) {
+  const isStory = opts.target === 'story';
+  let mode = 'camera'; // camera | edit
   let facing = 'user';
   let stream = null;
   let recorder = null;
@@ -49,6 +50,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
   let isRecording = false;
 
   let sourceBlob = null;
+  let sourceKind = 'video'; // video | image
   let sourceName = 'clip.webm';
   let sourceURL = '';
   let vidDuration = 0;
@@ -62,7 +64,11 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
   let activeTool = ''; // '' | 'stickers' | 'text' | 'filters' | 'trim'
   let busyPublish = false;
 
-  const fileInput = h('input', { type: 'file', accept: 'video/*,.mp4,.mov,.webm,.mkv,.3gp', style: { display: 'none' } });
+  const fileInput = h('input', {
+    type: 'file',
+    accept: isStory ? 'video/*,image/*,.mp4,.mov,.webm,.jpg,.jpeg,.png,.webp,.gif' : 'video/*,.mp4,.mov,.webm,.mkv,.3gp',
+    style: { display: 'none' },
+  });
   const root = h('div.acs-root');
   document.body.append(root);
   document.body.classList.add('acs-open');
@@ -83,14 +89,17 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
   };
 
   const openEditorWithBlob = (blob, name) => {
-    if (blob.size > maxMB * 1024 * 1024) {
-      ui.toast(`Видео слишком большое (максимум ${maxMB} МБ)`, 'error');
+    const isImg = (blob.type && blob.type.startsWith('image/')) || /\.(jpe?g|png|webp|gif)$/i.test(name || '');
+    const limMB = isImg ? 10 : maxMB;
+    if (blob.size > limMB * 1024 * 1024) {
+      ui.toast(`Файл слишком большой (максимум ${limMB} МБ)`, 'error');
       return;
     }
     stopCamera();
     if (sourceURL) URL.revokeObjectURL(sourceURL);
     sourceBlob = blob;
-    sourceName = name || 'clip.webm';
+    sourceKind = isImg ? 'image' : 'video';
+    sourceName = name || (isImg ? 'story.png' : 'clip.webm');
     sourceURL = URL.createObjectURL(blob);
     overlays = [];
     selectedOverlayId = 0;
@@ -218,47 +227,57 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
     startCam();
   }
 
-  // ─────────────────────────────── ЭКРАН 2: РЕДАКТОР КЛИПА
+  // ─────────────────────────────── ЭКРАН 2: РЕДАКТОР КЛИПА / ИСТОРИИ
   function renderEditor() {
-    const vid = h('video.acs-video', { src: sourceURL, autoplay: true, loop: true, playsinline: true });
-    vid.setAttribute('playsinline', '');
-    vid.setAttribute('webkit-playsinline', '');
-    vid.style.filter = FILTERS[filterIdx].css;
-    vid.muted = muteOutput;
+    const isImg = sourceKind === 'image';
+    const mediaEl = isImg
+      ? h('img.acs-video', { src: sourceURL, alt: '' })
+      : h('video.acs-video', { src: sourceURL, autoplay: true, loop: true, playsinline: true });
+    if (!isImg) {
+      mediaEl.setAttribute('playsinline', '');
+      mediaEl.setAttribute('webkit-playsinline', '');
+      mediaEl.muted = muteOutput;
+    }
+    mediaEl.style.filter = FILTERS[filterIdx].css;
+    const vid = mediaEl;
 
     const stage = h('div.acs-stage');
     const ovlLayer = h('div.acs-ovl-layer');
     const playIcon = h('div.acs-play-mark', icon('play', 36));
     const drawer = h('div.acs-drawer', { style: { display: 'none' } });
-    const muteBtn = h('button.acs-side-btn', {
+    const muteBtn = !isImg ? h('button.acs-side-btn', {
       type: 'button',
       onclick: () => {
         muteOutput = !muteOutput;
         vid.muted = muteOutput;
         muteBtn.replaceChildren(icon(muteOutput ? 'volume-x' : 'volume', 20), h('span', muteOutput ? 'Без звука' : 'Звук'));
       },
-    }, icon(muteOutput ? 'volume-x' : 'volume', 20), h('span', muteOutput ? 'Без звука' : 'Звук'));
+    }, icon(muteOutput ? 'volume-x' : 'volume', 20), h('span', muteOutput ? 'Без звука' : 'Звук')) : null;
 
-    vid.onloadedmetadata = () => {
-      vidDuration = Math.min(vid.duration || 0, maxSec);
-      if (!trimEnd || trimEnd > vidDuration) trimEnd = vidDuration;
-      if (vid.duration > maxSec + 1.5) {
-        ui.toast(`Видео длиннее ${maxSec} сек — обрежьте нужный фрагмент`, 'info');
-      }
-      vid.currentTime = trimStart;
-      vid.play().catch(() => playIcon.classList.add('show'));
-    };
-    vid.ontimeupdate = () => {
-      if (trimEnd > 0 && vid.currentTime >= trimEnd) {
+    if (!isImg) {
+      vid.onloadedmetadata = () => {
+        vidDuration = Math.min(vid.duration || 0, maxSec);
+        if (!trimEnd || trimEnd > vidDuration) trimEnd = vidDuration;
+        if (vid.duration > maxSec + 1.5) {
+          ui.toast(`Видео длиннее ${maxSec} сек — обрежьте нужный фрагмент`, 'info');
+        }
         vid.currentTime = trimStart;
-      }
-    };
-    vid.onclick = () => {
-      selectedOverlayId = 0;
-      drawOverlays();
-      if (vid.paused) { vid.play().catch(() => {}); playIcon.classList.remove('show'); }
-      else { vid.pause(); playIcon.classList.add('show'); }
-    };
+        vid.play().catch(() => playIcon.classList.add('show'));
+      };
+      vid.ontimeupdate = () => {
+        if (trimEnd > 0 && vid.currentTime >= trimEnd) {
+          vid.currentTime = trimStart;
+        }
+      };
+      vid.onclick = () => {
+        selectedOverlayId = 0;
+        drawOverlays();
+        if (vid.paused) { vid.play().catch(() => {}); playIcon.classList.remove('show'); }
+        else { vid.pause(); playIcon.classList.add('show'); }
+      };
+    } else {
+      mediaEl.onclick = () => { selectedOverlayId = 0; drawOverlays(); };
+    }
 
     const drawOverlays = () => {
       ovlLayer.replaceChildren(...overlays.map(o => {
@@ -401,11 +420,11 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
 
     const topBar = h('div.acs-top',
       h('button.acs-circle', { type: 'button', title: 'Снять заново', onclick: () => { mode = 'camera'; render(); } }, icon('chevron-left', 22)),
-      h('span.acs-pill', 'Редактор клипа'),
+      h('span.acs-pill', isStory ? 'Редактор истории' : 'Редактор клипа'),
       h('button.btn.primary.sm', {
         type: 'button',
         onclick: () => {
-          vid.pause();
+          if (!isImg) vid.pause();
           openPublishSheet();
         },
       }, 'Далее ', icon('chevron-right', 15)));
@@ -414,16 +433,70 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
       h('button.acs-side-btn', { type: 'button', onclick: () => openTool('stickers') }, h('span', { style: { fontSize: '1.2rem' } }, '😀'), h('span', 'Стикеры')),
       h('button.acs-side-btn', { type: 'button', onclick: () => openTool('text') }, h('b', { style: { fontSize: '1.05rem' } }, 'Aa'), h('span', 'Текст')),
       h('button.acs-side-btn', { type: 'button', onclick: () => openTool('filters') }, icon('star', 20), h('span', 'Фильтр')),
-      h('button.acs-side-btn', { type: 'button', onclick: () => openTool('trim') }, icon('edit', 20), h('span', 'Обрезка')),
+      !isImg ? h('button.acs-side-btn', { type: 'button', onclick: () => openTool('trim') }, icon('edit', 20), h('span', 'Обрезка')) : null,
       muteBtn);
 
-    stage.append(vid, ovlLayer, playIcon);
+    stage.append(vid, ovlLayer, !isImg ? playIcon : null);
     root.replaceChildren(fileInput, stage, topBar, sideTools, selBar, drawer);
     drawOverlays();
   }
 
-  // ─────────────────────────────── ЗАПЕКАНИЕ ЭФФЕКТОВ В ВИДЕО (Canvas + MediaRecorder)
+  function drawOverlaysOnCtx(ctx, cw, ch) {
+    for (const o of overlays) {
+      const px = o.x * cw;
+      const py = o.y * ch;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (o.kind === 'emoji') {
+        const sz = Math.round(cw * (o.size === 1 ? 0.09 : o.size === 3 ? 0.19 : 0.14));
+        ctx.font = `${sz}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+        ctx.fillText(o.text, px, py);
+      } else {
+        const sz = Math.round(cw * (o.size === 1 ? 0.045 : o.size === 3 ? 0.08 : 0.06));
+        ctx.font = `700 ${sz}px system-ui,-apple-system,sans-serif`;
+        const st = TEXT_STYLES.find(s => s.id === o.style) || TEXT_STYLES[0];
+        const tw = ctx.measureText(o.text).width;
+        if (st.bg) {
+          const padX = sz * 0.45, padY = sz * 0.3;
+          ctx.fillStyle = st.bg;
+          ctx.beginPath();
+          ctx.roundRect(px - tw / 2 - padX, py - sz / 2 - padY, tw + padX * 2, sz + padY * 2, sz * 0.3);
+          ctx.fill();
+        } else {
+          ctx.shadowColor = 'rgba(0,0,0,0.8)';
+          ctx.shadowBlur = 8;
+        }
+        ctx.fillStyle = st.fg;
+        ctx.fillText(o.text, px, py);
+      }
+      ctx.restore();
+    }
+  }
+
+  // ─────────────────────────────── ЗАПЕКАНИЕ ЭФФЕКТОВ В ВИДЕО / ФОТО
   async function bakeEditedVideo(onProgress) {
+    if (sourceKind === 'image') {
+      if (overlays.length === 0 && filterIdx === 0) return { blob: sourceBlob, name: sourceName };
+      return new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => {
+          const scale = Math.min(1, 1080 / Math.max(im.width, im.height));
+          const cw = Math.round(im.width * scale), ch = Math.round(im.height * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = cw; canvas.height = ch;
+          const ctx = canvas.getContext('2d');
+          ctx.filter = FILTERS[filterIdx].css;
+          ctx.drawImage(im, 0, 0, cw, ch);
+          ctx.filter = 'none';
+          drawOverlaysOnCtx(ctx, cw, ch);
+          onProgress && onProgress(100);
+          canvas.toBlob(b => b ? resolve({ blob: b, name: 'story-' + Date.now() + '.jpg' }) : reject(new Error('Ошибка обработки фото')), 'image/jpeg', 0.9);
+        };
+        im.onerror = () => reject(new Error('Не удалось загрузить фото'));
+        im.src = sourceURL;
+      });
+    }
     const dur = vidDuration || 0;
     const hasTrim = dur > 0 && (trimStart > 0.2 || (trimEnd > 0 && trimEnd < dur - 0.3));
     const hasEdits = overlays.length > 0 || filterIdx !== 0 || muteOutput || hasTrim;
@@ -536,21 +609,21 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
 
   // ─────────────────────────────── ЭКРАН 3: ПУБЛИКАЦИЯ
   function openPublishSheet() {
-    const titleIn = h('input.input', { placeholder: 'Название клипа', maxlength: 100 });
-    const opisIn = h('textarea.input', { rows: 3, placeholder: 'Описание и #хештеги (необязательно)', maxlength: 500 });
+    const titleIn = !isStory ? h('input.input', { placeholder: 'Название клипа', maxlength: 100 }) : null;
+    const opisIn = h('textarea.input', { rows: 3, placeholder: isStory ? 'Подпись к истории (необязательно)' : 'Описание и #хештеги (необязательно)', maxlength: isStory ? 200 : 500 });
     const progFill = h('i');
     const progText = h('div.small.muted');
     const progWrap = h('div.stack-s', { style: { display: 'none' } }, h('div.upload-bar', progFill), progText);
     const errBox = h('div.form-err');
-    const pubBtn = h('button.btn.primary', { type: 'button', style: { width: '100%' } }, icon('send', 16), ' Опубликовать клип');
+    const pubBtn = h('button.btn.primary', { type: 'button', style: { width: '100%' } }, icon('send', 16), isStory ? ' Опубликовать историю' : ' Опубликовать клип');
 
     const sheet = h('div.acs-pub-back',
       h('div.acs-pub-sheet',
         h('div.acs-drawer-head',
-          h('b', 'Публикация клипа'),
+          h('b', isStory ? 'Публикация истории (24 часа)' : 'Публикация клипа'),
           h('button.acs-mini', { type: 'button', onclick: () => { if (!busyPublish) sheet.remove(); } }, 'Назад')),
-        h('div.field', h('label', 'Название'), titleIn),
-        h('div.field', h('label', 'Описание'), opisIn),
+        titleIn ? h('div.field', h('label', 'Название'), titleIn) : null,
+        h('div.field', h('label', isStory ? 'Подпись' : 'Описание'), opisIn),
         progWrap, errBox, pubBtn));
 
     pubBtn.onclick = async () => {
@@ -560,7 +633,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
       errBox.textContent = '';
       progWrap.style.display = '';
       progFill.style.width = '5%';
-      progText.textContent = 'Подготовка клипа…';
+      progText.textContent = isStory ? 'Подготовка истории…' : 'Подготовка клипа…';
 
       try {
         const baked = await bakeEditedVideo(pct => {
@@ -573,12 +646,16 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
 
         const fd = new FormData();
         fd.append('file', baked.blob, baked.name);
-        fd.append('title', titleIn.value.trim());
-        fd.append('opis', opisIn.value.trim());
+        if (isStory) {
+          fd.append('caption', opisIn.value.trim());
+        } else {
+          fd.append('title', titleIn.value.trim());
+          fd.append('opis', opisIn.value.trim());
+        }
 
         await new Promise((res, rej) => {
           const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/shorts', true);
+          xhr.open('POST', isStory ? '/api/stories' : '/api/shorts', true);
           xhr.setRequestHeader('X-DCMS', '1');
           xhr.upload.onprogress = e => {
             if (e.lengthComputable) {
@@ -596,12 +673,12 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
           xhr.onerror = () => rej(new Error('Ошибка сети при загрузке'));
           xhr.send(fd);
         }).then(d => {
-          ui.ok('Клип опубликован и отправлен в обработку');
+          ui.ok(isStory ? 'История опубликована на 24 часа' : 'Клип опубликован и отправлен в обработку');
           close();
           onDone && onDone(d.id);
         });
       } catch (e) {
-        errBox.textContent = e.message || 'Не удалось опубликовать клип';
+        errBox.textContent = e.message || 'Не удалось опубликовать';
         progWrap.style.display = 'none';
       } finally {
         busyPublish = false;
@@ -610,7 +687,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone) {
     };
 
     root.append(sheet);
-    setTimeout(() => titleIn.focus(), 50);
+    setTimeout(() => (titleIn || opisIn).focus(), 50);
   }
 
   function render() {
