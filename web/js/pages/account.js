@@ -384,15 +384,80 @@ router.add('/user/settings/password', async ctx => {
       })));
   } else {
     const codeIn = h('input.input', { inputMode: 'numeric', maxLength: 6, placeholder: '6-значный код из приложения' });
-    tfaBox = h('div.pad.stack',
-      h('div.small.muted', 'Добавьте ключ вручную в Google Authenticator, Authy или 1Password (тип: по времени / TOTP), затем введите 6-значный код:'),
-      h('div.row.nowrap',
+    let qrOpen = false, keyOpen = false, hideTimer = null;
+    const qrSlot = h('div.tfa-qr-slot', { style: { display: 'none' } });
+    const keySlot = h('div.tfa-key-slot', { style: { display: 'none' } });
+    const qrBtn = h('button.btn.sm', { type: 'button' }, icon('grid', 15), ' Показать QR-код');
+    const keyBtn = h('button.btn.sm', { type: 'button' }, icon('eye', 15), ' Показать ключ');
+
+    const hideAllSecrets = () => {
+      qrOpen = false; keyOpen = false;
+      qrSlot.style.display = 'none'; qrSlot.replaceChildren();
+      keySlot.style.display = 'none'; keySlot.replaceChildren();
+      qrBtn.replaceChildren(icon('grid', 15), ' Показать QR-код');
+      keyBtn.replaceChildren(icon('eye', 15), ' Показать ключ');
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    };
+    const armAutoHide = () => {
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideAllSecrets, 60000);
+    };
+    ctx.onLeave(hideAllSecrets);
+
+    qrBtn.onclick = () => {
+      if (qrOpen) {
+        qrOpen = false;
+        qrSlot.style.display = 'none';
+        qrSlot.replaceChildren();
+        qrBtn.replaceChildren(icon('grid', 15), ' Показать QR-код');
+        return;
+      }
+      qrOpen = true;
+      qrSlot.style.display = '';
+      qrSlot.replaceChildren(
+        h('div.tfa-qr-wrap',
+          h('img', { src: '/api/settings/2fa/qr?t=' + Date.now(), alt: 'QR-код 2FA', width: 200, height: 200 })),
+        h('div.small.muted', 'Отсканируйте в Google Authenticator, Authy или 1Password (скроется автоматически через 60 сек.)'));
+      qrBtn.replaceChildren(icon('eye-off', 15), ' Скрыть QR-код');
+      armAutoHide();
+    };
+
+    keyBtn.onclick = () => {
+      if (keyOpen) {
+        keyOpen = false;
+        keySlot.style.display = 'none';
+        keySlot.replaceChildren();
+        keyBtn.replaceChildren(icon('eye', 15), ' Показать ключ');
+        return;
+      }
+      keyOpen = true;
+      keySlot.style.display = '';
+      keySlot.replaceChildren(
         h('input.input', { value: tfa.secret || '', readOnly: true, style: { fontFamily: 'ui-monospace,monospace', letterSpacing: '.08em' }, onclick: e => e.target.select() }),
-        ui.btn('Копировать', { ic: 'copy', small: true, onclick: () => navigator.clipboard?.writeText(tfa.secret).then(() => ui.ok('Ключ скопирован')) })),
+        h('div.small.muted', 'Ключ для ручного ввода (скроется автоматически через 60 сек.)'));
+      keyBtn.replaceChildren(icon('eye-off', 15), ' Скрыть ключ');
+      armAutoHide();
+    };
+
+    const copyBtn = ui.btn('Копировать ключ', {
+      ic: 'copy', small: true,
+      onclick: () => {
+        if (!tfa.secret) return;
+        if (navigator.clipboard) navigator.clipboard.writeText(tfa.secret).then(() => ui.ok('Секретный ключ скопирован'));
+        else ui.toast('Буфер обмена недоступен', 'error');
+      },
+    });
+
+    tfaBox = h('div.pad.stack',
+      h('div.small.muted', 'В целях безопасности QR-код и ключ скрыты по умолчанию. Скопируйте ключ или раскройте QR-код, когда готовы настроить приложение-аутентификатор:'),
+      h('div.row', qrBtn, keyBtn, copyBtn),
+      qrSlot,
+      keySlot,
       h('div.row.nowrap', codeIn, ui.btn('Включить 2FA', {
         ic: 'shield', kind: 'primary', small: true,
         onclick: async () => {
           await api.post('/api/settings/2fa/enable', { code: codeIn.value.trim() });
+          hideAllSecrets();
           ui.ok('Двухфакторная аутентификация включена');
           router.render();
         },

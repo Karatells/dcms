@@ -13,6 +13,8 @@ import (
 
 	"dcms/internal/core"
 	"dcms/internal/model"
+
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 func generateTOTPSecret() string {
@@ -81,6 +83,34 @@ func registerTOTP(a *core.App) {
 			"secret":      sec,
 			"otpauth_url": otpURL,
 		})
+	}, core.Auth)
+
+	// QR-код для настройки TOTP (отдаётся только по явному запросу, без кэширования)
+	a.GET("/api/settings/2fa/qr", func(c *core.Ctx) error {
+		u, err := c.Need()
+		if err != nil {
+			return err
+		}
+		if u.TOTPEnabled {
+			return core.ErrBad("Двухфакторная аутентификация уже включена")
+		}
+		sec := u.TOTPSecret
+		if sec == "" {
+			sec = generateTOTPSecret()
+			a.T.Users.Update(u.ID, func(x *model.User) { x.TOTPSecret = sec })
+		}
+		issuer := strings.TrimSpace(a.Cfg.Str("site_name"))
+		if issuer == "" {
+			issuer = "DCMS Social"
+		}
+		label := url.PathEscape(issuer + ":" + u.Nick)
+		otpURL := "otpauth://totp/" + label + "?secret=" + sec + "&issuer=" + url.QueryEscape(issuer)
+		pngBytes, err := qrcode.Encode(otpURL, qrcode.Medium, 220)
+		if err != nil {
+			return core.Err(500, "Не удалось сгенерировать QR-код")
+		}
+		c.W.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		return c.ServeBytes(pngBytes, "image/png", false)
 	}, core.Auth)
 
 	// Включить 2FA после подтверждения 6-значным кодом

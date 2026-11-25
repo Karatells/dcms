@@ -689,3 +689,6 @@ body.native-auth-only #view{max-width:none;padding:0;margin:0}
 .mfa-choices{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .mfa-choice-btn{padding:16px 8px;border-radius:14px;border:2px solid var(--border);background:var(--surf-2);color:var(--text);font-size:1.45rem;font-weight:800;cursor:pointer;transition:all .15s}
 .mfa-choice-btn:hover,.mfa-choice-btn:active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surf-2));transform:translateY(-1px)}
+.tfa-qr-slot,.tfa-key-slot{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.tfa-qr-wrap{padding:12px;border-radius:14px;background:#fff;border:1px solid var(--border);display:inline-flex;box-shadow:0 4px 16px rgba(0,0,0,.1)}
+.tfa-qr-wrap img{display:block;border-radius:4px}
