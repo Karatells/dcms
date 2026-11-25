@@ -13,6 +13,7 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.MediaStore
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -58,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var capturedMediaUri: Uri? = null
     private var pendingPermRequest: PermissionRequest? = null
     private var lastBackAt = 0L
 
@@ -76,17 +78,20 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { res ->
         val cb = fileCallback
+        val capUri = capturedMediaUri
         fileCallback = null
+        capturedMediaUri = null
         if (cb == null) return@registerForActivityResult
-        if (res.resultCode != RESULT_OK || res.data == null) {
+        if (res.resultCode != RESULT_OK) {
             cb.onReceiveValue(null)
             return@registerForActivityResult
         }
-        val data = res.data!!
-        val clip = data.clipData
+        val data = res.data
+        val clip = data?.clipData
         val uris = when {
             clip != null && clip.itemCount > 0 -> Array(clip.itemCount) { i -> clip.getItemAt(i).uri }
-            data.data != null -> arrayOf(data.data!!)
+            data?.data != null -> arrayOf(data.data!!)
+            capUri != null -> arrayOf(capUri)
             else -> null
         }
         cb.onReceiveValue(uris)
@@ -226,6 +231,29 @@ class MainActivity : AppCompatActivity() {
             ): Boolean {
                 fileCallback?.onReceiveValue(null)
                 fileCallback = filePathCallback
+                capturedMediaUri = null
+
+                // Если запрошена прямая съёмка видео с системной камеры (<input type="file" accept="video/*" capture>)
+                if (fileChooserParams.isCaptureEnabled &&
+                    fileChooserParams.acceptTypes.any { it.startsWith("video") }
+                ) {
+                    try {
+                        val dir = File(cacheDir, "captures").apply { mkdirs() }
+                        val outFile = File(dir, "clip-${System.currentTimeMillis()}.mp4")
+                        val uri = FileProvider.getUriForFile(this@MainActivity, "${packageName}.fileprovider", outFile)
+                        capturedMediaUri = uri
+                        val camIntent = Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                            putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                            putExtra(MediaStore.EXTRA_DURATION_LIMIT, 60)
+                            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        fileChooserLauncher.launch(camIntent)
+                        return true
+                    } catch (_: Exception) {
+                        capturedMediaUri = null
+                    }
+                }
+
                 val intent = try {
                     fileChooserParams.createIntent().apply {
                         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)

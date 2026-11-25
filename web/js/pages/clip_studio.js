@@ -71,6 +71,17 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
     accept: isStory ? 'video/*,image/*,.mp4,.mov,.webm,.jpg,.jpeg,.png,.webp,.gif' : 'video/*,.mp4,.mov,.webm,.mkv,.3gp',
     style: { display: 'none' },
   });
+  const camCaptureInput = h('input', {
+    type: 'file',
+    accept: 'video/*',
+    capture: 'environment',
+    style: { display: 'none' },
+  });
+  camCaptureInput.onchange = () => {
+    const f = camCaptureInput.files && camCaptureInput.files[0];
+    camCaptureInput.value = '';
+    if (f) openEditorWithBlob(f, f.name || ('clip-' + Date.now() + '.mp4'));
+  };
   const root = h('div.acs-root');
   document.body.append(root);
   document.body.classList.add('acs-open');
@@ -160,8 +171,12 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
       errBox.style.display = 'none';
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         errBox.style.display = '';
-        errBox.replaceChildren(h('p', 'Камера недоступна — выберите видео из галереи'),
-          h('button.btn.primary', { type: 'button', onclick: () => fileInput.click() }, icon('upload', 16), ' Открыть галерею'));
+        errBox.replaceChildren(
+          h('b', { style: { fontSize: '1.08rem' } }, isStory ? 'Снять историю или выбрать файл' : 'Снять клип или выбрать видео'),
+          h('p', { class: 'small muted', style: { margin: 0, maxWidth: '300px' } }, 'Снимите видео системной камерой телефона — оно сразу откроется в редакторе со стикерами, текстом и фильтрами.'),
+          h('div.row',
+            h('button.btn.primary', { type: 'button', onclick: () => camCaptureInput.click() }, icon('video', 16), ' Снять на камеру'),
+            h('button.btn', { type: 'button', onclick: () => fileInput.click() }, icon('folder', 16), ' Галерея')));
         return;
       }
       try {
@@ -169,14 +184,14 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
         camVid.srcObject = stream;
         applyCamVisuals();
         await camVid.play().catch(() => {});
-      } catch (e) {
+      } catch {
         errBox.style.display = '';
         errBox.replaceChildren(
-          h('p', 'Нет доступа к камере. Если вы только что выдали разрешение — нажмите «Повторить» или выберите файл из галереи.'),
-          e && e.name ? h('div.small.muted', `${e.name}${e.message ? ': ' + e.message : ''}`) : null,
+          h('b', { style: { fontSize: '1.08rem' } }, isStory ? 'Создать историю' : 'Создать клип'),
+          h('p', { class: 'small muted', style: { margin: 0, maxWidth: '300px' } }, 'Встроенная камера недоступна (часто при самоподписанном сертификате). Используйте системную камеру телефона — видео сразу откроется в редакторе!'),
           h('div.row',
-            h('button.btn', { type: 'button', onclick: startCam }, 'Повторить'),
-            h('button.btn.primary', { type: 'button', onclick: () => fileInput.click() }, icon('upload', 16), ' Галерея')));
+            h('button.btn.primary', { type: 'button', onclick: () => camCaptureInput.click() }, icon('video', 16), ' Снять на камеру'),
+            h('button.btn', { type: 'button', onclick: () => fileInput.click() }, icon('folder', 16), ' Галерея')));
       }
     };
 
@@ -238,6 +253,7 @@ export function openAndroidClipStudio(maxSec = 60, maxMB = 100, onDone, opts = {
 
     root.replaceChildren(
       fileInput,
+      camCaptureInput,
       h('div.acs-prog', progFill),
       h('div.acs-stage', camVid, errBox),
       topBar,
