@@ -52,6 +52,7 @@ func Register(a *core.App) {
 	regMails := store.NewTable[RegMail](a.DB, "reg_mail")
 	resets = store.NewTable[PassReset](a.DB, "pass_reset").Index("token", func(r *PassReset) string { return r.Token })
 	_ = regMails
+	registerAppMFA(a)
 
 	// ---------- капча
 	core.CaptchaCheck = func(c *core.Ctx, code string) bool {
@@ -109,13 +110,27 @@ func Register(a *core.App) {
 		if u.Activation != "" {
 			return core.ErrBad("Аккаунт не активирован. Проверьте почту и перейдите по ссылке из письма")
 		}
-		if u.TOTPEnabled {
-			if strings.TrimSpace(in.Code) == "" {
-				return c.JSON(map[string]any{"need_2fa": true})
-			}
-			if !verifyTOTP(u.TOTPSecret, in.Code) {
-				time.Sleep(300 * time.Millisecond)
-				return core.ErrBad("Неверный код двухфакторной аутентификации")
+		hasTOTP := u.TOTPEnabled
+		hasApp := userHasMFADevices(u.ID)
+		if hasTOTP || hasApp {
+			code := strings.TrimSpace(in.Code)
+			if code != "" && hasTOTP {
+				if !verifyTOTP(u.TOTPSecret, code) {
+					time.Sleep(300 * time.Millisecond)
+					return core.ErrBad("Неверный код двухфакторной аутентификации")
+				}
+			} else {
+				resp := map[string]any{
+					"need_2fa": true,
+					"methods":  map[string]bool{"totp": hasTOTP, "app": hasApp},
+				}
+				if hasApp {
+					ch := createMFALoginChallenge(a, u.ID, c.IP(), c.R.UserAgent())
+					resp["challenge_id"] = ch.id
+					resp["match_code"] = ch.matchCode
+					resp["expires_in"] = 120
+				}
+				return c.JSON(resp)
 			}
 		}
 		a.Login(c, u.ID)

@@ -1,4 +1,4 @@
-import { h, api, ui, router, state, icon, isNativeClient, link, nativePlatform, bus, events, refreshMe, returnTo, fmt } from '../core.js';
+import { h, api, ui, router, state, icon, isNativeClient, canAndroidSign2FA, link, nativePlatform, bus, events, refreshMe, returnTo, fmt } from '../core.js';
 
 async function changeNativeServer() {
   const cur = location.origin;
@@ -71,10 +71,41 @@ async function afterLogin() { await refreshMe(); events.restart(); router.go(ret
 router.add('/login', async ctx => {
   ctx.title('Вход');
   if (state.user) return router.go('/', true);
-  let need2fa = false;
+  let need2fa = false, pollTimer = null;
+  const stopPoll = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
+  ctx.onLeave(stopPoll);
+
+  const appWaitWrap = h('div.mfa-wait-box', { style: { display: 'none' } });
   const codeWrap = h('div.field', { style: { display: 'none' } },
     h('label', 'Код двухфакторной аутентификации (6 цифр)'),
     h('input.input', { name: 'code', inputMode: 'numeric', autoComplete: 'one-time-code', maxLength: 6, placeholder: '123456' }));
+
+  const startAppPoll = (challengeId, matchCode, hasTotp) => {
+    stopPoll();
+    const statusEl = h('div.small.muted', 'Ожидание подтверждения…');
+    appWaitWrap.style.display = '';
+    appWaitWrap.replaceChildren(
+      h('div.row', icon('smartphone', 18), h('b', 'Подтвердите вход в мобильном приложении')),
+      h('div.small.muted', 'Откройте приложение на привязанном Android-устройстве и выберите это число:'),
+      h('div.mfa-code-pill', String(matchCode || '')),
+      statusEl,
+      hasTotp ? h('div.small.muted', 'Или введите 6-значный код из аутентификатора ниже.') : null);
+
+    pollTimer = setInterval(async () => {
+      try {
+        const p = await api.post('/api/login/poll', { challenge_id: challengeId }, { silent: true });
+        if (p.status === 'approved') {
+          stopPoll();
+          await afterLogin();
+        } else if (p.status === 'denied' || p.status === 'expired') {
+          stopPoll();
+          statusEl.textContent = p.error || 'Подтверждение не выполнено';
+          statusEl.style.color = '#ef4444';
+        }
+      } catch {}
+    }, 2000);
+  };
+
   const form = ui.form([
     { name: 'nick', label: 'Логин', required: true, autocomplete: 'username' },
     { name: 'pass', label: 'Пароль', type: 'password', required: true, autocomplete: 'current-password' },
@@ -85,15 +116,24 @@ router.add('/login', async ctx => {
       const r = await api.post('/api/login', { ...v, code: need2fa ? codeIn.value.trim() : '' }, { silent: true });
       if (r && r.need_2fa) {
         need2fa = true;
-        codeWrap.style.display = '';
-        codeIn.focus();
-        ui.toast('Введите 6-значный код из приложения-аутентификатора', 'info');
+        const m = r.methods || { totp: true, app: false };
+        if (m.app && r.challenge_id) {
+          startAppPoll(r.challenge_id, r.match_code, !!m.totp);
+        }
+        if (m.totp) {
+          codeWrap.style.display = '';
+          if (!m.app) {
+            codeIn.focus();
+            ui.toast('Введите 6-значный код из приложения-аутентификатора', 'info');
+          }
+        }
         return;
       }
+      stopPoll();
       await afterLogin();
     },
   });
-  form.querySelector('button[type=submit]').before(codeWrap);
+  form.querySelector('button[type=submit]').before(appWaitWrap, codeWrap);
   return authBox('Вход', 'Рады видеть вас снова', form,
     h('div.row.small', link('/pass', 'Забыли пароль?'), h('span.grow'), h('span.muted', 'Нет аккаунта? '), link('/reg', 'Регистрация')));
 });
@@ -261,10 +301,73 @@ router.add('/user/settings/privacy', async ctx => {
 
 router.add('/user/settings/password', async ctx => {
   ctx.title('Безопасность');
-  const [sess, tfa] = await Promise.all([api.get('/api/settings/sessions'), api.get('/api/settings/2fa')]);
+  const [sess, tfa, appDevs] = await Promise.all([
+    api.get('/api/settings/sessions'),
+    api.get('/api/settings/2fa'),
+    api.get('/api/2fa/app/devices').catch(() => ({ items: [] })),
+  ]);
   const form = ui.form([
     { name: 'pass', label: 'Старый пароль', type: 'password', required: true }, { name: 'pass1', label: 'Новый пароль', type: 'password', required: true }, { name: 'pass2', label: 'Подтверждение', type: 'password', required: true },
   ], { submit: 'Сменить пароль', onSubmit: async (v, f) => { await api.post('/api/settings/password', v); ui.ok('Пароль успешно изменен'); f.reset(); } });
+
+  // ── Подтверждение входа через Android-приложение (аппаратный AndroidKeyStore ECDSA)
+  const devItems = appDevs.items || [];
+  const curDevId = canAndroidSign2FA() ? window.dcmsNative.getDeviceId() : '';
+  const alreadyBound = curDevId && devItems.some(d => d.device_id === curDevId);
+  let appMfaAction;
+  if (canAndroidSign2FA()) {
+    if (alreadyBound) {
+      appMfaAction = h('div.row', h('span.badge.ok', icon('check', 13), ' Это Android-устройство привязано'),
+        h('span.small.muted', 'Запросы на вход с других устройств будут приходить сюда.'));
+    } else {
+      const bindPass = h('input.input', { type: 'password', placeholder: 'Текущий пароль для привязки устройства' });
+      appMfaAction = h('div.stack-s',
+        h('div.small.muted', 'Привяжите этот телефон: приватный ключ создаётся в защищённом AndroidKeyStore и никогда не покидает устройство.'),
+        h('div.row.nowrap', bindPass, ui.btn('Привязать телефон', {
+          ic: 'smartphone', kind: 'primary', small: true,
+          onclick: async () => {
+            if (!bindPass.value) return ui.toast('Введите текущий пароль', 'error');
+            const st = await api.post('/api/2fa/app/enroll/start', {});
+            const devId = window.dcmsNative.getDeviceId();
+            const devName = window.dcmsNative.getDeviceName();
+            const pubKey = window.dcmsNative.ensure2FAKey();
+            const sig = window.dcmsNative.sign2FA(`dcms-enroll-v1:${devId}:${st.nonce}`);
+            await api.post('/api/2fa/app/enroll/finish', {
+              pass: bindPass.value,
+              device_id: devId,
+              device_name: devName,
+              pub_key: pubKey,
+              nonce: st.nonce,
+              signature: sig,
+            });
+            ui.ok('Android-устройство привязано для подтверждения 2FA');
+            router.render();
+          },
+        })));
+    }
+  } else {
+    appMfaAction = h('div.small.muted',
+      'Привязать телефон можно только внутри мобильного приложения Android (ключ хранится в аппаратном хранилище устройства — подтвердить вход через браузер или десктоп невозможно). ',
+      !isNativeClient() ? link('/apps', 'Скачать приложение') : null);
+  }
+
+  const appMfaBox = h('div.pad.stack',
+    appMfaAction,
+    devItems.length ? h('div.list', devItems.map(d => h('div.list-item',
+      icon('smartphone', 18),
+      h('div.main',
+        h('div.title', d.device_name, d.device_id === curDevId ? ui.badge(' это устройство', 'ok') : null),
+        h('div.meta', 'Привязано ', ui.time(d.created_at), d.last_used_at ? [' · использовано ', ui.time(d.last_used_at)] : null)),
+      ui.btn('Отвязать', {
+        ic: 'trash', small: true, kind: 'danger',
+        onclick: async () => {
+          const p = await ui.prompt('Введите текущий пароль для отвязки устройства', '', { title: 'Отвязать ' + d.device_name });
+          if (!p) return;
+          await api.post(`/api/2fa/app/devices/${d.id}/delete`, { pass: p });
+          ui.ok('Устройство отвязано');
+          router.render();
+        },
+      })))) : null);
 
   let tfaBox;
   if (tfa.enabled) {
@@ -297,7 +400,8 @@ router.add('/user/settings/password', async ctx => {
   }
 
   return [ui.pageHead('Настройки'), setTabs('password'),
-    ui.section('Двухфакторная аутентификация (2FA)', tfaBox),
+    ui.section('Подтверждение входа через Android-приложение', appMfaBox),
+    ui.section('Двухфакторная аутентификация (TOTP)', tfaBox),
     ui.card(h('div.pad', form)),
     ui.section('Активные сессии', h('div.list', (sess.sessions || []).map(s => h('div.list-item',
       icon(s.mobile ? 'smartphone' : 'monitor', 18),

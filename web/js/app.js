@@ -1,4 +1,4 @@
-import { h, $, api, bus, can, events, icon, isNativeClient, link, nativePlatform, refreshCounters, refreshMe, router, state, ui } from './core.js';
+import { h, $, api, bus, can, canAndroidSign2FA, events, icon, isNativeClient, link, nativePlatform, refreshCounters, refreshMe, router, state, ui } from './core.js';
 import pages from './pages/manifest.js';
 
 // mdi-имена иконок меню старого движка → наши иконки
@@ -318,6 +318,61 @@ bus.on('sse:notify', d => {
   ui.toast('🔔 ' + txt, 'info');
   fireSystemPush(state.config.site_name || 'DCMS Social', txt, '/user/notification');
 });
+
+// ── Подтверждение 2FA-входа (работает исключительно в Android-приложении с AndroidKeyStore)
+let _mfaOpenId = '';
+function showMfaApproveModal(req) {
+  if (!req || !req.challenge_id || !state.user || !canAndroidSign2FA()) return;
+  if (_mfaOpenId === req.challenge_id) return;
+  _mfaOpenId = req.challenge_id;
+  let busy = false;
+  const errEl = h('div.form-err');
+  const sendResp = async (action, code) => {
+    if (busy) return;
+    busy = true;
+    errEl.textContent = '';
+    try {
+      const devId = window.dcmsNative.getDeviceId();
+      const payload = `dcms-2fa-v1:${req.challenge_id}:${action}:${code || ''}:${req.nonce}`;
+      const sig = window.dcmsNative.sign2FA(payload);
+      await api.post('/api/2fa/app/respond', {
+        challenge_id: req.challenge_id,
+        device_id: devId,
+        action,
+        match_code: code || '',
+        signature: sig,
+      }, { silent: true });
+      modal.close();
+      ui.ok(action === 'approve' ? 'Вход подтверждён' : 'Вход отклонён');
+    } catch (e) {
+      errEl.textContent = e.message || 'Ошибка подтверждения';
+      if (String(e.message || '').includes('устарел') || String(e.message || '').includes('отклонён')) {
+        setTimeout(() => modal.close(), 1200);
+      }
+    } finally { busy = false; }
+  };
+  const choices = h('div.mfa-choices', (req.choices || []).map(num =>
+    h('button.mfa-choice-btn', { type: 'button', onclick: () => sendResp('approve', String(num)) }, String(num))));
+  const body = h('div.stack',
+    h('div.card.pad.stack-s', { style: { background: 'var(--surf-2)' } },
+      h('div.row', icon('shield', 18), h('b', req.device_label || 'Новое устройство')),
+      h('div.small.muted', 'IP-адрес: ', req.ip || '—')),
+    h('div.small', 'Выберите число, которое показано на экране входа:'),
+    choices,
+    errEl,
+    h('button.btn.danger', { type: 'button', onclick: () => sendResp('deny', ''), style: { width: '100%' } }, icon('ban', 15), ' Это не я — отклонить'));
+  const modal = ui.modal({ title: 'Подтверждение входа', body, onClose: () => { if (_mfaOpenId === req.challenge_id) _mfaOpenId = ''; } });
+}
+async function checkPendingMfa() {
+  if (!state.user || !canAndroidSign2FA()) return;
+  try {
+    const r = await api.get('/api/2fa/app/pending', null, { silent: true });
+    if (r && r.items && r.items.length) showMfaApproveModal(r.items[0]);
+  } catch {}
+}
+bus.on('sse:mfa_request', showMfaApproveModal);
+bus.on('user', () => { if (state.user) checkPendingMfa(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkPendingMfa(); });
 const notifyTitle = { stena_komm: 'ответил на стене', stena: 'написал на вашей стене', status_komm: 'прокомментировал статус', them_komm: 'ответил в теме', new_gift: 'прислал подарок', ok_frend: 'принял заявку в друзья', no_frend: 'хочет дружить', news_komm: 'ответил к новости', foto_komm: 'прокомментировал фото', obmen_komm: 'прокомментировал файл', notes_komm: 'прокомментировал дневник', guest: 'ответил в гостевой', files_komm: 'прокомментировал файл', shorts_komm: 'прокомментировал клип', shorts_like: 'оценил ваш клип', group_invite: 'приглашает вас в сообщество', group_req: 'подал заявку в ваше сообщество', group_req_ok: 'одобрил вашу заявку в сообщество', group_dm: 'ответили от имени сообщества', mention: 'упомянул вас на стене', chat_mention: 'упомянул вас в беседе', duel: 'вызвал вас на дуэль' };
 setInterval(() => { if (state.user && document.visibilityState === 'visible') refreshCounters(); }, 60000);
 

@@ -12,7 +12,15 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import android.view.ViewGroup
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.Signature
+import java.security.spec.ECGenParameterSpec
+import java.util.UUID
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -288,9 +296,61 @@ class MainActivity : AppCompatActivity() {
         webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
     }
 
+    private fun getOrCreateDeviceId(): String {
+        val cur = prefs.getString("mfa_device_id", null)
+        if (!cur.isNullOrBlank()) return cur
+        val id = "and-" + UUID.randomUUID().toString()
+        prefs.edit().putString("mfa_device_id", id).apply()
+        return id
+    }
+
+    private fun ensureKeystoreECKey(): KeyStore.PrivateKeyEntry {
+        val alias = "dcms_2fa_ec_v1"
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        if (!ks.containsAlias(alias)) {
+            val kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+            val spec = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
+                .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .build()
+            kpg.initialize(spec)
+            kpg.generateKeyPair()
+        }
+        return ks.getEntry(alias, null) as KeyStore.PrivateKeyEntry
+    }
+
     inner class NativeBridge {
         @JavascriptInterface
         fun platform(): String = "android"
+
+        @JavascriptInterface
+        fun canSign2FA(): Boolean = true
+
+        @JavascriptInterface
+        fun getDeviceId(): String = getOrCreateDeviceId()
+
+        @JavascriptInterface
+        fun getDeviceName(): String {
+            val mfg = Build.MANUFACTURER.orEmpty().trim()
+            val mod = Build.MODEL.orEmpty().trim()
+            val title = if (mod.startsWith(mfg, ignoreCase = true)) mod else "$mfg $mod".trim()
+            return "$title (Android ${Build.VERSION.RELEASE})".trim()
+        }
+
+        @JavascriptInterface
+        fun ensure2FAKey(): String {
+            val entry = ensureKeystoreECKey()
+            return Base64.encodeToString(entry.certificate.publicKey.encoded, Base64.NO_WRAP)
+        }
+
+        @JavascriptInterface
+        fun sign2FA(payload: String): String {
+            val entry = ensureKeystoreECKey()
+            val sig = Signature.getInstance("SHA256withECDSA")
+            sig.initSign(entry.privateKey)
+            sig.update(payload.toByteArray(Charsets.UTF_8))
+            return Base64.encodeToString(sig.sign(), Base64.NO_WRAP)
+        }
 
         @JavascriptInterface
         fun getServerUrl(): String = serverUrl()

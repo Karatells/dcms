@@ -294,6 +294,7 @@ export const nativePlatform = () => {
   if (!window.dcmsNative) return /DcmsAndroid\//i.test(navigator.userAgent) ? 'android' : '';
   return typeof window.dcmsNative.platform === 'function' ? window.dcmsNative.platform() : (window.dcmsNative.platform || 'desktop');
 };
+export const canAndroidSign2FA = () => !!(window.dcmsNative && typeof window.dcmsNative.canSign2FA === 'function' && window.dcmsNative.canSign2FA());
 const NATIVE_GUEST_RE = /^\/(login|reg(\/activate\/[^/]+\/[^/]+)?|pass(\/[^/]+\/[^/]+)?|ban)$/;
 
 function compile(pattern) {
@@ -881,7 +882,7 @@ function reconnect() {
     if (es) es.close();
     const t = [...topics.keys()].join(',');
     es = new EventSource('/api/events' + (t ? '?topics=' + encodeURIComponent(t) : ''));
-    ['notify', 'counters', 'chat', 'message', 'event', 'group_dm', 'group_chat', 'shorts_ready', 'shorts_progress', 'typing', 'mail_read', 'mail_react', 'mail_edit', 'adm_chat', 'adm_chat_del', 'gchat_msg', 'gchat_edit', 'gchat_react', 'gchat_typing', 'gchat_del', 'duel_update'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
+    ['notify', 'counters', 'chat', 'message', 'event', 'group_dm', 'group_chat', 'shorts_ready', 'shorts_progress', 'typing', 'mail_read', 'mail_react', 'mail_edit', 'adm_chat', 'adm_chat_del', 'gchat_msg', 'gchat_edit', 'gchat_react', 'gchat_typing', 'gchat_del', 'duel_update', 'mfa_request'].forEach(ev => es.addEventListener(ev, e => { let d; try { d = JSON.parse(e.data); } catch { return; } bus.emit('sse:' + ev, d); topics.forEach((hs, tp) => hs.forEach(fn => fn(ev, d, tp))); }));
     es.onerror = () => { es.close(); es = null; setTimeout(reconnect, 5000); };
   }, 50);
 }
