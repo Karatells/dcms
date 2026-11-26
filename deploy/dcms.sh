@@ -2,9 +2,9 @@
 # DCMS Social — установка и обновление на чистом Linux-сервере (Debian/Ubuntu/RHEL-семейство, нужен systemd).
 #
 #   Установка (одной командой, от root):
-#     curl -fsSL https://git.home/admin/dcms-reborn/raw/branch/main/deploy/dcms.sh | sudo bash -s install
+#     curl -fsSL https://raw.githubusercontent.com/Karatells/dcms/main/deploy/dcms.sh | sudo bash -s install
 #   Установка сразу с доменом и HTTPS (Let's Encrypt):
-#     DOMAIN=social.example.com EMAIL=admin@example.com curl -fsSL https://git.home/admin/dcms-reborn/raw/branch/main/deploy/dcms.sh | sudo -E bash -s install
+#     DOMAIN=social.example.com EMAIL=admin@example.com curl -fsSL https://raw.githubusercontent.com/Karatells/dcms/main/deploy/dcms.sh | sudo -E bash -s install
 #   Обновление (после установки доступна команда `dcms-update`):
 #     sudo dcms-update            # то же, что dcms.sh update
 #   Привязка/смена домена и автовыпуск Let's Encrypt в любой момент:
@@ -15,7 +15,7 @@
 #     dcms.sh build-clients | status | logs | backup | rollback | uninstall
 #
 # Переменные окружения (все необязательны):
-#   REPO        адрес git-репозитория (по умолчанию https://git.home/admin/dcms-reborn.git)
+#   REPO        адрес git-репозитория (по умолчанию https://github.com/Karatells/dcms.git)
 #   BRANCH      ветка (по умолчанию main)
 #   DOMAIN      домен для nginx (если не задан — nginx всё равно ставится и проксирует по IP на порту 80)
 #   EMAIL       e-mail для Let's Encrypt (вместе с DOMAIN включает автоматический HTTPS и автопродление)
@@ -35,7 +35,7 @@ ENV_FILE=/etc/dcms/dcms.env
 UNIT=/etc/systemd/system/dcms.service
 GO_MIN="1.24"
 GO_VERSION="${GO_VERSION:-1.24.6}"
-REPO="${REPO:-https://git.home/admin/dcms-reborn.git}"
+REPO="${REPO:-https://github.com/Karatells/dcms.git}"
 BRANCH="${BRANCH:-main}"
 PORT="${PORT:-8080}"
 DB_NAME="${DB_NAME:-dcms}"

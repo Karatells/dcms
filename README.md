@@ -1,106 +1,114 @@
-# DCMS Social (Go + MySQL / MariaDB)
+# DCMS Social
 
-Современная социальная сеть на базе DCMS-Social, переписанная на Go. Один бинарник: REST API + SPA-фронтенд (вшит в бинарник) + realtime SSE, хранение данных в **MySQL / MariaDB** (InnoDB, `utf8mb4`, автоматическое создание и миграция таблиц при запуске).
-Загруженные файлы пользователей (фото, клипы, видео-истории, музыка, голосовые, сборки приложений) хранятся в каталоге данных (`-data`).
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![MariaDB / MySQL](https://img.shields.io/badge/MariaDB%20%2F%20MySQL-InnoDB%20utf8mb4-4479A1?logo=mariadb&logoColor=white)](https://mariadb.org/)
+[![Clients](https://img.shields.io/badge/Clients-Android%20%7C%20Windows%20%7C%20Linux-6366f1)](https://github.com/Karatells/dcms)
 
-## Установка на чистый Linux-сервер (Debian/Ubuntu/RHEL, systemd)
+**DCMS Social** — быстрая self-hosted социальная сеть и мессенджер в одном Go-бинарнике.
+Включает REST API, встроенный SPA-фронтенд (`embed`), realtime-события через **SSE**, веб-звонки **WebRTC**, нативные клиенты для **Android / Windows / Linux** и автоматическую установку на Linux-сервер за 1 команду.
 
-По умолчанию скрипт устанавливает **nginx** как внешний reverse-proxy (порт `80` / `443`), а сам Go-сервер слушает только локально на `127.0.0.1:8080` (`DCMS_TRUST_PROXY=1`).
+Репозиторий: **[https://github.com/Karatells/dcms](https://github.com/Karatells/dcms)**
 
-**1. Базовая установка (доступ по IP на 80 порту, домен можно подключить позже):**
+---
+
+## Возможности
+
+- **Мессенджер и общение**: личные диалоги и групповые беседы в реальном времени (SSE), голосовые сообщения, стикерпаки, реакции, редактирование, пересылка, закрепление, поиск по истории, приглашение ботов сообществ, роли/мут/кик.
+- **Аудио- и видеозвонки 1-на-1 (WebRTC)**: звонки прямо из диалога или профиля с сигналингом поверх SSE, поддержкой STUN/TURN и сворачиваемым мини-окном.
+- **Контент и медиа**: умная лента (`/feed`), вертикальные клипы (`/shorts`) с мобильной Android-студией (камера, стикеры-эмодзи, текст, фильтры, обрезка), видео- и фото-истории на 24 часа, музыкальный раздел с постоянным мини-плеером, фотоальбомы, блоги, форум, файлообменник.
+- **Сообщества и Bot API**: группы, каналы, боты с явной адресацией в беседах (`@alias`, `/cmd@alias`, ответ на сообщение).
+- **Игры и геймификация**: ежедневные задания и серии, магазин рамок аватара, дуэли (Камень-Ножницы-Бумага, Крестики-нолики, Морской бой 6×6) с настройкой приватности вызовов.
+- **Безопасность**:
+  - интерактивная self-hosted капча («Я не робот»: пазл, поворот картинки, выбор фигуры — без сторонних сервисов);
+  - двухфакторная аутентификация **TOTP** (скрытый ключ + QR-код по кнопке с автоскрытием);
+  - **аппаратное подтверждение входа через Android-приложение** (`AndroidKeyStore` ECDSA P-256 + Number Matching);
+  - гранулярная приватность профиля, стены, друзей, историй и дуэлей; управление активными сессиями.
+- **Клиентские приложения**: Electron Desktop (**Windows**, **Linux x64/arm64**) и **Android APK** с уникальными экранами входа, автообновлением (проверка SHA-256) и разделом `/apps` прямо на сайте.
+
+---
+
+## Быстрая установка на Linux-сервер (Debian / Ubuntu / RHEL, systemd)
+
+При установке автоматически поднимается **nginx** (порты `80` / `443`), который проксирует трафик на локальный Go-сервер (`127.0.0.1:8080`, `DCMS_TRUST_PROXY=1`).
+
+### 1. Базовая установка (по IP на 80 порту, домен можно подключить позже)
 
 ```bash
-curl -fsSL https://git.home/admin/dcms-reborn/raw/branch/main/deploy/dcms.sh \
+curl -fsSL https://raw.githubusercontent.com/Karatells/dcms/main/deploy/dcms.sh \
   | sudo bash -s install
 ```
 
-**2. Установка сразу с доменом и автоматическим HTTPS (Let's Encrypt + автопродление):**
+### 2. Установка сразу с доменом и автоматическим HTTPS (Let's Encrypt)
 
 ```bash
-curl -fsSL https://git.home/admin/dcms-reborn/raw/branch/main/deploy/dcms.sh \
-  | sudo DOMAIN=example.com EMAIL=admin@example.com bash -s install
+curl -fsSL https://raw.githubusercontent.com/Karatells/dcms/main/deploy/dcms.sh \
+  | sudo DOMAIN=social.example.com EMAIL=admin@example.com bash -s install
 ```
 
-**3. Установка с внешним сервером MySQL / MariaDB (без установки локальной MariaDB):**
+### 3. Установка с внешней базой MySQL / MariaDB
 
 ```bash
-curl -fsSL https://git.home/admin/dcms-reborn/raw/branch/main/deploy/dcms.sh \
+curl -fsSL https://raw.githubusercontent.com/Karatells/dcms/main/deploy/dcms.sh \
   | sudo DCMS_DSN="user:pass@tcp(db.host:3306)/dcms?charset=utf8mb4" bash -s install
 ```
 
-Скрипт устанавливает `git`, `ffmpeg`, `Go`, **MariaDB** (если не задан внешний `DCMS_DSN`) и **nginx**, создаёт базу данных `dcms` и пользователя, собирает проект в `/opt/dcms`, хранит данные в `/var/lib/dcms`, настройки — в `/etc/dcms/dcms.env` и `/etc/dcms/install.conf`, и поднимает systemd-службу `dcms`.
-Первый зарегистрированный пользователь автоматически становится «Создателем».
+> Первый зарегистрированный пользователь автоматически получает права **Создателя**.
 
 ---
 
-## Подключение домена и миграция на nginx-прокси
+## Управление сервером и обновление
 
-Если сервер изначально был установлен без домена (работал по IP на 80 порту) или на старой схеме без `nginx`:
+После установки в системе доступны команды `dcms` и `dcms-update`:
 
-**Перевести старую установку на схему `nginx → 127.0.0.1:8080` (без потери данных):**
-
-```bash
-sudo dcms migrate-proxy
-```
-
-**Перейти с IP (80 порт) на домен с автоматическим выпуском Let's Encrypt и автопродлением:**
-
-```bash
-sudo dcms domain example.com admin@example.com
-# или через migrate-proxy:
-sudo dcms migrate-proxy example.com admin@example.com
-```
-
-После привязки домена скрипт:
-- настраивает `nginx` с `server_name example.com` и `proxy_buffering off` (для SSE);
-- добавляет `default_server`-блок с **301-редиректом** со старого IP-адреса (`http://<IP>`) на новый домен;
-- выпускает сертификат **Let's Encrypt** (если не передан флаг `--no-ssl`) и включает автоматическое продление (`systemd certbot.timer` или `/etc/cron.d/dcms-certbot`).
-
----
-
-## Обновление и управление сервером
-
-```bash
-sudo dcms-update
-```
-
-`dcms-update` забирает свежий коммит из ветки, делает резервную копию БД (SQL-дамп) и файлов (`/var/backups/dcms`, хранится 14 последних), собирает новую версию, сохраняет существующую SSL-конфигурацию `nginx`, перезапускает службу и проверяет health-check. При ошибке автоматически откатывается на предыдущую версию.
-
-| Команда | Действие |
+| Команда | Описание |
 |---|---|
-| `sudo dcms-update` | обновить сервер до последней версии ветки |
-| `sudo dcms domain <домен> [email] [--no-ssl]` | привязать/сменить домен, выпустить Let's Encrypt и включить автопродление |
-| `sudo dcms migrate-proxy [домен] [email] [--port 8080] [--no-ssl] [--force]` | мигрировать старую установку на `nginx → 127.0.0.1:PORT` или перейти с IP на домен |
-| `sudo dcms build-clients [флаги]` | собрать клиентские приложения (Android APK, Linux, Windows) и опубликовать их на `/apps` |
-| `sudo dcms rollback` | откатиться на предыдущую версию |
-| `sudo dcms backup` | создать резервную копию (SQL-дамп БД + файлы) |
-| `sudo dcms status` / `dcms logs` | состояние / логи службы в реальном времени |
-| `sudo dcms uninstall` | удалить службу, nginx-конфиг и код (данные в `/var/lib/dcms` и БД остаются) |
+| `sudo dcms-update` | Обновить сервер из `https://github.com/Karatells/dcms` (с бэкапом БД/файлов и автооткатом при ошибке) |
+| `sudo dcms domain <домен> [email] [--no-ssl]` | Подключить или сменить домен, выпустить **Let's Encrypt**, включить автопродление и 301-редирект с IP |
+| `sudo dcms migrate-proxy [домен] [email] [--port 8080] [--no-ssl] [--force]` | Перевести существующую установку на схему `nginx → 127.0.0.1:PORT` или перейти с IP (80 порт) на домен |
+| `sudo dcms build-clients [флаги]` | Собрать клиенты (Android APK, Windows, Linux) на сервере и опубликовать их на `/apps` |
+| `sudo dcms rollback` | Откатиться на предыдущий коммит |
+| `sudo dcms backup` | Создать резервную копию БД (SQL-дамп) и каталога `/var/lib/dcms` |
+| `sudo dcms status` / `dcms logs` | Статус и журнал службы `dcms` |
+| `sudo dcms uninstall` | Удалить службу, nginx-конфиг и исходники (БД и загруженные файлы сохраняются) |
 
-### Переменные окружения скрипта установки/обновления
-`REPO` (`https://git.home/admin/dcms-reborn.git`), `BRANCH` (`main`), `DOMAIN`, `EMAIL`, `ENABLE_SSL` (`1`), `PORT` (`8080`), `GO_VERSION`, `DCMS_DSN`, `DB_NAME` (`dcms`), `DB_USER` (`dcms`), `DB_PASS`, `BUILD_CLIENTS` (`0` — при `1` клиенты пересобираются автоматически после `dcms-update`).
+### Переход с IP (80 порт) на домен с HTTPS
 
----
-
-## Сборка клиентских приложений (Android, Windows, Linux)
-
-Скрипт `deploy/build-clients.sh` (команда `sudo dcms build-clients`) поддерживает Linux-серверы **`x86_64` и `arm64` (`aarch64`)** и **автоматически устанавливает** недостающие зависимости (Node.js 20, OpenJDK 17, Gradle 8.5, Android SDK и нативный `arm64` пакет `aapt`).
+Если изначально соцсеть работала по IP-адресу, в любой момент выполните:
 
 ```bash
-# Собрать Android APK + Linux (x64, arm64) + Windows (x64) под ваш домен:
-sudo dcms build-clients --url https://example.com --name "DCMS Social" --linux-archs x64,arm64
-
-# Для локального домена с самоподписанным сертификатом:
-sudo dcms build-clients --url https://dcms.home --name "DCMS Social" --insecure-tls --targets android,linux,windows
+sudo dcms migrate-proxy social.example.com admin@example.com
 ```
 
-Готовые сборки и `manifest.json` сохраняются в `/var/lib/dcms/apps` и сразу становятся доступны для скачивания на странице **`/apps`** сайта, а уже установленные Android и Desktop клиенты автоматически проверяют обновления через `/api/apps/check`.
+Скрипт сделает бэкап текущего `dcms.conf`, настроит `nginx` на домен, добавит 301-редирект со старого IP на `https://social.example.com`, выпустит сертификат **Let's Encrypt** и включит автоматическое продление (`systemd certbot.timer` или `/etc/cron.d/dcms-certbot`).
 
-Для постоянной конфигурации скопируйте `/opt/dcms/deploy/client.conf.example` в `/etc/dcms/client.conf`.
+### Основные переменные окружения скрипта
+`REPO` (`https://github.com/Karatells/dcms.git`), `BRANCH` (`main`), `DOMAIN`, `EMAIL`, `ENABLE_SSL` (`1`), `PORT` (`8080`), `GO_VERSION`, `DCMS_DSN`, `DB_NAME` (`dcms`), `DB_USER` (`dcms`), `DB_PASS`, `BUILD_CLIENTS` (`0` — при `1` клиенты автоматически пересобираются после `dcms-update`).
 
 ---
 
-## Разработка
+## Сборка клиентских приложений на сервере (`x86_64` и `arm64`)
+
+Сборочный скрипт `deploy/build-clients.sh` сам устанавливает все недостающие зависимости (**Node.js 20**, **OpenJDK 17**, **Gradle 8.5**, **Android SDK** и нативный пакет `aapt` на `arm64`):
+
+```bash
+sudo dcms build-clients \
+  --url https://social.example.com \
+  --name "DCMS Social" \
+  --linux-archs x64,arm64
+```
+
+Собранные пакеты (`dcms-android.apk`, `dcms-windows-x64.zip`, `dcms-linux-*.tar.gz`) и `manifest.json` сохраняются в `/var/lib/dcms/apps` и сразу появляются на странице **`/apps`**. Установленные клиенты автоматически проверяют новые версии через `/api/apps/check` и проверяют `SHA-256` перед установкой.
+
+Пример постоянной конфигурации: `/opt/dcms/deploy/client.conf.example` → `/etc/dcms/client.conf`.
+
+---
+
+## Локальная разработка
+
+```bash
+git clone https://github.com/Karatells/dcms.git
+cd dcms
+```
 
 Создайте базу данных в MySQL / MariaDB:
 
@@ -111,11 +119,9 @@ GRANT ALL PRIVILEGES ON dcms.* TO 'dcms'@'127.0.0.1';
 FLUSH PRIVILEGES;
 ```
 
-Запуск в режиме разработки:
+Запустите сервер в dev-режиме (фронтенд подхватывается с диска без пересборки):
 
 ```bash
 DCMS_DEV=1 DCMS_DSN="dcms:dcms@tcp(127.0.0.1:3306)/dcms?charset=utf8mb4" \
-  go run . -addr :8080 -data ./data -web web   # -web — отдавать фронтенд с диска без пересборки
+  go run . -addr :8080 -data ./data -web web
 ```
-
-Также поддерживаются отдельные переменные окружения: `DCMS_DB_HOST`, `DCMS_DB_PORT`, `DCMS_DB_USER`, `DCMS_DB_PASS`, `DCMS_DB_NAME` (используются, если не задан `DCMS_DSN`).
