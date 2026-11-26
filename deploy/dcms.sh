@@ -3,17 +3,22 @@
 #
 #   Установка (одной командой, от root):
 #     curl -fsSL https://git.home/admin/dcms-reborn/raw/branch/main/deploy/dcms.sh | sudo bash -s install
+#   Установка сразу с доменом и HTTPS (Let's Encrypt):
+#     DOMAIN=social.example.com EMAIL=admin@example.com curl -fsSL https://git.home/admin/dcms-reborn/raw/branch/main/deploy/dcms.sh | sudo -E bash -s install
 #   Обновление (после установки доступна команда `dcms-update`):
 #     sudo dcms-update            # то же, что dcms.sh update
+#   Привязка/смена домена и автовыпуск Let's Encrypt в любой момент:
+#     sudo dcms domain social.example.com [admin@example.com] [--no-ssl]
 #   Прочее:
-#     dcms.sh status | logs | backup | rollback | uninstall
+#     dcms.sh build-clients | status | logs | backup | rollback | uninstall
 #
 # Переменные окружения (все необязательны):
 #   REPO        адрес git-репозитория (по умолчанию https://git.home/admin/dcms-reborn.git)
 #   BRANCH      ветка (по умолчанию main)
-#   DOMAIN      домен — включит nginx-прокси
-#   EMAIL       e-mail для Let's Encrypt (вместе с DOMAIN → HTTPS)
-#   PORT        порт приложения (8080)
+#   DOMAIN      домен для nginx (если не задан — nginx всё равно ставится и проксирует по IP на порту 80)
+#   EMAIL       e-mail для Let's Encrypt (вместе с DOMAIN включает автоматический HTTPS и автопродление)
+#   ENABLE_SSL  1 — запросить Let's Encrypt при заданном DOMAIN даже без EMAIL (по умолчанию 1 при наличии DOMAIN)
+#   PORT        локальный порт Go-сервера (127.0.0.1:8080)
 #   GO_VERSION  версия Go, если системной нет или она старая
 #   DCMS_DSN    готовый DSN внешнего MySQL/MariaDB (если не задан — ставится локальная MariaDB)
 #   DB_NAME     имя БД (dcms)        DB_USER  пользователь БД (dcms)        DB_PASS  пароль БД (автогенерация)
@@ -153,16 +158,103 @@ UNITEOF
   systemctl daemon-reload
 }
 
+save_install_conf() {
+  mkdir -p /etc/dcms
+  cat > /etc/dcms/install.conf <<CONFEOF
+REPO=$REPO
+BRANCH=$BRANCH
+PORT=$PORT
+DOMAIN=${DOMAIN:-}
+EMAIL=${EMAIL:-}
+BUILD_CLIENTS=${BUILD_CLIENTS:-0}
+CONFEOF
+}
+
+ensure_local_bind() {
+  [ -f "$ENV_FILE" ] || return 0
+  if grep -q '^DCMS_ADDR=' "$ENV_FILE"; then
+    sed -i "s|^DCMS_ADDR=.*|DCMS_ADDR=127.0.0.1:${PORT}|" "$ENV_FILE"
+  else
+    echo "DCMS_ADDR=127.0.0.1:${PORT}" >> "$ENV_FILE"
+  fi
+  if grep -q '^DCMS_TRUST_PROXY=' "$ENV_FILE"; then
+    sed -i 's|^DCMS_TRUST_PROXY=.*|DCMS_TRUST_PROXY=1|' "$ENV_FILE"
+  else
+    echo "DCMS_TRUST_PROXY=1" >> "$ENV_FILE"
+  fi
+}
+
+setup_certbot_autorenew() {
+  command -v certbot >/dev/null || return 0
+  if systemctl list-unit-files certbot.timer >/dev/null 2>&1 && systemctl list-unit-files certbot.timer | grep -q certbot.timer; then
+    systemctl enable --now certbot.timer >/dev/null 2>&1 || true
+    ok "Автопродление сертификатов включено (systemd certbot.timer)"
+  else
+    cat > /etc/cron.d/dcms-certbot <<'CRONEOF'
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+15 3,15 * * * root certbot renew --quiet --deploy-hook "systemctl reload nginx"
+CRONEOF
+    chmod 644 /etc/cron.d/dcms-certbot
+    ok "Автопродление сертификатов настроено (/etc/cron.d/dcms-certbot)"
+  fi
+}
+
+issue_letsencrypt() {
+  local dom="${1:-${DOMAIN:-}}"
+  local mail="${2:-${EMAIL:-}}"
+  [ -n "$dom" ] || return 0
+  info "Выпускаю SSL-сертификат Let's Encrypt для $dom…"
+  if ! command -v certbot >/dev/null; then
+    pkg_install certbot python3-certbot-nginx || { echo "Предупреждение: не удалось установить certbot" >&2; return 1; }
+  fi
+  local args=(--nginx -d "$dom" --agree-tos -n --redirect)
+  if [ -n "$mail" ]; then
+    args+=(-m "$mail")
+  else
+    args+=(--register-unsafely-without-email)
+  fi
+  if certbot "${args[@]}"; then
+    ok "HTTPS (Let's Encrypt) успешно настроен для $dom"
+    setup_certbot_autorenew
+  else
+    echo "Предупреждение: не удалось получить сертификат Let's Encrypt (проверьте DNS A-запись и порт 80). Повторить позже: sudo dcms domain $dom${mail:+ $mail}" >&2
+  fi
+}
+
+# setup_nginx [force_rewrite=0|1] [want_ssl=0|1]
 setup_nginx() {
-  [ -n "${DOMAIN:-}" ] || return 0
-  info "Настраиваю nginx для $DOMAIN…"
-  command -v nginx >/dev/null || pkg_install nginx
+  local force="${1:-0}"
+  local want_ssl="${2:-${ENABLE_SSL:-1}}"
   local conf=/etc/nginx/conf.d/dcms.conf
+  local srv_name="${DOMAIN:-_}"
+
+  if ! command -v nginx >/dev/null; then
+    info "Устанавливаю nginx…"
+    pkg_install nginx
+  fi
+
+  # Отключаем дефолтный сайт Debian/Ubuntu, если он мешает проксированию по IP/домену
+  if [ -L /etc/nginx/sites-enabled/default ] || [ -f /etc/nginx/sites-enabled/default ]; then
+    rm -f /etc/nginx/sites-enabled/default
+  fi
+
+  # Не перезатираем уже работающий HTTPS-конфиг при обычном обновлении (force=0)
+  if [ "$force" != "1" ] && [ -f "$conf" ] && grep -q 'ssl_certificate' "$conf" 2>/dev/null; then
+    nginx -t >/dev/null 2>&1 && systemctl enable --now nginx >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+    ok "nginx уже настроен с SSL ($conf сохранён)"
+    setup_certbot_autorenew
+    return 0
+  fi
+
+  info "Настраиваю nginx → http://127.0.0.1:$PORT (server_name: $srv_name)…"
   cat > "$conf" <<NGX
 server {
     listen 80;
-    server_name $DOMAIN;
-    client_max_body_size 100m;
+    listen [::]:80;
+    server_name $srv_name;
+    client_max_body_size 150m;
+
     location / {
         proxy_pass http://127.0.0.1:$PORT;
         proxy_set_header Host \$host;
@@ -177,12 +269,42 @@ server {
 }
 NGX
   nginx -t && systemctl enable --now nginx && systemctl reload nginx
-  sed -i 's/^DCMS_TRUST_PROXY=.*/DCMS_TRUST_PROXY=1/' "$ENV_FILE" 2>/dev/null || true
-  if [ -n "${EMAIL:-}" ]; then
-    info "Получаю сертификат Let's Encrypt…"
-    command -v certbot >/dev/null || pkg_install certbot python3-certbot-nginx
-    certbot --nginx -d "$DOMAIN" -m "$EMAIL" --agree-tos -n --redirect || echo "Не удалось получить сертификат — HTTPS можно включить позже: certbot --nginx -d $DOMAIN"
+  ensure_local_bind
+  ok "nginx настроен (проксирует на локальный порт 127.0.0.1:$PORT)"
+
+  if [ -n "${DOMAIN:-}" ] && [ "$want_ssl" = "1" ]; then
+    issue_letsencrypt "$DOMAIN" "${EMAIL:-}"
   fi
+}
+
+cmd_domain() {
+  need_root
+  [ -d "$APP_DIR/.git" ] || die "Не установлено. Сначала: dcms.sh install"
+  [ -f /etc/dcms/install.conf ] && . /etc/dcms/install.conf
+  local dom="" mail="" want_ssl=1
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-ssl) want_ssl=0; shift ;;
+      --email)  mail="$2"; shift 2 ;;
+      -h|--help)
+        echo "Использование: sudo dcms domain <домен> [email] [--no-ssl]"
+        echo "Пример:        sudo dcms domain social.example.com admin@example.com"
+        exit 0 ;;
+      *)
+        if [ -z "$dom" ]; then dom="$1"
+        elif [ -z "$mail" ]; then mail="$1"
+        fi
+        shift ;;
+    esac
+  done
+  [ -n "$dom" ] || die "Укажите домен: sudo dcms domain example.com [email]"
+  DOMAIN="$dom"
+  [ -n "$mail" ] && EMAIL="$mail"
+  save_install_conf
+  ensure_local_bind
+  systemctl restart dcms
+  wait_health || die "Сервис dcms не отвечает на 127.0.0.1:$PORT"
+  setup_nginx 1 "$want_ssl"
 }
 
 cmd_install() {
@@ -201,7 +323,7 @@ cmd_install() {
   chown -R "$USER_NAME:$USER_NAME" "$DATA_DIR"
   chmod 700 "$DATA_DIR"
   cat > "$ENV_FILE" <<ENVEOF
-DCMS_ADDR=$( [ -n "${DOMAIN:-}" ] && echo "127.0.0.1:$PORT" || echo ":$PORT" )
+DCMS_ADDR=127.0.0.1:$PORT
 DCMS_DATA=$DATA_DIR
 DCMS_DSN="$DCMS_DSN"
 DCMS_DB_HOST=$DB_HOST
@@ -209,30 +331,27 @@ DCMS_DB_PORT=$DB_PORT
 DCMS_DB_NAME=$DB_NAME
 DCMS_DB_USER=$DB_USER
 DCMS_DB_PASS=${DB_PASS:-}
-DCMS_TRUST_PROXY=0
+DCMS_TRUST_PROXY=1
 ENVEOF
   chmod 640 "$ENV_FILE"; chgrp "$USER_NAME" "$ENV_FILE"
   write_unit
   # установка команд управления
   { echo '#!/usr/bin/env bash'; echo "exec $APP_DIR/deploy/dcms.sh update \"\$@\""; } > /usr/local/bin/dcms-update
-  chmod +x /usr/local/bin/dcms-update "$APP_DIR/deploy/dcms.sh"
+  chmod +x /usr/local/bin/dcms-update "$APP_DIR/deploy/dcms.sh" "$APP_DIR/deploy/build-clients.sh" 2>/dev/null || true
   ln -sf "$APP_DIR/deploy/dcms.sh" /usr/local/bin/dcms
-  cat > /etc/dcms/install.conf <<CONFEOF
-REPO=$REPO
-BRANCH=$BRANCH
-PORT=$PORT
-CONFEOF
+  save_install_conf
   systemctl enable --now dcms
-  wait_health && ok "Сервис запущен" || { journalctl -u dcms -n 30 --no-pager; die "Сервис не отвечает"; }
-  setup_nginx
+  wait_health && ok "Сервис запущен (локально на 127.0.0.1:$PORT)" || { journalctl -u dcms -n 30 --no-pager; die "Сервис не отвечает"; }
+  setup_nginx 1 "${ENABLE_SSL:-1}"
   if [ "${BUILD_CLIENTS:-0}" = 1 ] && [ -x "$APP_DIR/deploy/build-clients.sh" ]; then
     info "Собираю клиентские приложения (BUILD_CLIENTS=1)…"
     "$APP_DIR/deploy/build-clients.sh" || echo "Предупреждение: сборка клиентов завершилась с ошибками" >&2
   fi
   local ip; ip="$(curl -fsS https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
   echo
-  ok "Готово! Откройте: ${DOMAIN:+http://$DOMAIN  или }http://$ip:$PORT"
+  ok "Готово! Откройте: ${DOMAIN:+https://$DOMAIN  или }http://$ip"
   echo "  Первый зарегистрированный пользователь становится Создателем (полные права)."
+  echo "  Привязать домен + Let's Encrypt: sudo dcms domain your-domain.com you@email.com"
   echo "  Обновление: sudo dcms-update   ·   Логи: dcms logs   ·   Резервная копия: dcms backup"
 }
 
@@ -309,9 +428,11 @@ ENVEOF
   cp -f "$APP_DIR/dcms" "$APP_DIR/dcms.prev" 2>/dev/null || true
   systemctl stop dcms
   mv -f "$APP_DIR/dcms.new" "$APP_DIR/dcms"
+  ensure_local_bind
   write_unit
   systemctl start dcms
   if wait_health; then
+    setup_nginx 0 "${ENABLE_SSL:-0}"
     ok "Обновлено до $(git rev-parse --short HEAD)"
     if [ "${BUILD_CLIENTS:-0}" = 1 ] && [ -x "$APP_DIR/deploy/build-clients.sh" ]; then
       info "Пересобираю клиентские приложения (BUILD_CLIENTS=1)…"
@@ -340,13 +461,14 @@ cmd_uninstall() {
   need_root
   read -r -p "Удалить сервис и код? Загруженные файлы ($DATA_DIR) и база данных MariaDB останутся. [y/N] " a </dev/tty; [ "$a" = y ] || exit 0
   systemctl disable --now dcms 2>/dev/null || true
-  rm -f "$UNIT" /usr/local/bin/dcms /usr/local/bin/dcms-update /etc/nginx/conf.d/dcms.conf
+  rm -f "$UNIT" /usr/local/bin/dcms /usr/local/bin/dcms-update /etc/nginx/conf.d/dcms.conf /etc/cron.d/dcms-certbot
   rm -rf "$APP_DIR" /etc/dcms; systemctl daemon-reload; ok "Удалено. Файлы сохранены в $DATA_DIR, база данных не тронута"
 }
 
 case "${1:-}" in
   install)       cmd_install ;;
   update)        cmd_update ;;
+  domain)        shift; cmd_domain "$@" ;;
   build-clients) shift; exec "$APP_DIR/deploy/build-clients.sh" "$@" ;;
   backup)        cmd_backup >/dev/null ;;
   rollback)      cmd_rollback ;;
