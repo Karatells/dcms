@@ -9,6 +9,8 @@
 #     sudo dcms-update            # то же, что dcms.sh update
 #   Привязка/смена домена и автовыпуск Let's Encrypt в любой момент:
 #     sudo dcms domain social.example.com [admin@example.com] [--no-ssl]
+#   Миграция уже установленного сервера на схему nginx → локальный Go-сервер:
+#     sudo dcms migrate-proxy [домен] [email] [--port 8080] [--no-ssl] [--force]
 #   Прочее:
 #     dcms.sh build-clients | status | logs | backup | rollback | uninstall
 #
@@ -277,6 +279,72 @@ NGX
   fi
 }
 
+cmd_migrate_proxy() {
+  need_root
+  [ -d "$APP_DIR/.git" ] || die "Не установлено. Сначала: dcms.sh install"
+  [ -f /etc/dcms/install.conf ] && . /etc/dcms/install.conf
+  local dom="" mail="" want_ssl=1 force=0 new_port=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --domain) dom="$2"; shift 2 ;;
+      --email)  mail="$2"; shift 2 ;;
+      --port)   new_port="$2"; shift 2 ;;
+      --no-ssl) want_ssl=0; shift ;;
+      --force)  force=1; shift ;;
+      -h|--help)
+        echo "Миграция существующей установки на схему nginx → 127.0.0.1:PORT"
+        echo "Использование:"
+        echo "  sudo dcms migrate-proxy"
+        echo "  sudo dcms migrate-proxy social.example.com admin@example.com"
+        echo "  sudo dcms migrate-proxy --domain social.example.com --email admin@example.com --port 8080"
+        echo "Флаги:"
+        echo "  --domain DOMAIN  Привязать домен (иначе проксирует по IP / текущему DOMAIN)"
+        echo "  --email EMAIL    E-mail для Let's Encrypt"
+        echo "  --port PORT      Локальный порт Go-сервера (по умолчанию: $PORT)"
+        echo "  --no-ssl         Не выпускать сертификат Let's Encrypt"
+        echo "  --force          Перезаписать /etc/nginx/conf.d/dcms.conf даже если там уже есть SSL (с бэкапом)"
+        exit 0 ;;
+      *)
+        if [ -z "$dom" ]; then dom="$1"
+        elif [ -z "$mail" ]; then mail="$1"
+        fi
+        shift ;;
+    esac
+  done
+
+  [ -n "$new_port" ] && PORT="$new_port"
+  if [ -n "$dom" ]; then
+    DOMAIN="$dom"
+    force=1
+  fi
+  [ -n "$mail" ] && EMAIL="$mail"
+
+  local conf=/etc/nginx/conf.d/dcms.conf
+  if [ -f "$conf" ] && [ "$force" = "1" ]; then
+    local bak="${conf}.bak.$(date +%Y%m%d-%H%M%S)"
+    cp -f "$conf" "$bak"
+    ok "Резервная копия старого конфига nginx: $bak"
+  fi
+
+  info "Мигрирую конфигурацию на локальный порт 127.0.0.1:$PORT + nginx-прокси…"
+  save_install_conf
+  ensure_local_bind
+  write_unit
+  systemctl restart dcms
+  wait_health && ok "Go-сервер запущен локально на 127.0.0.1:$PORT" || { journalctl -u dcms -n 30 --no-pager; die "Сервис dcms не отвечает на 127.0.0.1:$PORT"; }
+
+  setup_nginx "$force" "$want_ssl"
+
+  local ip; ip="$(curl -fsS https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
+  echo
+  ok "Миграция завершена!"
+  echo "  Go-сервер (внутренний): http://127.0.0.1:$PORT"
+  echo "  nginx (внешний):        ${DOMAIN:+https://$DOMAIN  или }http://$ip"
+  if [ -z "${DOMAIN:-}" ]; then
+    echo "  Добавить домен + Let's Encrypt позже: sudo dcms domain your-domain.com you@email.com"
+  fi
+}
+
 cmd_domain() {
   need_root
   [ -d "$APP_DIR/.git" ] || die "Не установлено. Сначала: dcms.sh install"
@@ -469,6 +537,7 @@ case "${1:-}" in
   install)       cmd_install ;;
   update)        cmd_update ;;
   domain)        shift; cmd_domain "$@" ;;
+  migrate-proxy|migrate-nginx) shift; cmd_migrate_proxy "$@" ;;
   build-clients) shift; exec "$APP_DIR/deploy/build-clients.sh" "$@" ;;
   backup)        cmd_backup >/dev/null ;;
   rollback)      cmd_rollback ;;
