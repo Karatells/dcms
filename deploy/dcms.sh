@@ -250,11 +250,21 @@ setup_nginx() {
   fi
 
   info "Настраиваю nginx → http://127.0.0.1:$PORT (server_name: $srv_name)…"
-  cat > "$conf" <<NGX
+  if [ -n "${DOMAIN:-}" ]; then
+    local redir_proto="http"
+    [ "$want_ssl" = "1" ] && redir_proto="https"
+    cat > "$conf" <<NGX
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 301 ${redir_proto}://${DOMAIN}\$request_uri;
+}
+
 server {
     listen 80;
     listen [::]:80;
-    server_name $srv_name;
+    server_name $DOMAIN;
     client_max_body_size 150m;
 
     location / {
@@ -270,6 +280,28 @@ server {
     }
 }
 NGX
+  else
+    cat > "$conf" <<NGX
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    client_max_body_size 150m;
+
+    location / {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;           # SSE (/api/events)
+        proxy_read_timeout 1h;
+    }
+}
+NGX
+  fi
   nginx -t && systemctl enable --now nginx && systemctl reload nginx
   ensure_local_bind
   ok "nginx настроен (проксирует на локальный порт 127.0.0.1:$PORT)"
